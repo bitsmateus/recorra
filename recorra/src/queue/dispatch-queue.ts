@@ -14,7 +14,7 @@ export class DispatchQueue implements OnModuleDestroy {
   private readonly logger = new Logger(DispatchQueue.name);
   private readonly connection = new IORedis(env.REDIS_URL, { maxRetriesPerRequest: null });
   readonly queue = new Queue(DISPATCH_QUEUE, {
-    connection: this.connection,
+    connection: this.connection as never,
     defaultJobOptions: {
       attempts: 4,
       backoff: { type: 'exponential', delay: 15_000 },

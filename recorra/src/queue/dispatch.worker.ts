@@ -26,7 +26,7 @@ export class DispatchWorker implements OnModuleInit, OnModuleDestroy {
         const { dispatchId } = job.data as { dispatchId: string };
         return this.dispatch.processOne(dispatchId);
       },
-      { connection: this.connection, concurrency: 10 },
+      { connection: this.connection as never, concurrency: 10 },
     );
 
     this.worker.on('failed', async (job, err) => {

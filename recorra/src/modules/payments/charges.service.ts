@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable, NotFoundException , BadRequestException } from '@nestjs/common';
-import { ChargeMethod } from '@prisma/client';
+import { ChargeMethod, InvoiceStatus } from '@prisma/client';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { PaymentProviderFactory } from './payment-provider.factory';
 import { SplitRuleInput } from './payment-provider.interface';
@@ -110,7 +110,7 @@ export class ChargesService {
   ) {
     const where = invoiceIds?.length
       ? { tenantId, id: { in: invoiceIds } }
-      : { tenantId, status: { in: ['PENDENTE', 'VENCIDA'] as const }, externalId: null };
+      : { tenantId, status: { in: ['PENDENTE', 'VENCIDA'] as InvoiceStatus[] }, externalId: null };
 
     const faturas = await this.prisma.invoice.findMany({ where, select: { id: true }, take: 500 });
 
