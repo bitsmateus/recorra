@@ -1,8 +1,8 @@
 # ============================================================
 # Recorra — Dockerfile multi-stage (API e Worker no mesmo build)
 # No EasyPanel:
-#   - Serviço "api"    → comando: node dist/main.js
-#   - Serviço "worker" → comando: node dist/worker.js
+#   - Serviço "api"    → comando: node dist/src/main.js
+#   - Serviço "worker" → comando: node dist/src/worker.js
 # ============================================================
 
 FROM node:20-slim AS base
@@ -25,5 +25,5 @@ COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
 COPY package.json ./
 # Aplica migrations pendentes antes de subir a API.
-# (No serviço worker, sobrescreva o comando para "node dist/worker.js")
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]
+# (No serviço worker, sobrescreva o comando para "node dist/src/worker.js")
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/src/main.js"]
