@@ -1,0 +1,30 @@
+# Dependências e builds
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+.next/
+**/.next/
+
+# Variáveis de ambiente (NUNCA commitar — contêm chaves/segredos)
+.env
+.env.local
+.env.*.local
+**/.env
+**/.env.local
+**/.env.*.local
+
+# Logs e temporários
+*.log
+logs/
+.DS_Store
+
+# Prisma
+**/*.db
+
+# Permitir os exemplos (sem segredos)
+!.env.example
+!**/.env.example
+
+# Documento de deploy com segredos — não commitar
+RUNBOOK-EASYPANEL.md

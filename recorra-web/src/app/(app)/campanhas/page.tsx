@@ -1,0 +1,472 @@
+'use client';
+
+import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
+import { Plus, Play, Pause, BarChart3, Pencil, Trash2, X, Megaphone, ExternalLink, Copy, Filter } from 'lucide-react';
+import { api } from '@/lib/api';
+import { PageTitle } from '@/components/ui';
+
+interface Regua { id: string; nome: string }
+interface Etiqueta { nome: string }
+interface Run { id: string; totalContatos: number; enviados: number; falhas: number; executadoEm: string }
+interface Campaign {
+  id: string; nome: string;
+  tipoEnvio: 'REGUA' | 'MENSAGEM' | 'LEMBRETE';
+  ruleId?: string; rule?: { id: string; nome: string };
+  mensagem?: string; canal?: string; escopoFatura?: 'TODAS' | 'PROXIMA'; delaySegundos?: number;
+  filtroTodos: boolean; filtroEtiqueta?: string; filtroValorMin?: number; filtroValorMax?: number; filtroFaixa?: string;
+  incluirIds?: string[]; excluirIds?: string[];
+  publicoDinamico: boolean;
+  agendamento: 'UMA_VEZ' | 'MENSAL' | 'SEMPRE_ATIVA'; diaDoMes?: number;
+  status: string; runs?: Run[];
+  entrega?: { total: number; enviados: number; fila: number; falha: number } | null;
+}
+
+const CANAIS = [
+  { v: 'WHATSAPP_EVOLUTION', l: 'WhatsApp (Evolution)' },
+  { v: 'WHATSAPP_CLOUD', l: 'WhatsApp (Cloud oficial)' },
+  { v: 'WHATSAPP_UAZAPI', l: 'WhatsApp (uazapi)' },
+  { v: 'EMAIL', l: 'E-mail' },
+  { v: 'SMS', l: 'SMS' },
+];
+const statusColor: Record<string, string> = {
+  RASCUNHO: 'bg-canvas text-muted', ATIVA: 'bg-primary-tint text-primary',
+  PAUSADA: 'bg-warning-tint text-[#854F0B]', CONCLUIDA: 'bg-canvas text-muted',
+};
+const statusLabel: Record<string, string> = { RASCUNHO: 'Rascunho', ATIVA: 'Ativa', PAUSADA: 'Pausada', CONCLUIDA: 'Disparada' };
+const agendaLabel = (c: Campaign) => c.agendamento === 'UMA_VEZ' ? 'Uma vez' : c.agendamento === 'MENSAL' ? `Todo mês (dia ${c.diaDoMes || 1})` : 'Sempre ativa';
+const publicoLabel = (c: Campaign) => {
+  if (c.filtroTodos) return 'Todos os contatos';
+  const p: string[] = [];
+  if (c.filtroEtiqueta) p.push(`etiqueta: ${c.filtroEtiqueta}`);
+  if (c.filtroFaixa) p.push(`risco: ${c.filtroFaixa}`);
+  if (c.filtroValorMin || c.filtroValorMax) p.push(`valor ${c.filtroValorMin || 0}–${c.filtroValorMax || '∞'}`);
+  return p.length ? p.join(' · ') : 'Sem filtro';
+};
+
+export default function CampanhasPage() {
+  const [lista, setLista] = useState<Campaign[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [modal, setModal] = useState<{ open: boolean; edit?: Campaign | null }>({ open: false });
+  const [relatorio, setRelatorio] = useState<Campaign | null>(null);
+  const [msg, setMsg] = useState('');
+  const emptyFiltros = { q: '', status: '', tipoEnvio: '', ruleId: '', agendamento: '', etiqueta: '', canal: '', de: '', ate: '' };
+  const [filtros, setFiltros] = useState(emptyFiltros);
+  const [reguas, setReguas] = useState<{ id: string; nome: string }[]>([]);
+  const [etiquetas, setEtiquetas] = useState<{ nome: string }[]>([]);
+  const setF = (k: string, v: string) => setFiltros((s) => ({ ...s, [k]: v }));
+
+  const carregar = useCallback(async () => {
+    setLoading(true);
+    const params = new URLSearchParams();
+    Object.entries(filtros).forEach(([k, v]) => v && params.set(k, v));
+    setLista(await api<Campaign[]>(`/campanhas?${params.toString()}`).catch(() => []));
+    setLoading(false);
+  }, [filtros]);
+  useEffect(() => { carregar(); }, [carregar]);
+  useEffect(() => { api<{ id: string; nome: string }[]>('/reguas').then(setReguas).catch(() => setReguas([])); api<{ nome: string }[]>('/clientes/etiquetas').then(setEtiquetas).catch(() => setEtiquetas([])); }, []);
+  const filtrosAtivos = Object.values(filtros).filter(Boolean).length;
+
+  async function executar(c: Campaign) {
+    if (!confirm(`Disparar a campanha "${c.nome}" agora?`)) return;
+    setMsg(`Disparando "${c.nome}"...`);
+    const r = await api<{ total: number; enviados: number; falhas: number }>(`/campanhas/${c.id}/executar`, { method: 'POST' }).catch((e) => { setMsg(e.message); return null; });
+    if (r) setMsg(`✓ ${c.nome}: ${r.enviados} de ${r.total} colocados na fila de envio. O envio real acontece em seguida — acompanhe no relatório.`);
+    carregar();
+  }
+  async function toggleStatus(c: Campaign) {
+    const novo = c.status === 'PAUSADA' ? 'ATIVA' : 'PAUSADA';
+    await api(`/campanhas/${c.id}/status`, { method: 'POST', body: { status: novo } }).catch(() => {});
+    carregar();
+  }
+  async function duplicar(c: Campaign) {
+    await api(`/campanhas/${c.id}/duplicar`, { method: 'POST' }).catch((e) => setMsg(e.message));
+    carregar();
+  }
+
+  async function excluir(c: Campaign) {
+    if (!confirm(`Excluir a campanha "${c.nome}"? O histórico de envios dela também é removido.`)) return;
+    await api(`/campanhas/${c.id}`, { method: 'DELETE' }).catch(() => {});
+    carregar();
+  }
+
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between">
+        <PageTitle title="Campanhas" subtitle="Único lugar para disparar: monte o público, escolha régua ou mensagem e acompanhe o relatório" />
+        <button onClick={() => setModal({ open: true, edit: null })} className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover"><Plus size={16} /> Nova campanha</button>
+      </div>
+      <div className="mb-4 flex gap-1 border-b border-line">
+        {[['', 'Todas'], ['UMA_VEZ', 'Uma vez'], ['MENSAL', 'Todo mês'], ['SEMPRE_ATIVA', 'Sempre ativa']].map(([v, l]) => (
+          <button key={l} onClick={() => setF('agendamento', v)} className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium transition ${filtros.agendamento === v ? 'border-primary text-primary' : 'border-transparent text-muted hover:text-ink'}`}>{l}</button>
+        ))}
+      </div>
+
+      {msg && <p className="mb-3 text-sm text-primary">{msg}</p>}
+
+      <div className="mb-4 rounded-lg border border-line bg-surface p-3">
+        <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted"><Filter size={14} /> Filtros {filtrosAtivos > 0 && <span className="rounded-full bg-primary-tint px-2 py-0.5 text-primary">{filtrosAtivos}</span>}{filtrosAtivos > 0 && <button onClick={() => setFiltros(emptyFiltros)} className="ml-auto flex items-center gap-1 rounded-md border border-danger/40 bg-danger-tint px-3 py-1 text-xs font-medium text-danger hover:bg-danger hover:text-white"><X size={13} /> Limpar filtros</button>}</div>
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-7">
+          <input placeholder="Nome" value={filtros.q} onChange={(e) => setF('q', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary lg:col-span-2" />
+          <select value={filtros.status} onChange={(e) => setF('status', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Status: todos</option><option value="RASCUNHO">Rascunho</option><option value="ATIVA">Ativa</option><option value="PAUSADA">Pausada</option><option value="CONCLUIDA">Disparada</option></select>
+          <select value={filtros.tipoEnvio} onChange={(e) => setF('tipoEnvio', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Envio: todos</option><option value="LEMBRETE">Lembrete</option><option value="MENSAGEM">Mensagem</option><option value="REGUA">Régua</option></select>
+          <select value={filtros.ruleId} onChange={(e) => setF('ruleId', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Régua: todas</option>{reguas.map((r) => <option key={r.id} value={r.id}>{r.nome}</option>)}</select>
+          <select value={filtros.etiqueta} onChange={(e) => setF('etiqueta', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Etiqueta: todas</option>{etiquetas.map((t) => <option key={t.nome} value={t.nome}>{t.nome}</option>)}</select>
+          <select value={filtros.canal} onChange={(e) => setF('canal', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Canal: todos</option>{CANAIS.map((c) => <option key={c.v} value={c.v}>{c.l}</option>)}</select>
+          <input type="date" title="Criada de" value={filtros.de} onChange={(e) => setF('de', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+          <input type="date" title="Criada até" value={filtros.ate} onChange={(e) => setF('ate', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded-lg border border-line bg-surface">
+        <table className="w-full text-sm">
+          <thead className="border-b border-line bg-canvas text-left text-xs uppercase text-muted">
+            <tr><th className="px-4 py-3 font-medium">Nome</th><th className="px-4 py-3 font-medium">Público</th><th className="px-4 py-3 font-medium">Envio</th><th className="px-4 py-3 font-medium">Agendamento</th><th className="px-4 py-3 font-medium">Status</th><th className="px-4 py-3 font-medium">Último envio</th><th className="px-4 py-3 font-medium text-right">Ações</th></tr>
+          </thead>
+          <tbody>
+            {lista.map((c) => {
+              const e = c.entrega;
+              return (
+                <tr key={c.id} className="border-b border-line last:border-0">
+                  <td className="px-4 py-3 font-medium text-ink">{c.nome}</td>
+                  <td className="px-4 py-3 text-muted">{publicoLabel(c)}</td>
+                  <td className="px-4 py-3 text-muted">{c.tipoEnvio === 'REGUA' ? `Régua: ${c.rule?.nome || '—'}` : c.tipoEnvio === 'LEMBRETE' ? 'Lembrete de cobrança' : 'Mensagem única'}</td>
+                  <td className="px-4 py-3 text-muted">{agendaLabel(c)}</td>
+                  <td className="px-4 py-3"><span className={`rounded-full px-2.5 py-1 text-xs font-medium ${statusColor[c.status] || 'bg-canvas text-muted'}`}>{statusLabel[c.status] || c.status}</span></td>
+                  <td className="px-4 py-3">
+                    {e ? (
+                      <div className="flex flex-wrap items-center gap-1 text-xs">
+                        <span className="rounded-full bg-success-tint px-2 py-0.5 text-[#0F6E56]">✓ {e.enviados} enviados</span>
+                        {e.fila > 0 && <span className="rounded-full bg-warning-tint px-2 py-0.5 text-[#854F0B]">⏳ {e.fila} na fila</span>}
+                        {e.falha > 0 && <span className="rounded-full bg-danger-tint px-2 py-0.5 text-[#A32D2D]">✕ {e.falha} falha</span>}
+                      </div>
+                    ) : <span className="text-xs text-muted">— não disparada</span>}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-end gap-1">
+                      <button onClick={() => executar(c)} title="Disparar agora" className="rounded p-1.5 text-muted hover:bg-primary-tint hover:text-primary"><Play size={15} /></button>
+                      <button onClick={() => setRelatorio(c)} title="Relatório" className="rounded p-1.5 text-muted hover:bg-canvas hover:text-primary"><BarChart3 size={15} /></button>
+                      {c.agendamento !== 'UMA_VEZ' && <button onClick={() => toggleStatus(c)} title={c.status === 'PAUSADA' ? 'Ativar' : 'Pausar'} className="rounded p-1.5 text-muted hover:bg-canvas hover:text-primary">{c.status === 'PAUSADA' ? <Play size={15} /> : <Pause size={15} />}</button>}
+                      <button onClick={() => duplicar(c)} title="Duplicar" className="rounded p-1.5 text-muted hover:bg-canvas hover:text-primary"><Copy size={15} /></button>
+                      <button onClick={() => setModal({ open: true, edit: c })} title="Editar" className="rounded p-1.5 text-muted hover:bg-canvas hover:text-primary"><Pencil size={15} /></button>
+                      <button onClick={() => excluir(c)} title="Excluir" className="rounded p-1.5 text-muted hover:bg-danger-tint hover:text-danger"><Trash2 size={15} /></button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+            {!loading && lista.length === 0 && <tr><td colSpan={7} className="px-4 py-10 text-center text-muted"><Megaphone size={28} className="mx-auto mb-2 opacity-40" />Nenhuma campanha ainda. Crie a primeira em "Nova campanha".</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      {loading && <p className="mt-3 text-sm text-muted">Carregando...</p>}
+
+      {modal.open && <CampanhaModal edit={modal.edit} onClose={() => setModal({ open: false })} onSaved={() => { setModal({ open: false }); carregar(); }} />}
+      {relatorio && <RelatorioModal campanha={relatorio} onClose={() => setRelatorio(null)} />}
+    </div>
+  );
+}
+
+function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onClose: () => void; onSaved: () => void }) {
+  const [f, setF] = useState({
+    nome: edit?.nome || '',
+    tipoEnvio: edit?.tipoEnvio || 'MENSAGEM',
+    ruleId: edit?.ruleId || '',
+    mensagem: edit?.mensagem || '',
+    canal: edit?.canal || 'WHATSAPP_EVOLUTION',
+    escopoFatura: edit?.escopoFatura || 'TODAS',
+    delaySegundos: edit?.delaySegundos != null ? String(edit.delaySegundos) : '5',
+    filtroTodos: edit?.filtroTodos ?? true,
+    filtroEtiqueta: edit?.filtroEtiqueta || '',
+    filtroValorMin: edit?.filtroValorMin ? String(edit.filtroValorMin) : '',
+    filtroValorMax: edit?.filtroValorMax ? String(edit.filtroValorMax) : '',
+    filtroFaixa: edit?.filtroFaixa || '',
+    publicoDinamico: edit?.publicoDinamico ?? true,
+    agendamento: edit?.agendamento || 'UMA_VEZ',
+    diaDoMes: edit?.diaDoMes ? String(edit.diaDoMes) : '1',
+  });
+  const [reguas, setReguas] = useState<Regua[]>([]);
+  const [etiquetas, setEtiquetas] = useState<Etiqueta[]>([]);
+  const [previa, setPrevia] = useState<number | null>(null);
+  const [previaContatos, setPreviaContatos] = useState<{ id: string; nome: string; doc: string }[]>([]);
+  const [incluir, setIncluir] = useState<string[]>(edit?.incluirIds || []);
+  const [excluir, setExcluir] = useState<string[]>(edit?.excluirIds || []);
+  const [verContatos, setVerContatos] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [saving, setSaving] = useState(false);
+  const set = (k: string, v: string | boolean) => setF((s) => ({ ...s, [k]: v }));
+
+  useEffect(() => {
+    api<Regua[]>('/reguas').then(setReguas).catch(() => setReguas([]));
+    api<Etiqueta[]>('/clientes/etiquetas').then(setEtiquetas).catch(() => setEtiquetas([]));
+  }, []);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      api<{ total: number; contatos: { id: string; nome: string; doc: string }[] }>('/campanhas/previa', { method: 'POST', body: {
+        filtroTodos: f.filtroTodos, filtroEtiqueta: f.filtroEtiqueta || undefined,
+        filtroValorMin: f.filtroValorMin ? Number(f.filtroValorMin) : undefined,
+        filtroValorMax: f.filtroValorMax ? Number(f.filtroValorMax) : undefined,
+        filtroFaixa: f.filtroFaixa || undefined,
+        incluirIds: incluir, excluirIds: excluir,
+      } }).then((r) => { setPrevia(r.total); setPreviaContatos(r.contatos || []); }).catch(() => setPrevia(null));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [f.filtroTodos, f.filtroEtiqueta, f.filtroValorMin, f.filtroValorMax, f.filtroFaixa, incluir, excluir]);
+
+  async function salvar() {
+    setSaving(true); setMsg('');
+    const body = {
+      nome: f.nome, tipoEnvio: f.tipoEnvio,
+      ruleId: f.tipoEnvio === 'REGUA' ? f.ruleId : null,
+      mensagem: (f.tipoEnvio === 'MENSAGEM' || f.tipoEnvio === 'LEMBRETE') ? f.mensagem : null,
+      canal: f.canal,
+      escopoFatura: f.escopoFatura,
+      delaySegundos: Number(f.delaySegundos) || 0,
+      filtroTodos: f.filtroTodos,
+      filtroEtiqueta: f.filtroEtiqueta || null,
+      filtroValorMin: f.filtroValorMin ? Number(f.filtroValorMin) : null,
+      filtroValorMax: f.filtroValorMax ? Number(f.filtroValorMax) : null,
+      filtroFaixa: f.filtroFaixa || null,
+      incluirIds: incluir,
+      excluirIds: excluir,
+      publicoDinamico: f.publicoDinamico,
+      agendamento: f.agendamento,
+      diaDoMes: f.agendamento === 'MENSAL' ? Number(f.diaDoMes) : null,
+    };
+    try {
+      if (edit) await api(`/campanhas/${edit.id}`, { method: 'PUT', body });
+      else await api('/campanhas', { method: 'POST', body });
+      onSaved();
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro'); setSaving(false); }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="max-h-[92vh] w-full max-w-2xl overflow-auto rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-ink">{edit ? 'Editar campanha' : 'Nova campanha'}</h2>
+          <button onClick={onClose} className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>
+        </div>
+
+        <label className="mb-4 block text-sm"><span className="mb-1 block text-xs text-muted">Nome da campanha *</span><input value={f.nome} onChange={(e) => set('nome', e.target.value)} placeholder="Ex.: Aviso de vencimento mensal" className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary" /></label>
+
+        <div className="mb-4">
+          <span className="mb-1 block text-xs font-semibold text-muted">O que enviar</span>
+          <div className="mb-3 grid grid-cols-3 gap-2">
+            <button onClick={() => set('tipoEnvio', 'LEMBRETE')} className={`rounded border p-3 text-left text-sm ${f.tipoEnvio === 'LEMBRETE' ? 'border-primary bg-primary-tint' : 'border-line hover:bg-canvas'}`}><b className="text-ink">Lembrete de cobrança</b><div className="text-xs text-muted">Manda o Pix/boleto de cada cliente.</div></button>
+            <button onClick={() => set('tipoEnvio', 'MENSAGEM')} className={`rounded border p-3 text-left text-sm ${f.tipoEnvio === 'MENSAGEM' ? 'border-primary bg-primary-tint' : 'border-line hover:bg-canvas'}`}><b className="text-ink">Mensagem única</b><div className="text-xs text-muted">Um texto enviado de uma vez.</div></button>
+            <button onClick={() => set('tipoEnvio', 'REGUA')} className={`rounded border p-3 text-left text-sm ${f.tipoEnvio === 'REGUA' ? 'border-primary bg-primary-tint' : 'border-line hover:bg-canvas'}`}><b className="text-ink">Régua (fluxo)</b><div className="text-xs text-muted">Aciona uma régua com passos.</div></button>
+          </div>
+          {f.tipoEnvio === 'LEMBRETE' ? (
+            <div className="space-y-2">
+              <textarea value={f.mensagem} onChange={(e) => set('mensagem', e.target.value)} rows={4} placeholder={"Olá {{nome}}, sua fatura de {{valor}} vence em {{vencimento}}.\nPix copia e cola:\n{{pix}}\n\nOu acesse: {{link}}"} className="w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+              <div className="rounded bg-canvas p-2 text-xs text-muted">
+                <b className="text-ink">Variáveis disponíveis:</b>{' '}
+                {['{{nome}}', '{{valor}}', '{{vencimento}}', '{{pix}}', '{{boleto}}', '{{link}}', '{{documento}}'].map((v) => (
+                  <button key={v} type="button" onClick={() => set('mensagem', (f.mensagem || '') + ' ' + v)} className="mr-1 rounded bg-surface px-1.5 py-0.5 font-mono text-primary hover:bg-primary-tint">{v}</button>
+                ))}
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="text-xs text-muted">Canal:</span>
+                <select value={f.canal} onChange={(e) => set('canal', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">{CANAIS.map((c) => <option key={c.v} value={c.v}>{c.l}</option>)}</select>
+                <span className="text-xs text-muted">Quando o cliente tem várias faturas em aberto:</span>
+                <select value={f.escopoFatura} onChange={(e) => set('escopoFatura', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
+                  <option value="TODAS">Uma mensagem por fatura</option>
+                  <option value="PROXIMA">Só a mais próxima do vencimento</option>
+                </select>
+              </div>
+            </div>
+          ) : f.tipoEnvio === 'MENSAGEM' ? (
+            <div className="space-y-2">
+              <textarea value={f.mensagem} onChange={(e) => set('mensagem', e.target.value)} rows={4} placeholder="Olá {{nome}}, tudo bem?" className="w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+              <div className="rounded bg-canvas p-2 text-xs text-muted">
+                <b className="text-ink">Variáveis:</b>{' '}
+                {['{{nome}}', '{{valor}}', '{{vencimento}}', '{{pix}}', '{{boleto}}', '{{link}}'].map((v) => (
+                  <button key={v} type="button" onClick={() => set('mensagem', (f.mensagem || '') + ' ' + v)} className="mr-1 rounded bg-surface px-1.5 py-0.5 font-mono text-primary hover:bg-primary-tint">{v}</button>
+                ))}
+                <span className="ml-1">— as de fatura puxam a cobrança em aberto do cliente.</span>
+              </div>
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-xs text-muted">Canal:</span>
+                <select value={f.canal} onChange={(e) => set('canal', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">{CANAIS.map((c) => <option key={c.v} value={c.v}>{c.l}</option>)}</select>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <select value={f.ruleId} onChange={(e) => set('ruleId', e.target.value)} className="flex-1 rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
+                <option value="">Selecione a régua...</option>
+                {reguas.map((r) => <option key={r.id} value={r.id}>{r.nome}</option>)}
+              </select>
+              <Link href="/reguas" className="flex items-center gap-1 rounded border border-line px-3 py-2 text-sm text-primary hover:bg-canvas"><ExternalLink size={14} /> Criar régua</Link>
+            </div>
+          )}
+        </div>
+
+        <div className="mb-4">
+          <div className="mb-1 flex items-center gap-2"><span className="text-xs font-semibold text-muted">Para quem (público)</span>{previa != null && <span className="rounded-full bg-primary-tint px-2 py-0.5 text-xs text-primary">{previa} contato(s)</span>}<button type="button" onClick={() => setVerContatos(true)} className="text-xs font-medium text-primary hover:underline">Ver / editar contatos</button></div>
+          <label className="mb-2 flex items-center gap-2 text-sm"><input type="checkbox" checked={f.filtroTodos} onChange={(e) => set('filtroTodos', e.target.checked)} /> Todos os contatos</label>
+          {!f.filtroTodos && (
+            <div className="grid grid-cols-2 gap-2">
+              <select value={f.filtroEtiqueta} onChange={(e) => set('filtroEtiqueta', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Etiqueta: qualquer</option>{etiquetas.map((t) => <option key={t.nome} value={t.nome}>{t.nome}</option>)}</select>
+              <select value={f.filtroFaixa} onChange={(e) => set('filtroFaixa', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Risco: qualquer</option><option value="BOM">Bom pagador</option><option value="ATENCAO">Atenção</option><option value="RISCO">Risco</option></select>
+              <input value={f.filtroValorMin} onChange={(e) => set('filtroValorMin', e.target.value)} placeholder="Valor plano mín" className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+              <input value={f.filtroValorMax} onChange={(e) => set('filtroValorMax', e.target.value)} placeholder="Valor plano máx" className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+            </div>
+          )}
+        </div>
+
+        <div className="mb-4">
+          <span className="mb-1 block text-xs font-semibold text-muted">Quando enviar</span>
+          <div className="flex flex-wrap gap-2">
+            {[['UMA_VEZ', 'Uma vez'], ['MENSAL', 'Todo mês'], ['SEMPRE_ATIVA', 'Sempre ativa']].map(([v, l]) => (
+              <button key={v} onClick={() => set('agendamento', v)} className={`rounded border px-3 py-2 text-sm ${f.agendamento === v ? 'border-primary bg-primary-tint text-primary' : 'border-line hover:bg-canvas'}`}>{l}</button>
+            ))}
+            {f.agendamento === 'MENSAL' && <input value={f.diaDoMes} onChange={(e) => set('diaDoMes', e.target.value)} placeholder="Dia" className="w-20 rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />}
+          </div>
+          {f.agendamento !== 'UMA_VEZ' && (
+            <label className="mt-2 flex items-center gap-2 text-xs text-muted"><input type="checkbox" checked={f.publicoDinamico} onChange={(e) => set('publicoDinamico', e.target.checked)} /> Recalcular o público a cada envio (dinâmico)</label>
+          )}
+        </div>
+
+        <div className="mb-4">
+          <span className="mb-1 block text-xs font-semibold text-muted">Intervalo entre mensagens</span>
+          <div className="flex items-center gap-2">
+            <input type="number" min={0} max={600} value={f.delaySegundos} onChange={(e) => set('delaySegundos', e.target.value)} className="w-24 rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+            <span className="text-sm text-muted">segundos entre cada envio</span>
+          </div>
+          <p className="mt-1 text-xs text-warning">Recomendado para números não-oficiais (Evolution/uazapi) — evita disparos em rajada e reduz risco de banimento. Ex.: 5 a 15 segundos.</p>
+        </div>
+
+        {verContatos && <ContatosModal contatos={previaContatos} total={previa ?? 0} onRemover={(id) => { setExcluir((p) => [...new Set([...p, id])]); setIncluir((p) => p.filter((x) => x !== id)); }} onAdicionar={(id) => { setIncluir((p) => [...new Set([...p, id])]); setExcluir((p) => p.filter((x) => x !== id)); }} onClose={() => setVerContatos(false)} />}
+        {msg && <p className="mb-2 text-sm text-danger">{msg}</p>}
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="rounded border border-line px-4 py-2 text-sm hover:bg-canvas">Cancelar</button>
+          <button onClick={salvar} disabled={saving} className="rounded bg-primary px-5 py-2 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-60">{saving ? 'Salvando...' : 'Salvar campanha'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ContatosModal({ contatos, total, onRemover, onAdicionar, onClose }: { contatos: { id: string; nome: string; doc: string }[]; total: number; onRemover: (id: string) => void; onAdicionar: (id: string) => void; onClose: () => void }) {
+  const [busca, setBusca] = useState('');
+  const [resultado, setResultado] = useState<{ id: string; nome: string; doc: string }[]>([]);
+  const [q, setQ] = useState('');
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (!busca.trim()) { setResultado([]); return; }
+      api<{ id: string; nome: string; doc: string }[]>(`/clientes?q=${encodeURIComponent(busca)}`).then((l) => setResultado(l.slice(0, 15))).catch(() => setResultado([]));
+    }, 250);
+    return () => clearTimeout(t);
+  }, [busca]);
+
+  const idsAtuais = new Set(contatos.map((c) => c.id));
+  const filtrados = contatos.filter((c) => !q || c.nome.toLowerCase().includes(q.toLowerCase()) || c.doc.includes(q));
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-base font-semibold text-ink">Contatos do público <span className="text-sm font-normal text-muted">({total})</span></h3>
+          <button onClick={onClose} className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>
+        </div>
+
+        <div className="mb-3 rounded-lg border border-line p-2">
+          <span className="mb-1 block text-xs font-medium text-muted">Adicionar contato manualmente</span>
+          <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar por nome ou CPF/CNPJ" className="w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+          {resultado.length > 0 && (
+            <div className="mt-1 max-h-36 overflow-auto rounded border border-line">
+              {resultado.map((r) => (
+                <button key={r.id} disabled={idsAtuais.has(r.id)} onClick={() => { onAdicionar(r.id); setBusca(''); setResultado([]); }} className="flex w-full items-center justify-between px-3 py-1.5 text-left text-sm hover:bg-canvas disabled:opacity-40">
+                  <span><b className="text-ink">{r.nome}</b> <span className="text-muted">· {r.doc}</span></span>
+                  <span className="text-xs text-primary">{idsAtuais.has(r.id) ? 'já incluso' : '+ adicionar'}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filtrar a lista abaixo" className="mb-2 w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+        <div className="flex-1 overflow-auto rounded-lg border border-line">
+          <table className="w-full text-sm">
+            <tbody>
+              {filtrados.map((c) => (
+                <tr key={c.id} className="border-b border-line last:border-0">
+                  <td className="px-3 py-2 text-ink">{c.nome}</td>
+                  <td className="tabular px-3 py-2 text-muted">{c.doc}</td>
+                  <td className="px-3 py-2 text-right"><button onClick={() => onRemover(c.id)} className="rounded p-1 text-muted hover:bg-danger-tint hover:text-danger"><Trash2 size={14} /></button></td>
+                </tr>
+              ))}
+              {filtrados.length === 0 && <tr><td colSpan={3} className="px-3 py-4 text-center text-muted">Nenhum contato.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+        <div className="mt-3 flex justify-end">
+          <button onClick={onClose} className="rounded bg-primary px-5 py-2 text-sm font-medium text-white hover:bg-primary-hover">Concluir</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RelatorioModal({ campanha, onClose }: { campanha: Campaign; onClose: () => void }) {
+  const [dados, setDados] = useState<{ run: Run | null; resumo?: { total: number; enviados: number; fila: number; falha: number }; destinatarios: { nome: string; doc?: string; canal?: string; status: string; enviadoEm?: string; erro?: string }[] } | null>(null);
+  const [q, setQ] = useState('');
+  useEffect(() => { api<typeof dados>(`/campanhas/${campanha.id}/relatorio`).then(setDados).catch(() => setDados({ run: null, destinatarios: [] })); }, [campanha.id]);
+
+  const filtrados = (dados?.destinatarios || []).filter((d) => !q || d.nome.toLowerCase().includes(q.toLowerCase()) || (d.doc || '').includes(q));
+
+  function exportarCsv() {
+    const linhas = [['nome', 'documento', 'canal', 'status', 'enviadoEm', 'erro'], ...filtrados.map((d) => [d.nome, d.doc || '', d.canal || '', d.status, d.enviadoEm || '', (d.erro || '').replace(/[\n,;]/g, ' ')])];
+    const csv = linhas.map((l) => l.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const a = document.createElement('a');
+    a.href = `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`;
+    a.download = `relatorio-${campanha.nome}.csv`;
+    a.click();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-ink">Relatório · {campanha.nome}</h2>
+          <button onClick={onClose} className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>
+        </div>
+        {!dados ? <p className="text-sm text-muted">Carregando...</p> : !dados.run ? <p className="text-sm text-muted">Esta campanha ainda não foi disparada.</p> : (
+          <>
+            <div className="mb-3 grid grid-cols-4 gap-2 text-center">
+              <div className="rounded-lg border border-line p-3"><div className="text-xl font-semibold text-ink">{dados.resumo?.total ?? dados.run.totalContatos}</div><div className="text-xs text-muted">Público</div></div>
+              <div className="rounded-lg border border-line p-3"><div className="text-xl font-semibold text-success">{dados.resumo?.enviados ?? 0}</div><div className="text-xs text-muted">Enviados</div></div>
+              <div className="rounded-lg border border-line p-3"><div className="text-xl font-semibold text-[#854F0B]">{dados.resumo?.fila ?? 0}</div><div className="text-xs text-muted">Na fila</div></div>
+              <div className="rounded-lg border border-line p-3"><div className="text-xl font-semibold text-danger">{dados.resumo?.falha ?? 0}</div><div className="text-xs text-muted">Falhas</div></div>
+            </div>
+            {(dados.resumo?.fila ?? 0) > 0 && <p className="mb-2 rounded bg-warning-tint px-3 py-2 text-xs text-[#854F0B]">Há mensagens na fila. Elas são enviadas pelo worker em segundo plano. Se ficarem paradas, verifique se o processo <b>worker</b> está rodando e se o canal está <b>conectado</b> na aba Canais.</p>}
+            <div className="mb-2 flex items-center gap-2">
+              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar destinatário" className="flex-1 rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+              <button onClick={exportarCsv} className="rounded border border-line px-3 py-2 text-sm hover:bg-canvas">Exportar CSV</button>
+            </div>
+            <div className="overflow-auto rounded-lg border border-line">
+              <table className="w-full text-sm">
+                <thead className="bg-canvas text-left text-xs uppercase text-muted"><tr><th className="px-3 py-2 font-medium">Nome</th><th className="px-3 py-2 font-medium">Documento</th><th className="px-3 py-2 font-medium">Canal</th><th className="px-3 py-2 font-medium">Status</th></tr></thead>
+                <tbody>
+                  {filtrados.map((d, i) => (
+                    <tr key={i} className="border-t border-line align-top">
+                      <td className="px-3 py-2 text-ink">{d.nome}{d.erro && <div className="mt-0.5 max-w-xs break-words text-xs text-danger">{d.erro}</div>}</td>
+                      <td className="tabular px-3 py-2 text-muted">{d.doc || '—'}</td>
+                      <td className="px-3 py-2 text-muted">{d.canal || '—'}</td>
+                      <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-xs ${d.status === 'FALHA' || d.status === 'IGNORADO' ? 'bg-danger-tint text-[#A32D2D]' : d.status === 'ENVIADO' || d.status === 'ENTREGUE' || d.status === 'LIDO' ? 'bg-success-tint text-[#0F6E56]' : 'bg-canvas text-muted'}`}>{d.status}</span></td>
+                    </tr>
+                  ))}
+                  {filtrados.length === 0 && <tr><td colSpan={4} className="px-3 py-4 text-center text-muted">Nenhum destinatário.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+            <p className="mt-2 text-xs text-muted">FILA = aguardando envio · ENVIADO/ENTREGUE/LIDO = saiu com sucesso · FALHA = não enviado. Atualiza conforme o worker processa (veja também a aba Disparos). Clique em Atualizar (recarregar) para ver o status mais recente.</p>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}

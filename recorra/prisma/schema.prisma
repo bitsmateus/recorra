@@ -1,0 +1,832 @@
+// ============================================================
+// Recorra — schema Prisma
+// SaaS multi-tenant de régua de cobrança e notificação.
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------- Enums ----------------
+
+enum UserRole {
+  OWNER
+  ADMIN
+  FINANCEIRO
+  OPERADOR
+  LEITURA
+}
+
+enum PlanTier {
+  TRIAL
+  NOTIFICADOR
+  ESSENCIAL
+  PROFISSIONAL
+  ESCALA
+  ENTERPRISE
+}
+
+enum PaymentProviderType {
+  ASAAS
+  MERCADO_PAGO
+  EFI
+  STRIPE
+}
+
+enum ChannelType {
+  WHATSAPP_CLOUD
+  WHATSAPP_EVOLUTION
+  WHATSAPP_UAZAPI
+  EMAIL
+  SMS
+}
+
+enum SourceSystem {
+  IXC
+  SGP
+  HUBSOFT
+  VOALLE
+  MKAUTH
+  CSV
+  API
+}
+
+enum InvoiceStatus {
+  PENDENTE
+  VENCIDA
+  PAGA
+  CANCELADA
+  ESTORNADA
+}
+
+enum SubscriptionStatus {
+  ATIVA
+  INADIMPLENTE
+  PAUSADA
+  CANCELADA
+}
+
+enum AgreementStatus {
+  ATIVO
+  QUITADO
+  QUEBRADO
+  CANCELADO
+}
+
+enum ChargeMethod {
+  PIX
+  BOLETO
+  CARTAO
+  PIX_AUTOMATICO
+}
+
+enum RiskBand {
+  BOM
+  ATENCAO
+  RISCO
+}
+
+enum DispatchStatus {
+  FILA
+  ENVIADO
+  ENTREGUE
+  LIDO
+  FALHA
+  IGNORADO
+}
+
+enum ConsentStatus {
+  CONCEDIDO
+  REVOGADO
+}
+
+enum TemplateCategory {
+  UTILITY
+  MARKETING
+  AUTHENTICATION
+}
+
+enum TemplateStatus {
+  RASCUNHO
+  PENDENTE
+  APROVADO
+  REJEITADO
+}
+
+enum ConversationStatus {
+  ABERTA
+  PENDENTE
+  RESOLVIDA
+}
+
+enum MessageDirection {
+  IN
+  OUT
+}
+
+enum SyncType {
+  CLIENTES
+  FATURAS
+}
+
+// ---------------- Núcleo ----------------
+
+model Tenant {
+  id           String   @id @default(cuid())
+  nome         String
+  cnpj         String?
+  plano        PlanTier @default(TRIAL)
+  ativo        Boolean  @default(true)
+  timezone     String   @default("America/Sao_Paulo")
+  config       Json?
+  featureFlags Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  users              User[]
+  customers          Customer[]
+  tags               Tag[]
+  campaigns          Campaign[]
+  paymentAccounts    PaymentProviderAccount[]
+  channelAccounts    ChannelAccount[]
+  sourceIntegrations SourceIntegration[]
+  invoices           Invoice[]
+  subscriptions      Subscription[]
+  dunningRules       DunningRule[]
+  dispatches         MessageDispatch[]
+  webhookEvents      WebhookEvent[]
+  auditLogs          AuditLog[]
+  riskScores         RiskScore[]
+  syncLogs           SyncLog[]
+  apiKeys            ApiKey[]
+  agreements         Agreement[]
+  whatsappTemplates  WhatsAppTemplate[]
+  conversations      Conversation[]
+
+  @@map("tenants")
+}
+
+model ApiKey {
+  id        String    @id @default(cuid())
+  tenantId  String
+  nome      String
+  prefixo   String
+  keyHash   String    @unique
+  ativo     Boolean   @default(true)
+  ultimoUso DateTime?
+  createdAt DateTime  @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("api_keys")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  tenantId  String
+  nome      String
+  email     String
+  senhaHash String?
+  role      UserRole @default(OPERADOR)
+  ativo     Boolean  @default(true)
+
+  emailVerify    Boolean   @default(false)
+  verifyToken    String?
+  verifyTokenExp DateTime?
+
+  twoFaSecret  String?
+  twoFaEnabled Boolean @default(false)
+
+  inviteToken    String?
+  inviteTokenExp DateTime?
+  resetToken     String?
+  resetTokenExp  DateTime?
+  convidado      Boolean   @default(false)
+
+  provider   String  @default("local")
+  providerId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  refreshTokens RefreshToken[]
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiraEm  DateTime
+  revogado  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model Customer {
+  id       String  @id @default(cuid())
+  tenantId String
+  nome     String
+  doc      String
+  email    String?
+  telefone String?
+  contrato String?
+  tags     String[] @default([])
+
+  plano      String?
+  valorPlano Decimal? @db.Decimal(12, 2)
+  cidade     String?
+  uf         String?
+
+  sourceSystem SourceSystem?
+  externalId   String?
+  ativo        Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant         Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoices       Invoice[]
+  subscriptions  Subscription[]
+  dispatches     MessageDispatch[]
+  riskScores     RiskScore[]
+  consents       Consent[]
+  paymentFeature PaymentHistoryFeature?
+  agreements     Agreement[]
+  conversations  Conversation[]
+
+  @@unique([tenantId, doc])
+  @@index([tenantId])
+  @@index([tenantId, externalId])
+  @@map("customers")
+}
+
+model PaymentProviderAccount {
+  id          String              @id @default(cuid())
+  tenantId    String
+  provider    PaymentProviderType
+  apelido     String?
+  ambiente    String              @default("sandbox")
+  credentials String
+  ativo       Boolean             @default(true)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoices Invoice[]
+
+  @@index([tenantId])
+  @@map("payment_provider_accounts")
+}
+
+model ChannelAccount {
+  id          String      @id @default(cuid())
+  tenantId    String
+  canal       ChannelType
+  apelido     String?
+  credentials String
+  ativo       Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  tenant     Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  dispatches MessageDispatch[]
+
+  @@index([tenantId])
+  @@map("channel_accounts")
+}
+
+model SourceIntegration {
+  id          String       @id @default(cuid())
+  tenantId    String
+  sistema     SourceSystem
+  urlBase     String?
+  credentials String?
+  ultimaSync  DateTime?
+  status      String       @default("pendente")
+  ativo       Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  syncLogs SyncLog[]
+
+  @@index([tenantId])
+  @@map("source_integrations")
+}
+
+model SyncLog {
+  id            String    @id @default(cuid())
+  tenantId      String
+  integrationId String
+  tipo          SyncType
+  quantidade    Int       @default(0)
+  erros         Int       @default(0)
+  detalhe       String?
+  iniciadoEm    DateTime  @default(now())
+  terminadoEm   DateTime?
+
+  tenant      Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  integration SourceIntegration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("sync_logs")
+}
+
+model Invoice {
+  id                String               @id @default(cuid())
+  tenantId          String
+  customerId        String
+  providerAccountId String?
+  provider          PaymentProviderType?
+  externalId        String?
+  sourceSystem      SourceSystem?
+  sourceExternalId  String?
+  descricao         String?
+  valor             Decimal              @db.Decimal(12, 2)
+  vencimento        DateTime
+  status            InvoiceStatus        @default(PENDENTE)
+  metodo            ChargeMethod         @default(PIX)
+  pixCopiaCola      String?
+  boletoLinha       String?
+  boletoUrl         String?
+  linkPagamento     String?
+  splitConfig       Json?
+  origem            String?
+  contestada        Boolean              @default(false)
+  pagoEm            DateTime?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  tenant          Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer        Customer                @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  providerAccount PaymentProviderAccount? @relation(fields: [providerAccountId], references: [id])
+  dispatches      MessageDispatch[]
+
+  @@unique([tenantId, provider, externalId])
+  @@index([tenantId, status])
+  @@index([tenantId, vencimento])
+  @@map("invoices")
+}
+
+model Subscription {
+  id         String             @id @default(cuid())
+  tenantId   String
+  customerId String
+  plano      String
+  valor      Decimal            @db.Decimal(12, 2)
+  ciclo      String             @default("MENSAL")
+  metodo     ChargeMethod       @default(PIX_AUTOMATICO)
+  diaVenc    Int                @default(10)
+  status     SubscriptionStatus @default(ATIVA)
+
+  proximaCobranca DateTime?
+  tentativas      Int       @default(0)
+  ultimaTentativa DateTime?
+
+  pixAutoAuthId String?
+  pixAutoStatus String?
+
+  splitConfig Json?
+
+  ativo     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([tenantId, proximaCobranca])
+  @@map("subscriptions")
+}
+
+model Agreement {
+  id            String          @id @default(cuid())
+  tenantId      String
+  customerId    String
+  valorOriginal Decimal         @db.Decimal(12, 2)
+  descontoPct   Decimal         @default(0) @db.Decimal(5, 2)
+  valorAcordado Decimal         @db.Decimal(12, 2)
+  parcelas      Int
+  status        AgreementStatus @default(ATIVO)
+  faturasOrigem String[]        @default([])
+  observacao    String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  tenant       Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer     Customer               @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  installments AgreementInstallment[]
+
+  @@index([tenantId])
+  @@map("agreements")
+}
+
+model AgreementInstallment {
+  id          String        @id @default(cuid())
+  agreementId String
+  numero      Int
+  valor       Decimal       @db.Decimal(12, 2)
+  vencimento  DateTime
+  invoiceId   String?
+  status      InvoiceStatus @default(PENDENTE)
+
+  agreement Agreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+
+  @@index([agreementId])
+  @@map("agreement_installments")
+}
+
+model DunningRule {
+  id              String    @id @default(cuid())
+  tenantId        String
+  nome            String
+  nicho           String?
+  faixaRisco      RiskBand?
+  apenasNotificar Boolean   @default(false)
+
+  janelaInicio     Int     @default(9)
+  janelaFim        Int     @default(20)
+  diasUteisSomente Boolean @default(false)
+  maxMsgsDia       Int?
+
+  roteamentoPorCusto Boolean @default(false)
+
+  ativo     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  steps  DunningStep[]
+  campaigns Campaign[]
+
+  @@index([tenantId])
+  @@map("dunning_rules")
+}
+
+model DunningStep {
+  id             String        @id @default(cuid())
+  ruleId         String
+  ordem          Int
+  offsetDias     Int
+  canal          ChannelType
+  channelAccountId String?
+  canaisFallback ChannelType[] @default([])
+  template       String
+  templateB      String?
+  abTest         Boolean       @default(false)
+  condicoes      Json?
+  ativo          Boolean       @default(true)
+
+  rule DunningRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@index([ruleId])
+  @@map("dunning_steps")
+}
+
+model MessageDispatch {
+  id                String         @id @default(cuid())
+  tenantId          String
+  customerId        String
+  invoiceId         String?
+  channelAccountId  String?
+  campaignId        String?
+  canal             ChannelType
+  cadeiaCanais      ChannelType[]  @default([])
+  template          String?
+  conteudo          String?
+  variante          String?
+  tentativaFallback Int            @default(0)
+  status            DispatchStatus @default(FILA)
+  custo             Decimal?       @db.Decimal(10, 4)
+  providerMsgId     String?
+  erro              String?
+  agendadoPara      DateTime?
+  enviadoEm         DateTime?
+  createdAt         DateTime       @default(now())
+
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer       Customer        @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  invoice        Invoice?        @relation(fields: [invoiceId], references: [id])
+  channelAccount ChannelAccount? @relation(fields: [channelAccountId], references: [id])
+
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
+  @@index([tenantId, campaignId])
+  @@map("message_dispatches")
+}
+
+model WebhookEvent {
+  id             String              @id @default(cuid())
+  tenantId       String?
+  provider       PaymentProviderType
+  tipo           String
+  payload        Json
+  assinaturaOk   Boolean             @default(false)
+  idempotencyKey String              @unique
+  processadoEm   DateTime?
+  createdAt      DateTime            @default(now())
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
+  @@map("webhook_events")
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  tenantId   String
+  userId     String?
+  acao       String
+  entidade   String
+  entidadeId String?
+  antes      Json?
+  depois     Json?
+  ip         String?
+  createdAt  DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+  @@map("audit_logs")
+}
+
+model Consent {
+  id         String        @id @default(cuid())
+  customerId String
+  canal      ChannelType
+  status     ConsentStatus @default(CONCEDIDO)
+  origem     String?
+  createdAt  DateTime      @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@map("consents")
+}
+
+model RiskScore {
+  id           String   @id @default(cuid())
+  tenantId     String
+  customerId   String
+  score        Int
+  faixa        RiskBand
+  fatores      Json
+  modeloVersao String   @default("regras-v1")
+  calculadoEm  DateTime @default(now())
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, customerId])
+  @@map("risk_scores")
+}
+
+model WhatsAppTemplate {
+  id         String           @id @default(cuid())
+  tenantId   String
+  nome       String
+  idioma     String           @default("pt_BR")
+  categoria  TemplateCategory @default(UTILITY)
+  corpo      String
+  status     TemplateStatus   @default(RASCUNHO)
+  externalId String?
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("whatsapp_templates")
+}
+
+model Conversation {
+  id               String             @id @default(cuid())
+  tenantId         String
+  customerId       String?
+  canal            ChannelType
+  contato          String
+  status           ConversationStatus @default(ABERTA)
+  atribuidoA       String?
+  ultimaMensagem   String?
+  ultimaMensagemEm DateTime?
+  naoLidas         Int                @default(0)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  tenant   Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer Customer?      @relation(fields: [customerId], references: [id])
+  messages InboxMessage[]
+
+  @@index([tenantId, status])
+  @@map("conversations")
+}
+
+model InboxMessage {
+  id             String           @id @default(cuid())
+  tenantId       String
+  conversationId String
+  direcao        MessageDirection
+  texto          String
+  autor          String?
+  intent         String?
+  createdAt      DateTime         @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@map("inbox_messages")
+}
+
+model PlatformAdmin {
+  id        String   @id @default(cuid())
+  nome      String
+  email     String   @unique
+  senhaHash String
+  ativo     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("platform_admins")
+}
+
+model PlatformInvoice {
+  id             String   @id @default(cuid())
+  tenantId       String
+  competencia    String
+  plano          PlanTier
+  valorBase      Decimal  @db.Decimal(12, 2)
+  disparos       Int      @default(0)
+  valorExcedente Decimal  @default(0) @db.Decimal(12, 2)
+  valorTotal     Decimal  @db.Decimal(12, 2)
+  status         String   @default("aberta")
+  createdAt      DateTime @default(now())
+
+  @@unique([tenantId, competencia])
+  @@index([tenantId])
+  @@map("platform_invoices")
+}
+
+model PaymentHistoryFeature {
+  id              String    @id @default(cuid())
+  tenantId        String
+  customerId      String    @unique
+  atrasosQtd      Int       @default(0)
+  atrasoMedioDias Float     @default(0)
+  faturasPagas    Int       @default(0)
+  faturasVencidas Int       @default(0)
+  ultimoAtrasoEm  DateTime?
+  taxaResposta    Float     @default(0)
+  atualizadoEm    DateTime  @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("payment_history_features")
+}
+
+// ---------------- Central de Ajuda (tutoriais) ----------------
+
+enum TutorialTipo {
+  VIDEO
+  TEXTO
+}
+
+// Tutorial/passo-a-passo global, criado pelo superadmin, exibido aos tenants.
+model Tutorial {
+  id        String       @id @default(cuid())
+  secao     String       @default("geral") // geral | configuracoes | canais | gateways | integracoes | reguas | clientes | cobrancas
+  titulo    String
+  tipo      TutorialTipo @default(TEXTO)
+  videoUrl  String? // link do YouTube/Vimeo (embed)
+  conteudo  String? // texto/markdown do passo a passo
+  ordem     Int          @default(0)
+  ativo     Boolean      @default(true)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@index([secao, ordem])
+  @@map("tutoriais")
+}
+
+model Tag {
+  id        String   @id @default(cuid())
+  tenantId  String
+  nome      String
+  cor       String?
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, nome])
+  @@index([tenantId])
+  @@map("tags")
+}
+
+enum CampaignTipoEnvio {
+  REGUA
+  MENSAGEM
+  LEMBRETE
+}
+
+enum CampaignAgendamento {
+  UMA_VEZ
+  MENSAL
+  SEMPRE_ATIVA
+}
+
+enum CampaignStatus {
+  RASCUNHO
+  ATIVA
+  PAUSADA
+  CONCLUIDA
+}
+
+model Campaign {
+  id       String @id @default(cuid())
+  tenantId String
+  nome     String
+
+  tipoEnvio CampaignTipoEnvio @default(MENSAGEM)
+  ruleId    String?
+  mensagem  String?
+  canal     ChannelType?
+  escopoFatura String @default("TODAS")
+  delaySegundos Int   @default(5)
+
+  filtroTodos    Boolean   @default(false)
+  filtroEtiqueta String?
+  filtroValorMin Decimal?  @db.Decimal(12, 2)
+  filtroValorMax Decimal?  @db.Decimal(12, 2)
+  filtroFaixa    RiskBand?
+  incluirIds     String[]  @default([])
+  excluirIds     String[]  @default([])
+
+  publicoDinamico Boolean             @default(true)
+  agendamento     CampaignAgendamento @default(UMA_VEZ)
+  diaDoMes        Int?
+  proximaExecucao DateTime?
+
+  status    CampaignStatus @default(RASCUNHO)
+  ativa     Boolean        @default(true)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  tenant Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  rule   DunningRule?  @relation(fields: [ruleId], references: [id])
+  runs   CampaignRun[]
+
+  @@index([tenantId])
+  @@map("campaigns")
+}
+
+model CampaignRun {
+  id            String   @id @default(cuid())
+  campaignId    String
+  tenantId      String
+  executadoEm   DateTime @default(now())
+  totalContatos Int      @default(0)
+  enviados      Int      @default(0)
+  falhas        Int      @default(0)
+  status        String   @default("CONCLUIDA")
+
+  campaign   Campaign            @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  recipients CampaignRecipient[]
+
+  @@index([campaignId])
+  @@map("campaign_runs")
+}
+
+model CampaignRecipient {
+  id         String         @id @default(cuid())
+  runId      String
+  tenantId   String
+  customerId String
+  nome       String
+  doc        String?
+  status     DispatchStatus @default(FILA)
+  canal      ChannelType?
+  dispatchId String?
+  erro       String?
+  enviadoEm  DateTime?
+  createdAt  DateTime       @default(now())
+
+  run CampaignRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
+  @@map("campaign_recipients")
+}

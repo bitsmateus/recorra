@@ -1,0 +1,52 @@
+import { Injectable, Logger } from '@nestjs/common';
+import axios from 'axios';
+import { env } from '@/config/env';
+
+/**
+ * E-mails da plataforma (verificação de e-mail, convite de usuário).
+ * Usa Resend se RESEND_API_KEY estiver configurado; caso contrário, apenas
+ * loga (útil em desenvolvimento).
+ */
+@Injectable()
+export class MailService {
+  private readonly logger = new Logger(MailService.name);
+
+  async send(to: string, subject: string, html: string): Promise<void> {
+    if (!env.RESEND_API_KEY) {
+      this.logger.warn(`[DEV] E-mail para ${to} — "${subject}"\n${html}`);
+      return;
+    }
+    await axios.post(
+      'https://api.resend.com/emails',
+      { from: env.MAIL_FROM, to, subject, html },
+      { headers: { Authorization: `Bearer ${env.RESEND_API_KEY}` } },
+    );
+  }
+
+  async sendVerification(to: string, token: string) {
+    const link = `${env.FRONTEND_URL}/verificar-email?token=${token}`;
+    await this.send(
+      to,
+      'Confirme seu e-mail — Recorra',
+      `<p>Bem-vindo ao Recorra!</p><p>Confirme seu e-mail: <a href="${link}">${link}</a></p>`,
+    );
+  }
+
+  async sendPasswordReset(to: string, token: string) {
+    const link = `${env.FRONTEND_URL}/redefinir-senha?token=${token}`;
+    await this.send(
+      to,
+      'Redefinir senha — Recorra',
+      `<p>Recebemos um pedido para redefinir sua senha do Recorra.</p><p>Clique para criar uma nova senha (válido por 1 hora): <a href="${link}">${link}</a></p><p>Se não foi você, ignore este e-mail.</p>`,
+    );
+  }
+
+  async sendInvite(to: string, token: string, empresa: string) {
+    const link = `${env.FRONTEND_URL}/aceitar-convite?token=${token}`;
+    await this.send(
+      to,
+      `Convite para ${empresa} — Recorra`,
+      `<p>Você foi convidado para acessar o Recorra da empresa <b>${empresa}</b>.</p><p>Defina sua senha: <a href="${link}">${link}</a></p>`,
+    );
+  }
+}
