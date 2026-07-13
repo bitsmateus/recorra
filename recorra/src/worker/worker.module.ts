@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
+import { WorkerAuthModule } from './worker-auth.module';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from '@/common/prisma/prisma.module';
 import { DunningModule } from '@/modules/dunning/dunning.module';
@@ -15,6 +16,7 @@ import { DispatchWorker } from '@/queue/dispatch.worker';
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     ScheduleModule.forRoot(),
+    WorkerAuthModule,
     PrismaModule,
     DunningModule,
     BillingModule,
