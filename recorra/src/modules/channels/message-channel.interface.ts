@@ -24,6 +24,13 @@ export interface ChannelCredentials {
   instance?: string;
   // E-mail
   from?: string;
+  // HTTP genérico (API aberta) — ver HttpGenericChannel
+  httpUrl?: string; // endpoint completo (ex.: https://api.nxdigital.com.br/v1/messages)
+  httpMethod?: string; // POST (padrão) | PUT | GET
+  httpHeaders?: Record<string, string>; // valores podem conter {{token}}
+  httpBodyTemplate?: string; // JSON com {{to}} {{text}} {{templateName}} {{templateParams}}
+  httpMsgIdPath?: string; // caminho para o ID na resposta (ex.: "data.id")
+  httpToFormat?: string; // 'digits' (padrão, ex.: 5511...) | 'e164' (+55...) | 'raw'
 }
 
 /**

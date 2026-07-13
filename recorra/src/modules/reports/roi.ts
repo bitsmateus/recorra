@@ -9,6 +9,7 @@ export const CUSTO_CANAL: Record<string, number> = {
   WHATSAPP_UAZAPI: 0.0,
   EMAIL: 0.001,
   SMS: 0.12,
+  HTTP_GENERIC: 0.0,
 };
 
 export interface CanalVolume {

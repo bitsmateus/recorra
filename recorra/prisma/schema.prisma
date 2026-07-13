@@ -44,6 +44,7 @@ enum ChannelType {
   WHATSAPP_UAZAPI
   EMAIL
   SMS
+  HTTP_GENERIC
 }
 
 enum SourceSystem {

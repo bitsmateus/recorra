@@ -30,7 +30,7 @@ export class CreatePaymentAccountDto {
 }
 
 export class CreateChannelAccountDto {
-  @IsIn(['WHATSAPP_CLOUD', 'WHATSAPP_EVOLUTION', 'WHATSAPP_UAZAPI', 'EMAIL', 'SMS'])
+  @IsIn(['WHATSAPP_CLOUD', 'WHATSAPP_EVOLUTION', 'WHATSAPP_UAZAPI', 'EMAIL', 'SMS', 'HTTP_GENERIC'])
   canal!: ChannelType;
 
   @IsOptional()

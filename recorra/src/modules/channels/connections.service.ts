@@ -5,7 +5,11 @@ import { PrismaService } from '@/common/prisma/prisma.service';
 import { CryptoService } from '@/common/crypto/crypto.service';
 import { env } from '@/config/env';
 
-type Creds = { apiUrl?: string; apiKey?: string; instance?: string; token?: string; phoneId?: string; from?: string; provider?: string };
+type Creds = {
+  apiUrl?: string; apiKey?: string; instance?: string; token?: string; phoneId?: string; from?: string; provider?: string;
+  // HTTP genérico (API aberta)
+  httpUrl?: string; httpMethod?: string; httpHeaders?: Record<string, string>; httpBodyTemplate?: string; httpMsgIdPath?: string; httpToFormat?: string;
+};
 
 @Injectable()
 export class ConnectionsService {
@@ -51,6 +55,8 @@ export class ConnectionsService {
       case 'EMAIL':
       case 'SMS':
         return this.criarComCredenciais(tenantId, dto.canal, dto.apelido, (dto.credentials ?? {}) as Creds);
+      case 'HTTP_GENERIC':
+        return this.criarHttpGenerico(tenantId, dto.apelido, (dto.credentials ?? {}) as Creds);
       default: throw new BadRequestException('Canal inválido');
     }
   }
@@ -60,6 +66,28 @@ export class ConnectionsService {
       data: { tenantId, canal, apelido, ativo: true, credentials: this.crypto.encryptJson(credentials) },
     });
     return { id: created.id, canal, apelido, status: 'CONFIGURADO' };
+  }
+
+  /** Cria um canal HTTP genérico (API aberta) validando URL e template do corpo. */
+  private async criarHttpGenerico(tenantId: string, apelido: string, credentials: Creds) {
+    const url = (credentials.httpUrl ?? '').trim();
+    if (!/^https?:\/\//i.test(url)) throw new BadRequestException('Informe uma URL de endpoint válida (http/https).');
+    const method = (credentials.httpMethod ?? 'POST').toUpperCase();
+    if (!['POST', 'PUT', 'GET'].includes(method)) throw new BadRequestException('Método deve ser POST, PUT ou GET.');
+    if (method !== 'GET' && credentials.httpBodyTemplate?.trim()) {
+      try { JSON.parse(credentials.httpBodyTemplate); }
+      catch { throw new BadRequestException('O corpo (body) precisa ser um JSON válido.'); }
+    }
+    const clean: Creds = {
+      httpUrl: url,
+      httpMethod: method,
+      httpHeaders: credentials.httpHeaders ?? {},
+      httpBodyTemplate: credentials.httpBodyTemplate ?? '',
+      httpMsgIdPath: (credentials.httpMsgIdPath ?? '').trim(),
+      httpToFormat: credentials.httpToFormat ?? 'digits',
+      token: credentials.token ?? '',
+    };
+    return this.criarComCredenciais(tenantId, 'HTTP_GENERIC', apelido, clean);
   }
 
   private slug(s: string) { return s.toLowerCase().normalize('NFD').replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 24); }
