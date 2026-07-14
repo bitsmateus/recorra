@@ -10,6 +10,7 @@ export const CUSTO_CANAL: Record<string, number> = {
   EMAIL: 0.001,
   SMS: 0.12,
   HTTP_GENERIC: 0.0,
+  NX_SYSTEMS: 0.0,
 };
 
 export interface CanalVolume {

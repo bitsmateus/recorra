@@ -9,6 +9,8 @@ type Creds = {
   apiUrl?: string; apiKey?: string; instance?: string; token?: string; phoneId?: string; from?: string; provider?: string;
   // HTTP genérico (API aberta)
   httpUrl?: string; httpMethod?: string; httpHeaders?: Record<string, string>; httpBodyTemplate?: string; httpMsgIdPath?: string; httpToFormat?: string;
+  // NX Systems
+  nxBaseUrl?: string; nxToken?: string; nxOficial?: boolean;
 };
 
 @Injectable()
@@ -57,6 +59,8 @@ export class ConnectionsService {
         return this.criarComCredenciais(tenantId, dto.canal, dto.apelido, (dto.credentials ?? {}) as Creds);
       case 'HTTP_GENERIC':
         return this.criarHttpGenerico(tenantId, dto.apelido, (dto.credentials ?? {}) as Creds);
+      case 'NX_SYSTEMS':
+        return this.criarNx(tenantId, dto.apelido, (dto.credentials ?? {}) as Creds);
       default: throw new BadRequestException('Canal inválido');
     }
   }
@@ -88,6 +92,38 @@ export class ConnectionsService {
       token: credentials.token ?? '',
     };
     return this.criarComCredenciais(tenantId, 'HTTP_GENERIC', apelido, clean);
+  }
+
+  /** Cria a integração nativa NX Systems (só URL base + token; oficial ou não). */
+  private async criarNx(tenantId: string, apelido: string, credentials: Creds) {
+    const url = (credentials.nxBaseUrl ?? '').trim();
+    if (!/^https?:\/\//i.test(url)) throw new BadRequestException('Informe a URL base da NX (ex.: https://webapi.nxsystems.com.br/v2/api/external/SEU_APIID).');
+    if (!(credentials.nxToken ?? '').trim()) throw new BadRequestException('Informe o token de acesso da NX.');
+    const clean: Creds = {
+      nxBaseUrl: url.replace(/\/$/, ''),
+      nxToken: (credentials.nxToken ?? '').trim(),
+      nxOficial: credentials.nxOficial === true,
+    };
+    return this.criarComCredenciais(tenantId, 'NX_SYSTEMS', apelido, clean);
+  }
+
+  /** Testa se a URL/token respondem (não envia mensagem, não detecta oficial x não oficial). */
+  async testar(dto: { canal: ChannelType; credentials?: Record<string, unknown> }) {
+    const c = (dto.credentials ?? {}) as Creds;
+    const url = (dto.canal === 'NX_SYSTEMS' ? c.nxBaseUrl : c.httpUrl) ?? '';
+    const token = (dto.canal === 'NX_SYSTEMS' ? c.nxToken : c.token) ?? '';
+    if (!/^https?:\/\//i.test(url.trim())) throw new BadRequestException('Informe uma URL válida (http/https).');
+    try {
+      const res = await axios.get(url.trim().replace(/\/$/, ''), {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        timeout: 10000,
+        validateStatus: () => true,
+      });
+      if (res.status === 401 || res.status === 403) return { ok: false, mensagem: `Token rejeitado (HTTP ${res.status}). Verifique o token.` };
+      return { ok: true, mensagem: `Conexão OK — a API respondeu (HTTP ${res.status}).` };
+    } catch (e) {
+      return { ok: false, mensagem: `Não foi possível alcançar a URL: ${axios.isAxiosError(e) ? e.message : String(e)}` };
+    }
   }
 
   private slug(s: string) { return s.toLowerCase().normalize('NFD').replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 24); }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Plus, X, RefreshCw, Trash2, Wifi, WifiOff, Loader2, MessageCircle, Mail, Smartphone, Webhook } from 'lucide-react';
+import { Plus, X, RefreshCw, Trash2, Wifi, WifiOff, Loader2, MessageCircle, Mail, Smartphone } from 'lucide-react';
 import { api } from '@/lib/api';
 import { PageTitle } from '@/components/ui';
 
@@ -13,30 +13,7 @@ const TIPOS = [
   { canal: 'WHATSAPP_UAZAPI', label: 'WhatsApp (uazapi)', desc: 'Conecte seu número lendo o QR code.', qr: true, icon: MessageCircle },
   { canal: 'EMAIL', label: 'E-mail', desc: 'Remetente para envio de e-mails.', qr: false, icon: Mail },
   { canal: 'SMS', label: 'SMS', desc: 'Provedor de SMS.', qr: false, icon: Smartphone },
-  { canal: 'HTTP_GENERIC', label: 'API aberta (HTTP)', desc: 'Envie pelo endpoint de qualquer sistema (ex.: NX Digital).', qr: false, icon: Webhook },
 ];
-
-// Presets do canal HTTP genérico — pré-preenchem os campos avançados.
-const HTTP_PRESETS: Record<string, { label: string; url: string; method: string; headers: string; body: string; msgIdPath: string; hint: string }> = {
-  nxdigital: {
-    label: 'NX Digital',
-    url: 'https://api.nxdigital.com.br/v1/messages',
-    method: 'POST',
-    headers: 'Authorization: Bearer {{token}}',
-    body: '{\n  "channel": "WHATSAPP",\n  "to": "{{to}}",\n  "message": "{{text}}"\n}',
-    msgIdPath: 'data.id',
-    hint: 'Exemplo genérico — confirme a URL, os cabeçalhos e o formato do corpo na documentação da SUA conta NX Digital.',
-  },
-  custom: {
-    label: 'Personalizado',
-    url: '',
-    method: 'POST',
-    headers: 'Authorization: Bearer {{token}}',
-    body: '{\n  "to": "{{to}}",\n  "text": "{{text}}"\n}',
-    msgIdPath: '',
-    hint: 'Configure a URL, os cabeçalhos e o corpo conforme a documentação do sistema que você quer integrar.',
-  },
-};
 const statusInfo: Record<string, { label: string; cls: string; icon: typeof Wifi }> = {
   CONECTADO: { label: 'Conectado', cls: 'bg-success-tint text-[#0F6E56]', icon: Wifi },
   CONECTANDO: { label: 'Conectando', cls: 'bg-warning-tint text-[#854F0B]', icon: Loader2 },
@@ -111,56 +88,19 @@ function NovoCanalModal({ onClose, onCreated }: { onClose: () => void; onCreated
   const [busy, setBusy] = useState(false);
   const tipo = TIPOS.find((t) => t.canal === canal)!;
 
-  // Estado do canal HTTP genérico (API aberta)
-  const [preset, setPreset] = useState('nxdigital');
-  const [http, setHttp] = useState(() => ({ ...HTTP_PRESETS.nxdigital, token: '', toFormat: 'digits' }));
-  function aplicarPreset(p: string) {
-    setPreset(p);
-    const cfg = HTTP_PRESETS[p];
-    setHttp((s) => ({ ...cfg, token: s.token, toFormat: s.toFormat }));
-  }
-  function parseHeaders(raw: string): Record<string, string> {
-    const out: Record<string, string> = {};
-    for (const line of raw.split('\n')) {
-      const i = line.indexOf(':');
-      if (i < 0) continue;
-      const k = line.slice(0, i).trim();
-      const v = line.slice(i + 1).trim();
-      if (k) out[k] = v;
-    }
-    return out;
-  }
-
   const camposCred: Record<string, { key: string; label: string }[]> = {
     WHATSAPP_CLOUD: [{ key: 'phoneId', label: 'Phone Number ID' }, { key: 'token', label: 'Token de acesso' }],
     EMAIL: [{ key: 'from', label: 'Remetente (ex: cobranca@seudominio.com)' }],
     SMS: [{ key: 'provider', label: 'Provedor' }, { key: 'apiKey', label: 'API Key' }, { key: 'from', label: 'Remetente' }],
     WHATSAPP_EVOLUTION: [],
     WHATSAPP_UAZAPI: [],
-    HTTP_GENERIC: [],
   };
 
   async function criar() {
     if (!apelido.trim()) return setMsg('Dê um nome para a conexão.');
-    let credentials: Record<string, unknown> = creds;
-    if (canal === 'HTTP_GENERIC') {
-      if (!/^https?:\/\//i.test(http.url.trim())) return setMsg('Informe uma URL de endpoint válida (http/https).');
-      if (http.method !== 'GET' && http.body.trim()) {
-        try { JSON.parse(http.body); } catch { return setMsg('O corpo (body) precisa ser um JSON válido.'); }
-      }
-      credentials = {
-        httpUrl: http.url.trim(),
-        httpMethod: http.method,
-        httpHeaders: parseHeaders(http.headers),
-        httpBodyTemplate: http.body,
-        httpMsgIdPath: http.msgIdPath.trim(),
-        httpToFormat: http.toFormat,
-        token: http.token,
-      };
-    }
     setBusy(true); setMsg('');
     try {
-      const conn = await api<Conexao>('/canais', { method: 'POST', body: { canal, apelido, credentials } });
+      const conn = await api<Conexao>('/canais', { method: 'POST', body: { canal, apelido, credentials: creds } });
       onCreated(conn);
     } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro'); setBusy(false); }
   }
@@ -186,49 +126,6 @@ function NovoCanalModal({ onClose, onCreated }: { onClose: () => void; onCreated
             <input value={creds[f.key] || ''} onChange={(e) => setCreds((s) => ({ ...s, [f.key]: e.target.value }))} className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary" />
           </label>
         ))}
-        {canal === 'HTTP_GENERIC' && (
-          <div className="mb-3 space-y-3 rounded-lg border border-line bg-canvas p-3">
-            <label className="block text-sm"><span className="mb-1 block text-xs text-muted">Sistema</span>
-              <select value={preset} onChange={(e) => aplicarPreset(e.target.value)} className="w-full rounded border border-line bg-surface px-3 py-2 outline-none focus:border-primary">
-                {Object.entries(HTTP_PRESETS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-              </select>
-              <span className="mt-1 block text-xs text-warning">{HTTP_PRESETS[preset].hint}</span>
-            </label>
-            <label className="block text-sm"><span className="mb-1 block text-xs text-muted">Token / chave de API</span>
-              <input value={http.token} onChange={(e) => setHttp((s) => ({ ...s, token: e.target.value }))} placeholder="Cole aqui — usado onde houver {{token}}" className="w-full rounded border border-line bg-surface px-3 py-2 outline-none focus:border-primary" />
-            </label>
-            <div className="flex gap-2">
-              <label className="block flex-1 text-sm"><span className="mb-1 block text-xs text-muted">Endpoint (URL)</span>
-                <input value={http.url} onChange={(e) => setHttp((s) => ({ ...s, url: e.target.value }))} placeholder="https://..." className="w-full rounded border border-line bg-surface px-3 py-2 outline-none focus:border-primary" />
-              </label>
-              <label className="block w-24 text-sm"><span className="mb-1 block text-xs text-muted">Método</span>
-                <select value={http.method} onChange={(e) => setHttp((s) => ({ ...s, method: e.target.value }))} className="w-full rounded border border-line bg-surface px-3 py-2 outline-none focus:border-primary">
-                  <option>POST</option><option>PUT</option><option>GET</option>
-                </select>
-              </label>
-            </div>
-            <label className="block text-sm"><span className="mb-1 block text-xs text-muted">Cabeçalhos (um por linha, formato Chave: valor)</span>
-              <textarea value={http.headers} onChange={(e) => setHttp((s) => ({ ...s, headers: e.target.value }))} rows={2} className="w-full rounded border border-line bg-surface px-3 py-2 font-mono text-xs outline-none focus:border-primary" />
-            </label>
-            {http.method !== 'GET' && (
-              <label className="block text-sm"><span className="mb-1 block text-xs text-muted">Corpo (JSON) — variáveis: {'{{to}} {{text}} {{token}} {{templateName}} {{templateParams}}'}</span>
-                <textarea value={http.body} onChange={(e) => setHttp((s) => ({ ...s, body: e.target.value }))} rows={6} className="w-full rounded border border-line bg-surface px-3 py-2 font-mono text-xs outline-none focus:border-primary" />
-              </label>
-            )}
-            <div className="flex gap-2">
-              <label className="block flex-1 text-sm"><span className="mb-1 block text-xs text-muted">Caminho do ID na resposta (opcional)</span>
-                <input value={http.msgIdPath} onChange={(e) => setHttp((s) => ({ ...s, msgIdPath: e.target.value }))} placeholder="ex.: data.id" className="w-full rounded border border-line bg-surface px-3 py-2 outline-none focus:border-primary" />
-              </label>
-              <label className="block w-40 text-sm"><span className="mb-1 block text-xs text-muted">Formato do telefone</span>
-                <select value={http.toFormat} onChange={(e) => setHttp((s) => ({ ...s, toFormat: e.target.value }))} className="w-full rounded border border-line bg-surface px-3 py-2 outline-none focus:border-primary">
-                  <option value="digits">5511999999999</option>
-                  <option value="e164">+5511999999999</option>
-                  <option value="raw">Como está</option>
-                </select>
-              </label>
-            </div>
-          </div>
-        )}
         {tipo.qr && <p className="mb-3 rounded bg-canvas px-3 py-2 text-xs text-muted">Ao criar, vamos abrir o QR code para você conectar o número no WhatsApp do celular.</p>}
         {msg && <p className="mb-2 text-sm text-danger">{msg}</p>}
         <div className="flex justify-end gap-2">

@@ -45,6 +45,7 @@ enum ChannelType {
   EMAIL
   SMS
   HTTP_GENERIC
+  NX_SYSTEMS
 }
 
 enum SourceSystem {

@@ -21,7 +21,7 @@ export class StepDto {
   @Max(90)
   offsetDias!: number;
 
-  @IsIn(['WHATSAPP_CLOUD', 'WHATSAPP_EVOLUTION', 'WHATSAPP_UAZAPI', 'EMAIL', 'SMS', 'HTTP_GENERIC'])
+  @IsIn(['WHATSAPP_CLOUD', 'WHATSAPP_EVOLUTION', 'WHATSAPP_UAZAPI', 'EMAIL', 'SMS', 'HTTP_GENERIC', 'NX_SYSTEMS'])
   canal!: ChannelType;
 
   @IsOptional()
@@ -30,7 +30,7 @@ export class StepDto {
 
   @IsOptional()
   @IsArray()
-  @IsIn(['WHATSAPP_CLOUD', 'WHATSAPP_EVOLUTION', 'WHATSAPP_UAZAPI', 'EMAIL', 'SMS', 'HTTP_GENERIC'], { each: true })
+  @IsIn(['WHATSAPP_CLOUD', 'WHATSAPP_EVOLUTION', 'WHATSAPP_UAZAPI', 'EMAIL', 'SMS', 'HTTP_GENERIC', 'NX_SYSTEMS'], { each: true })
   canaisFallback?: ChannelType[];
 
   @IsString()

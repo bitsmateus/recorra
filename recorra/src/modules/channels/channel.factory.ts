@@ -9,6 +9,7 @@ import { WhatsAppUazapiChannel } from './providers/whatsapp-uazapi.channel';
 import { EmailChannel } from './providers/email.channel';
 import { SmsChannel } from './providers/sms.channel';
 import { HttpGenericChannel } from './providers/http-generic.channel';
+import { NxSystemsChannel } from './providers/nx-systems.channel';
 
 /**
  * Resolve o canal a partir da conta configurada pelo tenant.
@@ -45,6 +46,8 @@ export class ChannelFactory {
         return new SmsChannel(creds);
       case 'HTTP_GENERIC':
         return new HttpGenericChannel(creds);
+      case 'NX_SYSTEMS':
+        return new NxSystemsChannel(creds);
       default:
         throw new BadRequestException(`Canal ${canal} ainda não implementado`);
     }

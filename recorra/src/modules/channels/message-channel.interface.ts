@@ -31,6 +31,10 @@ export interface ChannelCredentials {
   httpBodyTemplate?: string; // JSON com {{to}} {{text}} {{templateName}} {{templateParams}}
   httpMsgIdPath?: string; // caminho para o ID na resposta (ex.: "data.id")
   httpToFormat?: string; // 'digits' (padrão, ex.: 5511...) | 'e164' (+55...) | 'raw'
+  // NX Systems (central de atendimento) — ver NxSystemsChannel
+  nxBaseUrl?: string; // ex.: https://webapi.nxsystems.com.br/v2/api/external/{ApiID}
+  nxToken?: string; // Bearer token
+  nxOficial?: boolean; // true = API oficial (WABA, só template) | false = não oficial (Evolution, texto livre)
 }
 
 /**

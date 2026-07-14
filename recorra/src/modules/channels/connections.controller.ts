@@ -22,6 +22,12 @@ export class ConnectionsController {
     return this.connections.criar(tenantId, dto);
   }
 
+  @Post('testar')
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
+  testar(@Body() dto: { canal: ChannelType; credentials?: Record<string, unknown> }) {
+    return this.connections.testar(dto);
+  }
+
   @Get(':id/qrcode')
   qrcode(@TenantId() tenantId: string, @Param('id') id: string) {
     return this.connections.qrcode(tenantId, id);

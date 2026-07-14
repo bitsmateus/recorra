@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { RefreshCw, Check } from 'lucide-react';
 import { api } from '@/lib/api';
 import { PageTitle } from '@/components/ui';
+import EnvioIntegracoes from './envio-integracoes';
 
 const sistemas = [
   { id: 'IXC', nome: 'IXC Soft', desc: 'API REST + webhook. Clientes, boletos, Pix e vencimentos.' },
@@ -36,9 +37,10 @@ export default function IntegracoesPage() {
     <div>
       <PageTitle
         title="Integrações"
-        subtitle="Conecte o sistema de origem para puxar clientes e faturas automaticamente"
+        subtitle="Conecte sistemas de origem (clientes/faturas) e plataformas de envio de mensagens"
       />
 
+      <h2 className="mb-3 text-sm font-semibold text-ink">Sistemas de origem</h2>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
         {sistemas.map((s) => (
           <div key={s.id} className="rounded-lg border border-line bg-surface p-4">
@@ -74,6 +76,8 @@ export default function IntegracoesPage() {
           </p>
         )}
       </div>
+
+      <EnvioIntegracoes />
     </div>
   );
 }

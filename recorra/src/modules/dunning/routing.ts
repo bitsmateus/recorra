@@ -30,4 +30,5 @@ export const CUSTO_PADRAO: Record<string, number> = {
   EMAIL: 0.001,
   SMS: 0.12,
   HTTP_GENERIC: 0.0, // custo depende do provedor externo — ajustável por tenant
+  NX_SYSTEMS: 0.0, // custo cobrado pela NX/provedor — ajustável por tenant
 };
