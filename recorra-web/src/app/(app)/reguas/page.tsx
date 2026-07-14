@@ -1,12 +1,12 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Plus, Trash2, ArrowUp, ArrowDown, Save, MessageCircle, Mail, Smartphone, RefreshCw, Sparkles, X } from 'lucide-react';
+import { Plus, Trash2, ArrowUp, ArrowDown, Save, MessageCircle, Mail, Smartphone, RefreshCw, Sparkles, X, Webhook, MessageSquare } from 'lucide-react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { PageTitle } from '@/components/ui';
 
-type Canal = 'WHATSAPP_CLOUD' | 'WHATSAPP_EVOLUTION' | 'WHATSAPP_UAZAPI' | 'EMAIL' | 'SMS';
+type Canal = 'WHATSAPP_CLOUD' | 'WHATSAPP_EVOLUTION' | 'WHATSAPP_UAZAPI' | 'EMAIL' | 'SMS' | 'HTTP_GENERIC' | 'NX_SYSTEMS';
 type Faixa = 'BOM' | 'ATENCAO' | 'RISCO' | '';
 
 interface Step {
@@ -39,6 +39,8 @@ const canalLabel: Record<Canal, { label: string; icon: typeof MessageCircle }> =
   WHATSAPP_UAZAPI: { label: 'WhatsApp (uazapi)', icon: MessageCircle },
   EMAIL: { label: 'E-mail', icon: Mail },
   SMS: { label: 'SMS', icon: Smartphone },
+  HTTP_GENERIC: { label: 'API genérica (HTTP)', icon: Webhook },
+  NX_SYSTEMS: { label: 'NX Systems', icon: MessageSquare },
 };
 
 const faixaLabel: Record<string, string> = { '': 'Todas as faixas', BOM: 'Bom pagador', ATENCAO: 'Atenção', RISCO: 'Risco' };
@@ -377,7 +379,7 @@ function StepCard({
   }
   useEffect(() => { if (step.canal === 'WHATSAPP_CLOUD') sincronizarTemplates(); }, [step.canal]);
 
-  const Icon = canalLabel[step.canal].icon;
+  const Icon = canalLabel[step.canal]?.icon ?? MessageCircle;
 
   return (
     <div className="relative rounded-lg border border-line bg-canvas p-4">

@@ -22,13 +22,27 @@ interface Campaign {
   entrega?: { total: number; enviados: number; fila: number; falha: number } | null;
 }
 
-const CANAIS = [
-  { v: 'WHATSAPP_EVOLUTION', l: 'WhatsApp (Evolution)' },
-  { v: 'WHATSAPP_CLOUD', l: 'WhatsApp (Cloud oficial)' },
-  { v: 'WHATSAPP_UAZAPI', l: 'WhatsApp (uazapi)' },
-  { v: 'EMAIL', l: 'E-mail' },
-  { v: 'SMS', l: 'SMS' },
-];
+const CANAL_LABEL: Record<string, string> = {
+  WHATSAPP_EVOLUTION: 'WhatsApp (Evolution)',
+  WHATSAPP_CLOUD: 'WhatsApp (Cloud oficial)',
+  WHATSAPP_UAZAPI: 'WhatsApp (uazapi)',
+  EMAIL: 'E-mail',
+  SMS: 'SMS',
+  HTTP_GENERIC: 'API genérica (HTTP)',
+  NX_SYSTEMS: 'NX Systems',
+};
+interface ContaCanal { canal: string; status: string }
+/** Tipos de canal distintos entre as contas configuradas (não desconectadas). */
+function canaisConfigurados(contas: ContaCanal[]): { v: string; l: string }[] {
+  const vistos = new Set<string>();
+  const out: { v: string; l: string }[] = [];
+  for (const c of contas) {
+    if (c.status === 'DESCONECTADO' || vistos.has(c.canal)) continue;
+    vistos.add(c.canal);
+    out.push({ v: c.canal, l: CANAL_LABEL[c.canal] ?? c.canal });
+  }
+  return out;
+}
 const statusColor: Record<string, string> = {
   RASCUNHO: 'bg-canvas text-muted', ATIVA: 'bg-primary-tint text-primary',
   PAUSADA: 'bg-warning-tint text-[#854F0B]', CONCLUIDA: 'bg-canvas text-muted',
@@ -54,6 +68,8 @@ export default function CampanhasPage() {
   const [filtros, setFiltros] = useState(emptyFiltros);
   const [reguas, setReguas] = useState<{ id: string; nome: string }[]>([]);
   const [etiquetas, setEtiquetas] = useState<{ nome: string }[]>([]);
+  const [canais, setCanais] = useState<ContaCanal[]>([]);
+  const canaisFiltro = canaisConfigurados(canais);
   const setF = (k: string, v: string) => setFiltros((s) => ({ ...s, [k]: v }));
 
   const carregar = useCallback(async () => {
@@ -64,7 +80,7 @@ export default function CampanhasPage() {
     setLoading(false);
   }, [filtros]);
   useEffect(() => { carregar(); }, [carregar]);
-  useEffect(() => { api<{ id: string; nome: string }[]>('/reguas').then(setReguas).catch(() => setReguas([])); api<{ nome: string }[]>('/clientes/etiquetas').then(setEtiquetas).catch(() => setEtiquetas([])); }, []);
+  useEffect(() => { api<{ id: string; nome: string }[]>('/reguas').then(setReguas).catch(() => setReguas([])); api<{ nome: string }[]>('/clientes/etiquetas').then(setEtiquetas).catch(() => setEtiquetas([])); api<ContaCanal[]>('/canais').then(setCanais).catch(() => setCanais([])); }, []);
   const filtrosAtivos = Object.values(filtros).filter(Boolean).length;
 
   async function executar(c: Campaign) {
@@ -112,7 +128,7 @@ export default function CampanhasPage() {
           <select value={filtros.tipoEnvio} onChange={(e) => setF('tipoEnvio', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Envio: todos</option><option value="LEMBRETE">Lembrete</option><option value="MENSAGEM">Mensagem</option><option value="REGUA">Régua</option></select>
           <select value={filtros.ruleId} onChange={(e) => setF('ruleId', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Régua: todas</option>{reguas.map((r) => <option key={r.id} value={r.id}>{r.nome}</option>)}</select>
           <select value={filtros.etiqueta} onChange={(e) => setF('etiqueta', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Etiqueta: todas</option>{etiquetas.map((t) => <option key={t.nome} value={t.nome}>{t.nome}</option>)}</select>
-          <select value={filtros.canal} onChange={(e) => setF('canal', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Canal: todos</option>{CANAIS.map((c) => <option key={c.v} value={c.v}>{c.l}</option>)}</select>
+          <select value={filtros.canal} onChange={(e) => setF('canal', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Canal: todos</option>{canaisFiltro.map((c) => <option key={c.v} value={c.v}>{c.l}</option>)}</select>
           <input type="date" title="Criada de" value={filtros.de} onChange={(e) => setF('de', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
           <input type="date" title="Criada até" value={filtros.ate} onChange={(e) => setF('ate', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
         </div>
@@ -173,7 +189,7 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
     tipoEnvio: edit?.tipoEnvio || 'MENSAGEM',
     ruleId: edit?.ruleId || '',
     mensagem: edit?.mensagem || '',
-    canal: edit?.canal || 'WHATSAPP_EVOLUTION',
+    canal: edit?.canal || '',
     escopoFatura: edit?.escopoFatura || 'TODAS',
     delaySegundos: edit?.delaySegundos != null ? String(edit.delaySegundos) : '5',
     filtroTodos: edit?.filtroTodos ?? true,
@@ -187,6 +203,8 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
   });
   const [reguas, setReguas] = useState<Regua[]>([]);
   const [etiquetas, setEtiquetas] = useState<Etiqueta[]>([]);
+  const [canais, setCanais] = useState<ContaCanal[]>([]);
+  const canaisDisp = canaisConfigurados(canais);
   const [previa, setPrevia] = useState<number | null>(null);
   const [previaContatos, setPreviaContatos] = useState<{ id: string; nome: string; doc: string }[]>([]);
   const [incluir, setIncluir] = useState<string[]>(edit?.incluirIds || []);
@@ -199,7 +217,14 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
   useEffect(() => {
     api<Regua[]>('/reguas').then(setReguas).catch(() => setReguas([]));
     api<Etiqueta[]>('/clientes/etiquetas').then(setEtiquetas).catch(() => setEtiquetas([]));
+    api<ContaCanal[]>('/canais').then(setCanais).catch(() => setCanais([]));
   }, []);
+
+  // Seleciona o primeiro canal configurado quando ainda não há um escolhido.
+  useEffect(() => {
+    if (!f.canal && canaisDisp.length) set('canal', canaisDisp[0].v);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canais]);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -269,7 +294,7 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
               </div>
               <div className="flex flex-wrap items-center gap-2 text-sm">
                 <span className="text-xs text-muted">Canal:</span>
-                <select value={f.canal} onChange={(e) => set('canal', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">{CANAIS.map((c) => <option key={c.v} value={c.v}>{c.l}</option>)}</select>
+                <select value={f.canal} onChange={(e) => set('canal', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">{canaisDisp.length === 0 && <option value="">Nenhum canal configurado</option>}{canaisDisp.map((c) => <option key={c.v} value={c.v}>{c.l}</option>)}</select>
                 <span className="text-xs text-muted">Quando o cliente tem várias faturas em aberto:</span>
                 <select value={f.escopoFatura} onChange={(e) => set('escopoFatura', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
                   <option value="TODAS">Uma mensagem por fatura</option>
@@ -289,7 +314,7 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
               </div>
               <div className="flex items-center gap-2 text-sm">
                 <span className="text-xs text-muted">Canal:</span>
-                <select value={f.canal} onChange={(e) => set('canal', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">{CANAIS.map((c) => <option key={c.v} value={c.v}>{c.l}</option>)}</select>
+                <select value={f.canal} onChange={(e) => set('canal', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">{canaisDisp.length === 0 && <option value="">Nenhum canal configurado</option>}{canaisDisp.map((c) => <option key={c.v} value={c.v}>{c.l}</option>)}</select>
               </div>
             </div>
           ) : (
