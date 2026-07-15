@@ -80,7 +80,7 @@ export default function ClienteDetalhePage() {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card title={`Faturas (${d.faturas.length})`}>
-          <table className="w-full text-sm">
+          <div className="w-full overflow-x-auto"><table className="w-full min-w-[640px] text-sm">
             <tbody>
               {d.faturas.map((f) => (
                 <tr key={f.id} className="border-b border-line last:border-0">
@@ -92,7 +92,7 @@ export default function ClienteDetalhePage() {
               ))}
               {d.faturas.length === 0 && <tr><td className="px-2 py-4 text-center text-muted">Nenhuma fatura.</td></tr>}
             </tbody>
-          </table>
+          </table></div>
         </Card>
 
         <Card title={`Histórico de disparos (${d.disparos.length})`}>
@@ -173,7 +173,7 @@ function ChargeModal({ customerId, valorSugerido, onClose, onSaved }: { customer
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-ink">Gerar cobrança</h2>
           <button onClick={onClose} className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>

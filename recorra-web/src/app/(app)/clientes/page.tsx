@@ -26,6 +26,32 @@ interface Gateway { id: string; provider: string; ambiente?: string; apelido?: s
 
 const UFS = ['', 'AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO'];
 
+type Etiqueta = { nome: string; cor?: string | null };
+type Aba = 'geral' | 'aberto' | 'incompleto';
+
+// Situação derivada das cobranças do cliente (total x pagas).
+function situacaoDe(c: Customer): { key: string; label: string; bg: string; fg: string } {
+  const total = c.cobrancasTotal ?? 0;
+  const pagas = c.cobrancasPagas ?? 0;
+  if (total === 0) return { key: 'novo', label: 'Novo', bg: '#EDE9FE', fg: '#6D28D9' };
+  if (pagas < total) return { key: 'aberto', label: 'Em aberto', bg: '#FCEBEB', fg: '#A32D2D' };
+  return { key: 'dia', label: 'Em dia', bg: '#E1F5EE', fg: '#0F6E56' };
+}
+
+function cadastroIncompleto(c: Customer): boolean {
+  return !c.email || !c.telefone;
+}
+
+function SituacaoBadge({ c }: { c: Customer }) {
+  const s = situacaoDe(c);
+  return <span className="inline-flex rounded-full px-2.5 py-1 text-xs font-medium" style={{ background: s.bg, color: s.fg }}>{s.label}</span>;
+}
+
+function TagChip({ nome, cor }: { nome: string; cor?: string | null }) {
+  const bg = cor || '#E1F5EE';
+  return <span className="rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ background: bg, color: cor ? '#fff' : '#0E7C7B' }}>{nome}</span>;
+}
+
 export default function ClientesPage() {
   const [clientes, setClientes] = useState<Customer[]>([]);
   const [riscos, setRiscos] = useState<Record<string, RiskScore | null>>({});
@@ -35,7 +61,8 @@ export default function ClientesPage() {
   const [gateways, setGateways] = useState<Gateway[]>([]);
   const [importModal, setImportModal] = useState(false);
   const [wizard, setWizard] = useState(false);
-  const [etiquetas, setEtiquetas] = useState<{ nome: string }[]>([]);
+  const [etiquetas, setEtiquetas] = useState<Etiqueta[]>([]);
+  const [aba, setAba] = useState<Aba>('geral');
 
   const carregar = useCallback(async () => {
     setLoading(true);
@@ -54,7 +81,7 @@ export default function ClientesPage() {
   useEffect(() => { carregar(); }, [carregar]);
   useEffect(() => {
     api<Gateway[]>('/config/gateways').then(setGateways).catch(() => setGateways([]));
-    api<{ nome: string }[]>('/clientes/etiquetas').then(setEtiquetas).catch(() => setEtiquetas([]));
+    api<Etiqueta[]>('/clientes/etiquetas').then(setEtiquetas).catch(() => setEtiquetas([]));
   }, []);
 
   async function excluir(c: Customer) {
@@ -65,12 +92,33 @@ export default function ClientesPage() {
 
   function recarregarTudo() {
     carregar();
-    api<{ nome: string }[]>('/clientes/etiquetas').then(setEtiquetas).catch(() => {});
+    api<Etiqueta[]>('/clientes/etiquetas').then(setEtiquetas).catch(() => {});
   }
+
+  const corPorTag = new Map(etiquetas.map((e) => [e.nome, e.cor] as const));
+  const visiveis = clientes.filter((c) => (aba === 'aberto' ? situacaoDe(c).key === 'aberto' : aba === 'incompleto' ? cadastroIncompleto(c) : true));
+  const contagem = {
+    geral: clientes.length,
+    aberto: clientes.filter((c) => situacaoDe(c).key === 'aberto').length,
+    incompleto: clientes.filter(cadastroIncompleto).length,
+  };
 
   return (
     <div>
       <PageTitle title="Clientes" subtitle="Base de clientes, segmentação e faixa de risco (IA)" />
+
+      {/* Abas */}
+      <div className="mb-4 flex gap-1 overflow-x-auto border-b border-line">
+        {([['geral', 'Visão geral'], ['aberto', 'Em aberto'], ['incompleto', 'Cadastro incompleto']] as [Aba, string][]).map(([k, label]) => (
+          <button
+            key={k}
+            onClick={() => setAba(k)}
+            className={`-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-sm transition ${aba === k ? 'border-primary font-medium text-primary' : 'border-transparent text-muted hover:text-ink'}`}
+          >
+            {label} <span className="tabular text-xs text-muted">({contagem[k]})</span>
+          </button>
+        ))}
+      </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <button onClick={() => setModal({ open: true, edit: null })} className="flex items-center gap-2 rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover"><UserPlus size={16} /> Novo cliente</button>
@@ -88,24 +136,39 @@ export default function ClientesPage() {
         <select value={filtros.faixa} onChange={(e) => setFiltros({ ...filtros, faixa: e.target.value })} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Risco: todos</option><option value="BOM">Bom pagador</option><option value="ATENCAO">Atenção</option><option value="RISCO">Risco</option></select>
       </div>
 
+      <div className="mb-2 text-sm text-muted">Total de clientes: <span className="tabular font-medium text-ink">{visiveis.length}</span></div>
       <div className="overflow-hidden rounded-lg border border-line bg-surface">
-        <table className="w-full text-sm">
+        <div className="w-full overflow-x-auto"><table className="w-full min-w-[760px] text-sm">
           <thead className="border-b border-line bg-canvas text-left text-xs uppercase text-muted">
-            <tr><th className="px-4 py-3 font-medium">Nome</th><th className="px-4 py-3 font-medium">Documento</th><th className="px-4 py-3 font-medium">Plano / UF</th><th className="px-4 py-3 font-medium">Cobranças</th><th className="px-4 py-3 font-medium">Risco</th><th className="px-4 py-3 font-medium text-right">Ações</th></tr>
+            <tr><th className="px-4 py-3 font-medium">Cliente</th><th className="px-4 py-3 font-medium">Documento</th><th className="px-4 py-3 font-medium">Situação</th><th className="px-4 py-3 font-medium">Tags</th><th className="px-4 py-3 font-medium">Cobranças</th><th className="px-4 py-3 font-medium">Score / Risco</th><th className="px-4 py-3 font-medium text-right">Ações</th></tr>
           </thead>
           <tbody>
-            {clientes.map((c) => (
-              <tr key={c.id} className="border-b border-line last:border-0">
-                <td className="px-4 py-3 font-medium text-ink">{c.nome}{c.tags && c.tags.length > 0 && <span className="ml-2 space-x-1">{c.tags.slice(0, 3).map((t) => <span key={t} className="rounded-full bg-primary-tint px-1.5 py-0.5 text-[10px] text-primary">{t}</span>)}</span>}</td>
-                <td className="tabular px-4 py-3 text-muted">{c.doc}</td>
-                <td className="px-4 py-3 text-muted">{c.plano || '—'} {c.uf ? `· ${c.uf}` : ''}</td>
+            {visiveis.map((c) => (
+              <tr key={c.id} className="border-b border-line last:border-0 hover:bg-canvas/50">
                 <td className="px-4 py-3">
-                  <span className="tabular font-medium text-ink">{c.cobrancasTotal ?? 0}</span>
-                  <span className="text-muted"> criadas · </span>
-                  <span className="tabular font-medium text-success">{c.cobrancasPagas ?? 0}</span>
-                  <span className="text-muted"> pagas</span>
+                  <Link href={`/clientes/${c.id}`} className="font-medium text-ink hover:text-primary">{c.nome}</Link>
+                  <div className="text-xs text-muted">{c.plano || 'Sem plano'}{c.uf ? ` · ${c.uf}` : ''}</div>
                 </td>
-                <td className="px-4 py-3"><RiskBadge faixa={riscos[c.id]?.faixa} /></td>
+                <td className="tabular px-4 py-3 text-muted">{c.doc}</td>
+                <td className="px-4 py-3"><SituacaoBadge c={c} /></td>
+                <td className="px-4 py-3">
+                  {c.tags && c.tags.length > 0 ? (
+                    <div className="flex max-w-[180px] flex-wrap gap-1">
+                      {c.tags.slice(0, 3).map((t) => <TagChip key={t} nome={t} cor={corPorTag.get(t)} />)}
+                      {c.tags.length > 3 && <span className="text-[10px] text-muted">+{c.tags.length - 3}</span>}
+                    </div>
+                  ) : <span className="text-muted">—</span>}
+                </td>
+                <td className="px-4 py-3">
+                  <span className="tabular font-medium text-success">{c.cobrancasPagas ?? 0}</span>
+                  <span className="text-muted">/{c.cobrancasTotal ?? 0} pagas</span>
+                </td>
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    {riscos[c.id]?.score != null && <span className="tabular text-sm font-semibold text-ink">{riscos[c.id]!.score}</span>}
+                    <RiskBadge faixa={riscos[c.id]?.faixa} />
+                  </div>
+                </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center justify-end gap-1">
                     <Link href={`/clientes/${c.id}`} title="Ver detalhes" className="rounded p-1.5 text-muted hover:bg-canvas hover:text-primary"><Eye size={16} /></Link>
@@ -115,9 +178,9 @@ export default function ClientesPage() {
                 </td>
               </tr>
             ))}
-            {!loading && clientes.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-muted">Nenhum cliente encontrado.</td></tr>}
+            {!loading && visiveis.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-muted">Nenhum cliente encontrado.</td></tr>}
           </tbody>
-        </table>
+        </table></div>
       </div>
       {loading && <p className="mt-3 text-sm text-muted">Carregando...</p>}
 
@@ -145,7 +208,7 @@ function ImportGatewayModal({ gateways, onClose, onDone }: { gateways: Gateway[]
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-ink">Importar de gateway</h2>
           <button onClick={onClose} className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>
@@ -187,7 +250,7 @@ function CustomerModal({ edit, onClose, onSaved }: { edit?: Customer | null; onC
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="w-full max-w-2xl rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-ink">{edit ? 'Editar cliente' : 'Novo cliente'}</h2>
           <button onClick={onClose} className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>

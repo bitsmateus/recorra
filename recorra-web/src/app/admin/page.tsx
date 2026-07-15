@@ -115,7 +115,7 @@ function TenantsTab() {
       </div>
       {novo && <NovoTenant onDone={() => { setNovo(false); load(); }} />}
       <div className="overflow-hidden rounded-lg border border-line bg-surface">
-        <table className="w-full text-sm">
+        <div className="w-full overflow-x-auto"><table className="w-full min-w-[640px] text-sm">
           <thead className="border-b border-line bg-canvas text-left text-xs uppercase text-muted"><tr><th className="px-4 py-3">Empresa</th><th className="px-4 py-3">Plano</th><th className="px-4 py-3">Uso</th><th className="px-4 py-3">Status</th></tr></thead>
           <tbody>
             {tenants.map((t) => (
@@ -134,7 +134,7 @@ function TenantsTab() {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       </div>
       {detalhe && <TenantDetalhe tenantId={detalhe} onChange={load} />}
     </div>
@@ -200,7 +200,7 @@ function FinanceiroTab() {
         <button onClick={async () => { await adminApi('/admin/faturas/fechar-mes', { method: 'POST', body: {} }); load(); }} className="rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover">Fechar mês (gerar faturas)</button>
       </div>
       <div className="overflow-hidden rounded-lg border border-line bg-surface">
-        <table className="w-full text-sm">
+        <div className="w-full overflow-x-auto"><table className="w-full min-w-[640px] text-sm">
           <thead className="border-b border-line bg-canvas text-left text-xs uppercase text-muted"><tr><th className="px-4 py-3">Tenant</th><th className="px-4 py-3">Competência</th><th className="px-4 py-3">Plano</th><th className="px-4 py-3">Total</th><th className="px-4 py-3">Status</th></tr></thead>
           <tbody>
             {rows.map((r) => (
@@ -216,7 +216,7 @@ function FinanceiroTab() {
             ))}
             {rows.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-muted">Nenhuma fatura. Use "Fechar mês".</td></tr>}
           </tbody>
-        </table>
+        </table></div>
       </div>
     </div>
   );

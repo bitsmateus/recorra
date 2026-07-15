@@ -175,7 +175,7 @@ export default function CobrancasPage() {
       </div>
 
       <div className="overflow-hidden rounded-lg border border-line bg-surface">
-        <table className="w-full text-sm">
+        <div className="w-full overflow-x-auto"><table className="w-full min-w-[640px] text-sm">
           <thead className="border-b border-line bg-canvas text-left text-xs uppercase text-muted">
             <tr>
               <th className="px-4 py-3 font-medium">Cliente</th>
@@ -211,7 +211,7 @@ export default function CobrancasPage() {
             ))}
             {invoices.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-muted">Nenhuma fatura.</td></tr>}
           </tbody>
-        </table>
+        </table></div>
       </div>
 
       {editar && <EditarModal inv={editar} onClose={() => setEditar(null)} onSaved={() => { setEditar(null); load(); }} />}
@@ -257,7 +257,7 @@ function CriarManualModal({ gateways, onClose, onSaved }: { gateways: Gateway[];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-ink">Criar cobrança manual</h2>
           <button onClick={onClose} className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>
@@ -313,7 +313,7 @@ function ExcluirModal({ inv, onClose, onEscolha }: { inv: Invoice; onClose: () =
   const gerada = !!inv.externalId;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
         <div className="mb-1 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-ink">Excluir cobrança</h2>
           <button onClick={onClose} className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>
@@ -360,7 +360,7 @@ function PagamentoModal({ inv, onClose }: { inv: Invoice; onClose: () => void })
   const nada = !inv.pixCopiaCola && !inv.boletoLinha && !inv.boletoUrl && !inv.linkPagamento;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="w-full max-w-lg rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
         <div className="mb-1 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-ink">Dados de pagamento</h2>
           <button onClick={onClose} className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>
@@ -406,7 +406,7 @@ function EditarModal({ inv, onClose, onSaved }: { inv: Invoice; onClose: () => v
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-ink">Editar cobrança</h2>
           <button onClick={onClose} className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>

@@ -5,6 +5,7 @@ import { Plus, Trash2, ArrowUp, ArrowDown, Save, MessageCircle, Mail, Smartphone
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { PageTitle } from '@/components/ui';
+import { PreviewButton } from '@/components/MessagePreview';
 
 type Canal = 'WHATSAPP_CLOUD' | 'WHATSAPP_EVOLUTION' | 'WHATSAPP_UAZAPI' | 'EMAIL' | 'SMS' | 'HTTP_GENERIC' | 'NX_SYSTEMS';
 type Faixa = 'BOM' | 'ATENCAO' | 'RISCO' | '';
@@ -55,6 +56,126 @@ function novaRegua(): Rule {
     roteamentoPorCusto: false,
     steps: [{ ordem: 1, offsetDias: -3, canal: 'WHATSAPP_CLOUD', template: 'Olá {{nome}}, sua fatura de {{valor}} vence em {{vencimento}}. Pix: {{pix}}' }],
   };
+}
+
+// ── Linha do tempo visual da régua (inspirada no fluxo horizontal de cadência) ──
+const pad2 = (n: number) => String(n).padStart(2, '0');
+
+function faseInfo(offset: number): { key: string; header: string; cor: string } {
+  if (offset < 0) return { key: 'antes', header: 'Antes do vencimento', cor: '#7C3AED' };
+  if (offset === 0) return { key: 'dia', header: 'No dia do vencimento', cor: '#0E7C7B' };
+  return { key: 'depois', header: 'Depois do vencimento', cor: '#F59E0B' };
+}
+
+type TLCol = { key: string; header: string; cor: string; day: string; canais: Canal[] };
+
+const COR_EXTRAJUDICIAL = '#EF4444';
+
+function montarColunas(steps: Step[]): TLCol[] {
+  // Agrupa passos que caem no mesmo dia (mostra os canais juntos, como no fluxo real).
+  const porDia = new Map<number, Canal[]>();
+  for (const s of steps) porDia.set(s.offsetDias, [...(porDia.get(s.offsetDias) || []), s.canal]);
+
+  const nodes: TLCol[] = [...porDia.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([offset, canais]) => ({ ...faseInfo(offset), day: pad2(Math.abs(offset)), canais }));
+
+  // O último toque, quando é "depois do vencimento", vira notificação extrajudicial (vermelho).
+  const ultimo = nodes[nodes.length - 1];
+  if (ultimo && ultimo.key === 'depois') {
+    ultimo.key = 'extrajudicial';
+    ultimo.header = 'Notificação extrajudicial';
+    ultimo.cor = COR_EXTRAJUDICIAL;
+  }
+
+  return [{ key: 'emissao', header: 'Emissão', cor: '#94A3B8', day: '—', canais: [] }, ...nodes];
+}
+
+const LEGENDA: { label: string; cor: string }[] = [
+  { label: 'Antes do vencimento', cor: '#7C3AED' },
+  { label: 'No dia', cor: '#0E7C7B' },
+  { label: 'Depois', cor: '#F59E0B' },
+  { label: 'Extrajudicial', cor: COR_EXTRAJUDICIAL },
+];
+
+export function ReguaTimeline({ steps, compact = false }: { steps: Step[]; compact?: boolean }) {
+  if (!steps.length) {
+    return compact ? null : <p className="text-sm text-muted">Adicione passos para ver a linha do tempo.</p>;
+  }
+
+  const cols = montarColunas(steps);
+
+  // Modo compacto: só os pontos coloridos (para caber nos cards da lista).
+  if (compact) {
+    return (
+      <div className="flex items-center gap-1 overflow-x-auto">
+        {cols.map((c, i) => (
+          <div key={i} className="flex items-center gap-1">
+            {i > 0 && <span className="h-[2px] w-2 shrink-0" style={{ background: c.cor }} />}
+            <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: c.cor }} title={`${c.header} ${c.day}`} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // Segmentos por fase (cabeçalhos agrupam colunas consecutivas da mesma fase).
+  const segs: { header: string; cols: TLCol[] }[] = [];
+  for (const c of cols) {
+    const last = segs[segs.length - 1];
+    if (last && last.header === c.header) last.cols.push(c);
+    else segs.push({ header: c.header, cols: [c] });
+  }
+
+  return (
+    <div>
+      <div className="overflow-x-auto pb-1">
+        <div className="flex min-w-max">
+          {segs.map((seg, si) => (
+            <div key={si} className="flex flex-col">
+              <div className="mb-3 px-2 text-center text-[11px] font-medium leading-tight text-muted">{seg.header}</div>
+              <div className="flex">
+                {seg.cols.map((c, ci) => {
+                  const globalFirst = si === 0 && ci === 0;
+                  const globalLast = si === segs.length - 1 && ci === seg.cols.length - 1;
+                  return (
+                    <div key={ci} className="flex w-[58px] flex-col items-center">
+                      <div className="mb-1.5 text-xs font-semibold tabular text-ink">{c.day}</div>
+                      <div className="relative flex h-4 w-full items-center justify-center">
+                        {/* linha de conexão */}
+                        <div
+                          className="absolute top-1/2 h-[3px] -translate-y-1/2"
+                          style={{
+                            background: c.cor,
+                            left: globalFirst ? '50%' : 0,
+                            right: globalLast ? '50%' : 0,
+                          }}
+                        />
+                        <span className="relative h-3.5 w-3.5 rounded-full ring-2 ring-white" style={{ background: c.cor }} />
+                      </div>
+                      <div className="mt-2 flex h-5 items-center justify-center gap-0.5 text-muted">
+                        {c.canais.map((canal, k) => {
+                          const Ic = canalLabel[canal]?.icon ?? MessageCircle;
+                          return <Ic key={k} size={15} />;
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
+        {LEGENDA.map((l) => (
+          <span key={l.label} className="flex items-center gap-1.5 text-[11px] text-muted">
+            <span className="h-2.5 w-2.5 rounded-full" style={{ background: l.cor }} /> {l.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export default function ReguasPage() {
@@ -130,6 +251,7 @@ export default function ReguasPage() {
                 <div className="mt-0.5 text-xs text-muted">
                   {faixaLabel[r.faixaRisco || '']} · {r.steps.length} passos
                 </div>
+                <div className="mt-2"><ReguaTimeline steps={r.steps} compact /></div>
               </button>
             ))}
             {rules.length === 0 && <p className="text-sm text-muted">Nenhuma régua ainda.</p>}
@@ -260,6 +382,15 @@ function FlowEditor({
         <label className="flex items-center gap-2 pb-1.5 text-sm text-muted">
           <input type="checkbox" checked={!!rule.diasUteisSomente} onChange={(e) => update({ diasUteisSomente: e.target.checked })} /> Só dias úteis
         </label>
+      </div>
+
+      {/* Pré-visualização da linha do tempo */}
+      <div className="mb-5 rounded-lg border border-line bg-canvas p-4">
+        <div className="mb-3 flex items-center gap-2 text-sm font-medium text-ink">
+          Linha do tempo da régua
+          <span className="rounded-full bg-primary-tint px-2 py-0.5 text-[11px] font-normal text-primary">{rule.steps.length} passo(s)</span>
+        </div>
+        <ReguaTimeline steps={rule.steps} />
       </div>
 
       {/* Timeline de passos */}
@@ -463,7 +594,7 @@ function StepCard({
       )}
 
       <label className="mt-2 block">
-        <span className="mb-1 flex items-center gap-1.5 text-xs text-muted"><Icon size={14} /> Mensagem {step.abTest ? '(variante A)' : ''}<AiMensagemBtn texto={step.template} onResult={(t) => onChange({ template: t })} /></span>
+        <span className="mb-1 flex items-center gap-1.5 text-xs text-muted"><Icon size={14} /> Mensagem {step.abTest ? '(variante A)' : ''}<span className="ml-auto flex items-center gap-1.5"><PreviewButton canal={step.canal} texto={step.template} /><AiMensagemBtn texto={step.template} onResult={(t) => onChange({ template: t })} /></span></span>
         <textarea
           value={step.template}
           onChange={(e) => onChange({ template: e.target.value })}

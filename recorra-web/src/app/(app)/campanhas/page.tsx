@@ -108,7 +108,7 @@ export default function CampanhasPage() {
 
   return (
     <div>
-      <div className="mb-2 flex items-center justify-between">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
         <PageTitle title="Campanhas" subtitle="Único lugar para disparar: monte o público, escolha régua ou mensagem e acompanhe o relatório" />
         <button onClick={() => setModal({ open: true, edit: null })} className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover"><Plus size={16} /> Nova campanha</button>
       </div>
@@ -135,7 +135,7 @@ export default function CampanhasPage() {
       </div>
 
       <div className="overflow-hidden rounded-lg border border-line bg-surface">
-        <table className="w-full text-sm">
+        <div className="w-full overflow-x-auto"><table className="w-full min-w-[640px] text-sm">
           <thead className="border-b border-line bg-canvas text-left text-xs uppercase text-muted">
             <tr><th className="px-4 py-3 font-medium">Nome</th><th className="px-4 py-3 font-medium">Público</th><th className="px-4 py-3 font-medium">Envio</th><th className="px-4 py-3 font-medium">Agendamento</th><th className="px-4 py-3 font-medium">Status</th><th className="px-4 py-3 font-medium">Último envio</th><th className="px-4 py-3 font-medium text-right">Ações</th></tr>
           </thead>
@@ -173,7 +173,7 @@ export default function CampanhasPage() {
             })}
             {!loading && lista.length === 0 && <tr><td colSpan={7} className="px-4 py-10 text-center text-muted"><Megaphone size={28} className="mx-auto mb-2 opacity-40" />Nenhuma campanha ainda. Crie a primeira em "Nova campanha".</td></tr>}
           </tbody>
-        </table>
+        </table></div>
       </div>
       {loading && <p className="mt-3 text-sm text-muted">Carregando...</p>}
 
@@ -415,7 +415,7 @@ function ContatosModal({ contatos, total, onRemover, onAdicionar, onClose }: { c
 
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filtrar a lista abaixo" className="mb-2 w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
         <div className="flex-1 overflow-auto rounded-lg border border-line">
-          <table className="w-full text-sm">
+          <div className="w-full overflow-x-auto"><table className="w-full min-w-[640px] text-sm">
             <tbody>
               {filtrados.map((c) => (
                 <tr key={c.id} className="border-b border-line last:border-0">
@@ -426,7 +426,7 @@ function ContatosModal({ contatos, total, onRemover, onAdicionar, onClose }: { c
               ))}
               {filtrados.length === 0 && <tr><td colSpan={3} className="px-3 py-4 text-center text-muted">Nenhum contato.</td></tr>}
             </tbody>
-          </table>
+          </table></div>
         </div>
         <div className="mt-3 flex justify-end">
           <button onClick={onClose} className="rounded bg-primary px-5 py-2 text-sm font-medium text-white hover:bg-primary-hover">Concluir</button>
@@ -473,7 +473,7 @@ function RelatorioModal({ campanha, onClose }: { campanha: Campaign; onClose: ()
               <button onClick={exportarCsv} className="rounded border border-line px-3 py-2 text-sm hover:bg-canvas">Exportar CSV</button>
             </div>
             <div className="overflow-auto rounded-lg border border-line">
-              <table className="w-full text-sm">
+              <div className="w-full overflow-x-auto"><table className="w-full min-w-[640px] text-sm">
                 <thead className="bg-canvas text-left text-xs uppercase text-muted"><tr><th className="px-3 py-2 font-medium">Nome</th><th className="px-3 py-2 font-medium">Documento</th><th className="px-3 py-2 font-medium">Canal</th><th className="px-3 py-2 font-medium">Status</th></tr></thead>
                 <tbody>
                   {filtrados.map((d, i) => (
@@ -486,7 +486,7 @@ function RelatorioModal({ campanha, onClose }: { campanha: Campaign; onClose: ()
                   ))}
                   {filtrados.length === 0 && <tr><td colSpan={4} className="px-3 py-4 text-center text-muted">Nenhum destinatário.</td></tr>}
                 </tbody>
-              </table>
+              </table></div>
             </div>
             <p className="mt-2 text-xs text-muted">FILA = aguardando envio · ENVIADO/ENTREGUE/LIDO = saiu com sucesso · FALHA = não enviado. Atualiza conforme o worker processa (veja também a aba Disparos). Clique em Atualizar (recarregar) para ver o status mais recente.</p>
           </>

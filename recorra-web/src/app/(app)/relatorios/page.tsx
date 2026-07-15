@@ -55,7 +55,7 @@ export default function RelatoriosPage() {
           <h2 className="text-sm font-medium text-ink">Extrato por gateway</h2>
           <button onClick={exportar} className="flex items-center gap-2 rounded border border-line px-3 py-1.5 text-xs hover:bg-canvas"><Download size={14} /> Exportar faturas (CSV)</button>
         </div>
-        <table className="w-full text-sm">
+        <div className="w-full overflow-x-auto"><table className="w-full min-w-[640px] text-sm">
           <thead className="border-b border-line text-left text-xs uppercase text-muted">
             <tr><th className="py-2 font-medium">Gateway</th><th className="py-2 font-medium">Cobrado</th><th className="py-2 font-medium">Pago</th><th className="py-2 font-medium">Vencido</th><th className="py-2 font-medium">Repassado</th></tr>
           </thead>
@@ -71,32 +71,42 @@ export default function RelatoriosPage() {
             ))}
             {extrato.length === 0 && <tr><td colSpan={5} className="py-6 text-center text-muted">Sem dados de gateway ainda.</td></tr>}
           </tbody>
-        </table>
+        </table></div>
       </div>
     </div>
   );
 }
 
 function FunnelTable({ title, buckets }: { title: string; buckets?: Bucket[] }) {
+  const max = Math.max(1, ...(buckets ?? []).map((b) => b.enviados));
   return (
     <div className="rounded-lg border border-line bg-surface p-4">
-      <h2 className="mb-3 text-sm font-medium text-ink">{title}</h2>
-      <table className="w-full text-sm">
-        <thead className="border-b border-line text-left text-xs uppercase text-muted">
-          <tr><th className="py-2 font-medium">Chave</th><th className="py-2 font-medium">Envios</th><th className="py-2 font-medium">Pagos</th><th className="py-2 font-medium">Taxa</th></tr>
-        </thead>
-        <tbody>
-          {(buckets ?? []).map((b) => (
-            <tr key={b.chave} className="border-b border-line last:border-0">
-              <td className="py-2">{b.chave}</td>
-              <td className="tabular py-2">{b.enviados}</td>
-              <td className="tabular py-2">{b.pagos}</td>
-              <td className="tabular py-2 text-primary">{Math.round(b.taxa * 100)}%</td>
-            </tr>
-          ))}
-          {(!buckets || buckets.length === 0) && <tr><td colSpan={4} className="py-6 text-center text-muted">Sem dados.</td></tr>}
-        </tbody>
-      </table>
+      <h2 className="mb-4 text-sm font-medium text-ink">{title}</h2>
+      <div className="space-y-3">
+        {(buckets ?? []).map((b) => {
+          const larguraEnvios = (b.enviados / max) * 100;
+          const larguraPagos = b.enviados > 0 ? (b.pagos / b.enviados) * larguraEnvios : 0;
+          return (
+            <div key={b.chave}>
+              <div className="mb-1 flex items-center justify-between text-xs">
+                <span className="font-medium text-ink">{b.chave}</span>
+                <span className="text-muted"><span className="tabular text-ink">{b.pagos}</span>/<span className="tabular">{b.enviados}</span> · <span className="tabular font-medium text-primary">{Math.round(b.taxa * 100)}%</span></span>
+              </div>
+              <div className="relative h-6 w-full overflow-hidden rounded bg-canvas">
+                <div className="absolute inset-y-0 left-0 rounded bg-primary/20" style={{ width: `${larguraEnvios}%` }} />
+                <div className="absolute inset-y-0 left-0 rounded bg-primary" style={{ width: `${larguraPagos}%` }} />
+              </div>
+            </div>
+          );
+        })}
+        {(!buckets || buckets.length === 0) && <p className="py-6 text-center text-sm text-muted">Sem dados.</p>}
+      </div>
+      {buckets && buckets.length > 0 && (
+        <div className="mt-4 flex gap-4 border-t border-line pt-3 text-[11px] text-muted">
+          <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-primary" /> Pagos</span>
+          <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-primary/20" /> Enviados</span>
+        </div>
+      )}
     </div>
   );
 }

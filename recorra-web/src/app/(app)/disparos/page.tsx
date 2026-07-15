@@ -116,7 +116,7 @@ export default function DisparosPage() {
       </div>
 
       <div className="overflow-hidden rounded-lg border border-line bg-surface">
-        <table className="w-full text-sm">
+        <div className="w-full overflow-x-auto"><table className="w-full min-w-[640px] text-sm">
           <thead className="border-b border-line bg-canvas text-left text-xs uppercase text-muted">
             <tr>
               <th className="px-4 py-3 font-medium">Cliente</th>
@@ -162,7 +162,7 @@ export default function DisparosPage() {
             })}
             {rows.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-muted">Nenhum disparo encontrado.</td></tr>}
           </tbody>
-        </table>
+        </table></div>
       </div>
 
       {data && data.total > 0 && (

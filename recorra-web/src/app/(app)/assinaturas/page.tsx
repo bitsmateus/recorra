@@ -84,7 +84,7 @@ export default function AssinaturasPage() {
       )}
 
       <div className="overflow-hidden rounded-lg border border-line bg-surface">
-        <table className="w-full text-sm">
+        <div className="w-full overflow-x-auto"><table className="w-full min-w-[640px] text-sm">
           <thead className="border-b border-line bg-canvas text-left text-xs uppercase text-muted">
             <tr><th className="px-4 py-3 font-medium">Cliente / Plano</th><th className="px-4 py-3 font-medium">Valor</th><th className="px-4 py-3 font-medium">Ciclo</th><th className="px-4 py-3 font-medium">Próxima</th><th className="px-4 py-3 font-medium">Status</th><th className="px-4 py-3 font-medium">Ações</th></tr>
           </thead>
@@ -112,7 +112,7 @@ export default function AssinaturasPage() {
             ))}
             {subs.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-muted">Nenhuma assinatura.</td></tr>}
           </tbody>
-        </table>
+        </table></div>
       </div>
     </div>
   );

@@ -7,12 +7,34 @@
   color-scheme: light;
 }
 
+html,
+body {
+  /* Evita rolagem horizontal acidental da página inteira no celular */
+  overflow-x: hidden;
+}
+
 body {
   background: #f8fafc;
   color: #0f172a;
   font-feature-settings: 'tnum' on; /* números tabulares em valores */
+  -webkit-text-size-adjust: 100%;
 }
 
 .tabular {
   font-variant-numeric: tabular-nums;
+}
+
+/* Rolagem horizontal suave (momentum) para tabelas largas no celular */
+.overflow-x-auto {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* No mobile, os campos de formulário ganham fonte de 16px para o iOS
+   não dar zoom automático ao focar o input. */
+@media (max-width: 640px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
 }
