@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
-import { UserPlus, Download, RefreshCw, Eye, Pencil, Trash2, X } from 'lucide-react';
+import { UserPlus, Download, RefreshCw, Eye, Pencil, Trash2, X, Tag, Plus, Check } from 'lucide-react';
 import { api } from '@/lib/api';
 import { PageTitle, RiskBadge } from '@/components/ui';
 import { ImportWizard } from '@/components/ImportWizard';
@@ -28,6 +28,8 @@ const UFS = ['', 'AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT
 
 type Etiqueta = { nome: string; cor?: string | null };
 type Aba = 'geral' | 'aberto' | 'incompleto';
+
+const CORES_ETIQUETA = ['#0E7C7B', '#7C3AED', '#F59E0B', '#EF4444', '#10B981', '#3B82F6', '#EC4899', '#64748B'];
 
 // Situação derivada das cobranças do cliente (total x pagas).
 function situacaoDe(c: Customer): { key: string; label: string; bg: string; fg: string } {
@@ -63,6 +65,8 @@ export default function ClientesPage() {
   const [wizard, setWizard] = useState(false);
   const [etiquetas, setEtiquetas] = useState<Etiqueta[]>([]);
   const [aba, setAba] = useState<Aba>('geral');
+  const [etiquetasModal, setEtiquetasModal] = useState(false);
+  const reloadEtiquetas = useCallback(() => { api<Etiqueta[]>('/clientes/etiquetas').then(setEtiquetas).catch(() => {}); }, []);
 
   const carregar = useCallback(async () => {
     setLoading(true);
@@ -122,6 +126,7 @@ export default function ClientesPage() {
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <button onClick={() => setModal({ open: true, edit: null })} className="flex items-center gap-2 rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover"><UserPlus size={16} /> Novo cliente</button>
+        <button onClick={() => setEtiquetasModal(true)} className="flex items-center gap-2 rounded border border-line px-4 py-2 text-sm hover:bg-canvas"><Tag size={16} /> Etiquetas</button>
         <button onClick={() => setWizard(true)} className="flex items-center gap-2 rounded border border-line px-4 py-2 text-sm hover:bg-canvas"><Download size={16} /> Importar (Excel/CSV)</button>
         {gateways.length > 0 && <button onClick={() => setImportModal(true)} className="flex items-center gap-2 rounded border border-line px-4 py-2 text-sm hover:bg-canvas"><Download size={16} /> Importar de gateway</button>}
         <button onClick={async () => { await api('/clientes/risco/recalcular-todos', { method: 'POST' }).catch(() => {}); carregar(); }} className="flex items-center gap-2 rounded border border-line px-4 py-2 text-sm hover:bg-canvas"><RefreshCw size={16} /> Recalcular risco</button>
@@ -184,7 +189,8 @@ export default function ClientesPage() {
       </div>
       {loading && <p className="mt-3 text-sm text-muted">Carregando...</p>}
 
-      {modal.open && <CustomerModal edit={modal.edit} onClose={() => setModal({ open: false })} onSaved={() => { setModal({ open: false }); recarregarTudo(); }} />}
+      {modal.open && <CustomerModal edit={modal.edit} etiquetas={etiquetas} onEtiquetasChange={reloadEtiquetas} onClose={() => setModal({ open: false })} onSaved={() => { setModal({ open: false }); recarregarTudo(); }} />}
+      {etiquetasModal && <EtiquetasModal etiquetas={etiquetas} onChange={reloadEtiquetas} onClose={() => setEtiquetasModal(false)} />}
       {importModal && <ImportGatewayModal gateways={gateways} onClose={() => setImportModal(false)} onDone={() => { setImportModal(false); recarregarTudo(); }} />}
       {wizard && <ImportWizard criarCobrancas={false} onClose={() => setWizard(false)} onDone={() => { setWizard(false); recarregarTudo(); }} />}
     </div>
@@ -229,18 +235,34 @@ function ImportGatewayModal({ gateways, onClose, onDone }: { gateways: Gateway[]
   );
 }
 
-function CustomerModal({ edit, onClose, onSaved }: { edit?: Customer | null; onClose: () => void; onSaved: () => void }) {
+function CustomerModal({ edit, etiquetas, onEtiquetasChange, onClose, onSaved }: { edit?: Customer | null; etiquetas: Etiqueta[]; onEtiquetasChange: () => void; onClose: () => void; onSaved: () => void }) {
   const [f, setF] = useState({
     nome: edit?.nome || '', doc: edit?.doc || '', email: edit?.email || '', telefone: edit?.telefone || '',
-    plano: edit?.plano || '', valorPlano: edit?.valorPlano ? String(edit.valorPlano) : '', cidade: edit?.cidade || '', uf: edit?.uf || '', tags: (edit?.tags || []).join(', '),
+    plano: edit?.plano || '', valorPlano: edit?.valorPlano ? String(edit.valorPlano) : '', cidade: edit?.cidade || '', uf: edit?.uf || '',
   });
+  const [selTags, setSelTags] = useState<string[]>(edit?.tags || []);
+  const [novaTag, setNovaTag] = useState('');
   const [msg, setMsg] = useState('');
   const [saving, setSaving] = useState(false);
   const set = (k: string, v: string) => setF((s) => ({ ...s, [k]: v }));
 
+  const corDe = (nome: string) => etiquetas.find((e) => e.nome === nome)?.cor || null;
+  const toggleTag = (nome: string) => setSelTags((s) => (s.includes(nome) ? s.filter((t) => t !== nome) : [...s, nome]));
+
+  async function criarEAssociar() {
+    const n = novaTag.trim().toLowerCase();
+    if (!n) return;
+    try {
+      await api('/clientes/etiquetas', { method: 'POST', body: { nome: n, cor: CORES_ETIQUETA[etiquetas.length % CORES_ETIQUETA.length] } });
+      onEtiquetasChange();
+      setSelTags((s) => (s.includes(n) ? s : [...s, n]));
+      setNovaTag('');
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro ao criar etiqueta'); }
+  }
+
   async function salvar() {
     setSaving(true); setMsg('');
-    const body = { ...f, valorPlano: f.valorPlano ? Number(f.valorPlano) : undefined, tags: f.tags ? f.tags.split(',').map((t) => t.trim()).filter(Boolean) : [] };
+    const body = { ...f, valorPlano: f.valorPlano ? Number(f.valorPlano.replace(',', '.')) : undefined, tags: selTags };
     try {
       if (edit) await api(`/clientes/${edit.id}`, { method: 'PUT', body });
       else await api('/clientes', { method: 'POST', body });
@@ -264,12 +286,94 @@ function CustomerModal({ edit, onClose, onSaved }: { edit?: Customer | null; onC
           <label className="text-sm"><span className="mb-1 block text-xs text-muted">Valor do plano</span><input value={f.valorPlano} onChange={(e) => set('valorPlano', e.target.value)} className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary" /></label>
           <label className="text-sm"><span className="mb-1 block text-xs text-muted">Cidade</span><input value={f.cidade} onChange={(e) => set('cidade', e.target.value)} className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary" /></label>
           <label className="text-sm"><span className="mb-1 block text-xs text-muted">UF</span><input value={f.uf} maxLength={2} onChange={(e) => set('uf', e.target.value)} className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary" /></label>
-          <label className="text-sm md:col-span-2"><span className="mb-1 block text-xs text-muted">Etiquetas (separadas por vírgula)</span><input value={f.tags} onChange={(e) => set('tags', e.target.value)} className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary" /></label>
+          <div className="text-sm md:col-span-2">
+            <span className="mb-1 block text-xs text-muted">Etiquetas</span>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {etiquetas.map((e) => {
+                const sel = selTags.includes(e.nome);
+                return (
+                  <button
+                    key={e.nome}
+                    type="button"
+                    onClick={() => toggleTag(e.nome)}
+                    className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition ${sel ? 'text-white' : 'border border-line text-muted hover:bg-canvas'}`}
+                    style={sel ? { background: e.cor || '#0E7C7B' } : undefined}
+                  >
+                    {sel && <Check size={12} />}{e.nome}
+                  </button>
+                );
+              })}
+              {etiquetas.length === 0 && <span className="text-xs text-muted">Nenhuma etiqueta ainda — crie uma abaixo.</span>}
+            </div>
+            <div className="mt-2 flex gap-2">
+              <input value={novaTag} onChange={(e) => setNovaTag(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); criarEAssociar(); } }} placeholder="Nova etiqueta..." className="flex-1 rounded border border-line px-3 py-1.5 text-sm outline-none focus:border-primary" />
+              <button type="button" onClick={criarEAssociar} disabled={!novaTag.trim()} className="flex items-center gap-1 rounded border border-line px-3 py-1.5 text-sm text-primary hover:bg-canvas disabled:opacity-50"><Plus size={14} /> Criar</button>
+            </div>
+          </div>
         </div>
         {msg && <p className="mt-3 text-sm text-danger">{msg}</p>}
         <div className="mt-5 flex justify-end gap-2">
           <button onClick={onClose} className="rounded border border-line px-4 py-2 text-sm hover:bg-canvas">Cancelar</button>
           <button onClick={salvar} disabled={saving} className="rounded bg-primary px-5 py-2 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-60">{saving ? 'Salvando...' : 'Salvar'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EtiquetasModal({ etiquetas, onChange, onClose }: { etiquetas: Etiqueta[]; onChange: () => void; onClose: () => void }) {
+  const [nome, setNome] = useState('');
+  const [cor, setCor] = useState(CORES_ETIQUETA[0]);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  async function criar() {
+    const n = nome.trim().toLowerCase();
+    if (!n) return;
+    setBusy(true); setMsg('');
+    try {
+      await api('/clientes/etiquetas', { method: 'POST', body: { nome: n, cor } });
+      setNome(''); onChange();
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro'); }
+    finally { setBusy(false); }
+  }
+  async function excluir(nomeTag: string) {
+    if (!confirm(`Excluir a etiqueta "${nomeTag}"? Os clientes já marcados continuam com ela.`)) return;
+    await api(`/clientes/etiquetas/${encodeURIComponent(nomeTag)}`, { method: 'DELETE' }).catch(() => {});
+    onChange();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-ink">Etiquetas</h2>
+          <button onClick={onClose} className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>
+        </div>
+
+        <div className="mb-4 rounded-lg border border-line p-3">
+          <span className="mb-2 block text-xs text-muted">Nova etiqueta</span>
+          <div className="flex gap-2">
+            <input value={nome} onChange={(e) => setNome(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); criar(); } }} placeholder="Ex.: vip, atraso frequente..." className="flex-1 rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+            <button onClick={criar} disabled={busy || !nome.trim()} className="rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-60">{busy ? '...' : 'Criar'}</button>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <span className="text-xs text-muted">Cor:</span>
+            {CORES_ETIQUETA.map((c) => (
+              <button key={c} type="button" onClick={() => setCor(c)} className={`h-6 w-6 rounded-full ${cor === c ? 'ring-2 ring-offset-1' : ''}`} style={{ background: c, boxShadow: cor === c ? `0 0 0 2px ${c}` : undefined }} aria-label={`Cor ${c}`} />
+            ))}
+          </div>
+          {msg && <p className="mt-2 text-sm text-danger">{msg}</p>}
+        </div>
+
+        <div className="space-y-1.5">
+          {etiquetas.map((e) => (
+            <div key={e.nome} className="flex items-center justify-between rounded border border-line px-3 py-2">
+              <TagChip nome={e.nome} cor={e.cor} />
+              <button onClick={() => excluir(e.nome)} className="rounded p-1 text-muted hover:bg-danger-tint hover:text-danger"><Trash2 size={14} /></button>
+            </div>
+          ))}
+          {etiquetas.length === 0 && <p className="py-4 text-center text-sm text-muted">Nenhuma etiqueta criada ainda.</p>}
         </div>
       </div>
     </div>

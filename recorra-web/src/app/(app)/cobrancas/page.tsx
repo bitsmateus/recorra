@@ -6,6 +6,14 @@ import { ImportWizard } from '@/components/ImportWizard';
 import { api } from '@/lib/api';
 import { PageTitle, brl } from '@/components/ui';
 
+// Aceita valor em formato BR (109,90 ou 1.109,90) ou com ponto decimal (109.90).
+function parseValorBR(v: string): number {
+  const s = String(v).trim();
+  if (!s) return NaN;
+  if (s.includes(',')) return Number(s.replace(/\./g, '').replace(',', '.'));
+  return Number(s);
+}
+
 interface Invoice {
   id: string;
   valor: number;
@@ -237,18 +245,23 @@ function CriarManualModal({ gateways, onClose, onSaved }: { gateways: Gateway[];
   const set = (k: string, v: string) => setF((s) => ({ ...s, [k]: v }));
 
   useEffect(() => {
+    const q = busca.trim();
+    // Só busca quando o usuário digita algo (evita listar todos os clientes).
+    if (q.length < 2) { setOpcoes([]); return; }
     const t = setTimeout(() => {
-      api<CustLite[]>(`/clientes?q=${encodeURIComponent(busca)}`).then((l) => setOpcoes(l.slice(0, 20))).catch(() => setOpcoes([]));
+      api<CustLite[]>(`/clientes?q=${encodeURIComponent(q)}`).then((l) => setOpcoes(l.slice(0, 20))).catch(() => setOpcoes([]));
     }, 250);
     return () => clearTimeout(t);
   }, [busca]);
 
   async function salvar() {
     if (!cliente) return setMsg('Selecione um cliente.');
+    const valorNum = parseValorBR(f.valor);
+    if (!valorNum || valorNum <= 0) return setMsg('Informe um valor válido (ex.: 109,90).');
     setSaving(true); setMsg('');
     try {
       await api('/cobrancas/fatura', { method: 'POST', body: {
-        customerId: cliente.id, valor: Number(f.valor), vencimento: f.vencimento,
+        customerId: cliente.id, valor: valorNum, vencimento: f.vencimento,
         descricao: f.descricao || undefined, accountId: f.accountId || undefined, metodo: f.metodo,
       } });
       onSaved();
@@ -282,7 +295,7 @@ function CriarManualModal({ gateways, onClose, onSaved }: { gateways: Gateway[];
           </div>
         )}
         <div className="space-y-3">
-          <label className="block text-sm"><span className="mb-1 block text-xs text-muted">Valor (R$) *</span><input value={f.valor} onChange={(e) => set('valor', e.target.value)} placeholder="99.90" className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary" /></label>
+          <label className="block text-sm"><span className="mb-1 block text-xs text-muted">Valor (R$) *</span><input value={f.valor} onChange={(e) => set('valor', e.target.value)} placeholder="109,90" inputMode="decimal" className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary" /></label>
           <label className="block text-sm"><span className="mb-1 block text-xs text-muted">Vencimento *</span><input type="date" value={f.vencimento} onChange={(e) => set('vencimento', e.target.value)} className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary" /></label>
           <label className="block text-sm"><span className="mb-1 block text-xs text-muted">Descrição</span><input value={f.descricao} onChange={(e) => set('descricao', e.target.value)} placeholder="Mensalidade" className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary" /></label>
           <div className="grid grid-cols-2 gap-3">
@@ -399,7 +412,7 @@ function EditarModal({ inv, onClose, onSaved }: { inv: Invoice; onClose: () => v
   async function salvar() {
     setSaving(true); setMsg('');
     try {
-      await api(`/cobrancas/${inv.id}`, { method: 'PUT', body: { valor: Number(f.valor), vencimento: f.vencimento, descricao: f.descricao, status: f.status } });
+      await api(`/cobrancas/${inv.id}`, { method: 'PUT', body: { valor: parseValorBR(f.valor), vencimento: f.vencimento, descricao: f.descricao, status: f.status } });
       onSaved();
     } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro'); setSaving(false); }
   }
