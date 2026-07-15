@@ -85,4 +85,11 @@ export interface ProviderCredentials {
   apiKey: string;
   webhookToken?: string;
   ambiente?: 'sandbox' | 'production';
+  // Bancos com API Pix (padrão BACEN) via mTLS + OAuth2 client_credentials.
+  clientId?: string;
+  clientSecret?: string;
+  certBase64?: string; // certificado do cliente (.p12/.pfx ou .pem) em base64
+  certPassword?: string; // senha do .p12/.pfx (se houver)
+  pixKey?: string; // chave Pix recebedora
+  appKey?: string; // Banco do Brasil: gw-dev-app-key
 }

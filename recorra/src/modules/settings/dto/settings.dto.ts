@@ -14,7 +14,7 @@ export class CreateIntegrationDto {
 }
 
 export class CreatePaymentAccountDto {
-  @IsIn(['ASAAS', 'MERCADO_PAGO', 'EFI', 'STRIPE'])
+  @IsIn(['ASAAS', 'MERCADO_PAGO', 'EFI', 'STRIPE', 'BANCO_INTER', 'SICOOB', 'SICREDI', 'BANCO_BRASIL'])
   provider!: PaymentProviderType;
 
   @IsOptional()

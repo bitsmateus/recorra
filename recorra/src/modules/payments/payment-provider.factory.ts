@@ -7,6 +7,7 @@ import { AsaasProvider } from './providers/asaas.provider';
 import { MercadoPagoProvider } from './providers/mercadopago.provider';
 import { EfiProvider } from './providers/efi.provider';
 import { StripeProvider } from './providers/stripe.provider';
+import { BancoPixProvider, BANCO_PRESETS } from './providers/banco-pix.provider';
 
 @Injectable()
 export class PaymentProviderFactory {
@@ -37,6 +38,11 @@ export class PaymentProviderFactory {
         return new EfiProvider(creds);
       case 'STRIPE':
         return new StripeProvider(creds);
+      case 'BANCO_INTER':
+      case 'SICOOB':
+      case 'SICREDI':
+      case 'BANCO_BRASIL':
+        return new BancoPixProvider(BANCO_PRESETS[provider], creds);
       default:
         throw new BadRequestException(`Gateway ${provider} ainda nao implementado`);
     }

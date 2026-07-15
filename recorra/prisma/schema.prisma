@@ -36,6 +36,10 @@ enum PaymentProviderType {
   MERCADO_PAGO
   EFI
   STRIPE
+  BANCO_INTER
+  SICOOB
+  SICREDI
+  BANCO_BRASIL
 }
 
 enum ChannelType {
