@@ -19,6 +19,8 @@ interface Step {
   template: string;
   templateB?: string;
   abTest?: boolean;
+  templateName?: string; // nome do template aprovado (canal oficial)
+  templateParams?: string[]; // variáveis Recorra que preenchem {{1}}, {{2}}...
 }
 interface Rule {
   id?: string;
@@ -45,6 +47,30 @@ const canalLabel: Record<Canal, { label: string; icon: typeof MessageCircle }> =
 };
 
 const faixaLabel: Record<string, string> = { '': 'Todas as faixas', BOM: 'Bom pagador', ATENCAO: 'Atenção', RISCO: 'Risco' };
+
+// Variáveis da Recorra que podem preencher as posições {{1}}, {{2}}... de um template aprovado.
+const RECORRA_VARS: { token: string; label: string }[] = [
+  { token: '{{nome}}', label: 'Nome do cliente' },
+  { token: '{{valor}}', label: 'Valor da fatura' },
+  { token: '{{vencimento}}', label: 'Data de vencimento' },
+  { token: '{{pix}}', label: 'Pix copia e cola' },
+  { token: '{{link}}', label: 'Link de pagamento' },
+  { token: '{{contrato}}', label: 'Contrato' },
+];
+
+/** Maior índice de variável posicional ({{1}}, {{2}}...) presente no corpo do template. */
+function maxVarPos(corpo: string): number {
+  let n = 0;
+  const re = /\{\{\s*(\d+)\s*\}\}/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(corpo))) n = Math.max(n, Number(m[1]));
+  return n;
+}
+
+/** Troca cada {{k}} do corpo pela variável Recorra mapeada (mantém {{k}} se ainda não mapeada). */
+function aplicarMapa(corpo: string, mapa: string[]): string {
+  return corpo.replace(/\{\{\s*(\d+)\s*\}\}/g, (_m, n) => mapa[Number(n) - 1] || `{{${n}}}`);
+}
 
 function novaRegua(): Rule {
   return {
@@ -498,17 +524,41 @@ function StepCard({
   }
 
   // Conexões (canais) conectadas do tenant
-  const [canais, setCanais] = useState<{ id: string; canal: string; apelido: string; status: string }[]>([]);
-  useEffect(() => { api<{ id: string; canal: string; apelido: string; status: string }[]>('/canais').then(setCanais).catch(() => setCanais([])); }, []);
+  const [canais, setCanais] = useState<{ id: string; canal: string; apelido: string; status: string; oficial?: boolean }[]>([]);
+  useEffect(() => { api<{ id: string; canal: string; apelido: string; status: string; oficial?: boolean }[]>('/canais').then(setCanais).catch(() => setCanais([])); }, []);
   const conectados = canais.filter((c) => c.status !== 'DESCONECTADO');
   const canalSelId = step.channelAccountId || conectados.find((c) => c.canal === step.canal)?.id || '';
+  const conn = conectados.find((c) => c.id === canalSelId);
 
   // Templates aprovados (API oficial do WhatsApp)
   const [templates, setTemplates] = useState<{ id: string; nome: string; corpo: string; status: string }[]>([]);
   async function sincronizarTemplates() {
     setTemplates(await api<{ id: string; nome: string; corpo: string; status: string }[]>('/config/templates').catch(() => []));
   }
-  useEffect(() => { if (step.canal === 'WHATSAPP_CLOUD') sincronizarTemplates(); }, [step.canal]);
+  // Canal oficial (Meta): WhatsApp Cloud ou canal NX marcado como WABA.
+  // Oficial → só template (sem texto livre). Não oficial → só texto livre (sem template).
+  const canalOficial = step.canal === 'WHATSAPP_CLOUD' || conn?.oficial === true;
+  useEffect(() => { if (canalOficial) sincronizarTemplates(); }, [canalOficial]);
+
+  // Template selecionado + mapa de variáveis (fonte única = o próprio passo).
+  const temTemplate = !!step.templateName;
+  const corpoTpl = step.template; // guarda o corpo aprovado com {{1}}, {{2}}...
+  const nVars = temTemplate ? maxVarPos(corpoTpl) : 0;
+  const params = step.templateParams ?? [];
+  const previewTexto = temTemplate ? aplicarMapa(corpoTpl, params) : step.template;
+
+  function selecionarTemplate(id: string) {
+    const t = templates.find((x) => x.id === id);
+    if (!t) return;
+    const n = maxVarPos(t.corpo);
+    const inicial = Array.from({ length: n }, (_, i) => (i === 0 ? '{{nome}}' : ''));
+    onChange({ templateName: t.nome, template: t.corpo, templateParams: inicial });
+  }
+  function setPos(i: number, token: string) {
+    const novo = Array.from({ length: nVars }, (_, idx) => (idx === i ? token : params[idx] || ''));
+    onChange({ templateParams: novo });
+  }
+  function limparTemplate() { onChange({ templateName: undefined, templateParams: [] }); }
 
   const Icon = canalLabel[step.canal]?.icon ?? MessageCircle;
 
@@ -570,12 +620,14 @@ function StepCard({
             {Object.entries(canalLabel).filter(([k]) => k !== step.canal).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
         </label>
-        <label className="flex items-center gap-1.5">
-          <input type="checkbox" checked={!!step.abTest} onChange={(e) => onChange({ abTest: e.target.checked })} /> A/B testing
-        </label>
+        {!canalOficial && (
+          <label className="flex items-center gap-1.5">
+            <input type="checkbox" checked={!!step.abTest} onChange={(e) => onChange({ abTest: e.target.checked })} /> A/B testing
+          </label>
+        )}
       </div>
 
-      {step.canal === 'WHATSAPP_CLOUD' && (
+      {canalOficial && (
         <div className="mt-3 rounded-lg border border-primary/30 bg-primary-tint/40 p-3">
           <div className="mb-1 flex items-center justify-between">
             <span className="text-xs font-medium text-primary">Template aprovado (API oficial exige template pré-aprovado pela Meta)</span>
@@ -583,38 +635,79 @@ function StepCard({
           </div>
           <select
             value=""
-            onChange={(e) => { const t = templates.find((x) => x.id === e.target.value); if (t) onChange({ template: t.corpo }); }}
+            onChange={(e) => selecionarTemplate(e.target.value)}
             className="w-full rounded border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-primary"
           >
             <option value="">Selecionar template...</option>
             {templates.map((t) => <option key={t.id} value={t.id}>{t.nome}{t.status !== 'APROVADO' ? ` (${t.status})` : ''}</option>)}
           </select>
-          {templates.length === 0 && <p className="mt-1 text-xs text-muted">Nenhum template ainda. <Link href="/configuracoes" className="text-primary underline">Criar template</Link> em Configurações.</p>}
+          {templates.length === 0 && <p className="mt-1 text-xs text-muted">Nenhum template ainda. Sincronize em <Link href="/configuracoes" className="text-primary underline">Configurações</Link>.</p>}
+
+          {/* Mapeamento: variável posicional do template -> variável da Recorra */}
+          {temTemplate && (
+            <div className="mt-3 rounded-lg border border-line bg-surface p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-xs font-medium text-ink">Template: {step.templateName}</span>
+                <button onClick={limparTemplate} type="button" className="text-xs text-muted hover:text-danger">Limpar</button>
+              </div>
+              {nVars === 0 ? (
+                <p className="text-xs text-muted">Este template não tem variáveis.</p>
+              ) : (
+                <>
+                  <p className="mb-2 text-xs text-muted">Escolha qual dado da Recorra entra em cada variável do template:</p>
+                  <div className="space-y-2">
+                    {Array.from({ length: nVars }).map((_, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <span className="w-11 shrink-0 rounded bg-primary-tint px-2 py-1 text-center text-xs font-semibold text-primary">{`{{${i + 1}}}`}</span>
+                        <span className="text-muted">→</span>
+                        <select value={params[i] || ''} onChange={(e) => setPos(i, e.target.value)} className="min-w-0 flex-1 rounded border border-line px-2 py-1.5 text-sm outline-none focus:border-primary">
+                          <option value="">Selecione a variável...</option>
+                          {RECORRA_VARS.map((v) => <option key={v.token} value={v.token}>{v.label} · {v.token}</option>)}
+                        </select>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </div>
       )}
 
-      <label className="mt-2 block">
-        <span className="mb-1 flex items-center gap-1.5 text-xs text-muted"><Icon size={14} /> Mensagem {step.abTest ? '(variante A)' : ''}<span className="ml-auto flex items-center gap-1.5"><PreviewButton canal={step.canal} texto={step.template} /><AiMensagemBtn texto={step.template} onResult={(t) => onChange({ template: t })} /></span></span>
-        <textarea
-          value={step.template}
-          onChange={(e) => onChange({ template: e.target.value })}
-          rows={2}
-          placeholder="Olá {{nome}}, ..."
-          className="w-full rounded border border-line p-3 text-sm outline-none focus:border-primary"
-        />
-        {step.canal === 'WHATSAPP_CLOUD' && <span className="mt-1 block text-xs text-muted">O texto acima deve corresponder ao template aprovado selecionado.</span>}
-      </label>
-      {step.abTest && (
-        <label className="mt-2 block">
-          <span className="mb-1 block text-xs text-muted">Mensagem (variante B)</span>
-          <textarea
-            value={step.templateB ?? ''}
-            onChange={(e) => onChange({ templateB: e.target.value })}
-            rows={2}
-            placeholder="Versão alternativa da mensagem..."
-            className="w-full rounded border border-line p-3 text-sm outline-none focus:border-primary"
-          />
-        </label>
+      {canalOficial ? (
+        /* Canal oficial: a mensagem vem do template aprovado — sem texto livre. */
+        <div className="mt-2">
+          <span className="mb-1 flex items-center gap-1.5 text-xs text-muted"><Icon size={14} /> Mensagem <span className="rounded-full bg-primary-tint px-1.5 py-0.5 text-[10px] font-medium text-primary">via template</span>{temTemplate && <span className="ml-auto"><PreviewButton canal={step.canal} texto={previewTexto} /></span>}</span>
+          {temTemplate
+            ? <div className="whitespace-pre-wrap rounded border border-line bg-canvas p-3 text-sm text-muted">{previewTexto}</div>
+            : <div className="rounded border border-dashed border-line p-3 text-sm text-muted">Selecione um template aprovado acima. Canais oficiais só enviam via template pré-aprovado pela Meta.</div>}
+        </div>
+      ) : (
+        /* Canal não oficial: texto livre — sem opção de template. */
+        <>
+          <label className="mt-2 block">
+            <span className="mb-1 flex items-center gap-1.5 text-xs text-muted"><Icon size={14} /> Mensagem {step.abTest ? '(variante A)' : ''}<PreviewButton canal={step.canal} texto={step.template} /><AiMensagemBtn texto={step.template} onResult={(t) => onChange({ template: t })} /></span>
+            <textarea
+              value={step.template}
+              onChange={(e) => onChange({ template: e.target.value })}
+              rows={2}
+              placeholder="Olá {{nome}}, ..."
+              className="w-full rounded border border-line p-3 text-sm outline-none focus:border-primary"
+            />
+          </label>
+          {step.abTest && (
+            <label className="mt-2 block">
+              <span className="mb-1 block text-xs text-muted">Mensagem (variante B)</span>
+              <textarea
+                value={step.templateB ?? ''}
+                onChange={(e) => onChange({ templateB: e.target.value })}
+                rows={2}
+                placeholder="Versão alternativa da mensagem..."
+                className="w-full rounded border border-line p-3 text-sm outline-none focus:border-primary"
+              />
+            </label>
+          )}
+        </>
       )}
     </div>
   );

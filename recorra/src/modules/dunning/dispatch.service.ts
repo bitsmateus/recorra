@@ -26,7 +26,12 @@ export class DispatchService {
 
     try {
       const channel = await this.channels.forTenantChannel(d.tenantId, d.canal, (d as { channelAccountId?: string | null }).channelAccountId);
-      const res = await channel.send({ to: destino, text: d.conteudo ?? '' });
+      const res = await channel.send({
+        to: destino,
+        text: d.conteudo ?? '',
+        templateName: d.templateName ?? undefined,
+        templateParams: d.templateParams?.length ? d.templateParams : undefined,
+      });
       if (res.status === 'ENVIADO') {
         await this.prisma.messageDispatch.update({
           where: { id: d.id },

@@ -3,7 +3,7 @@ import { ChannelType, DunningRule, DunningStep } from '@prisma/client';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { ChannelFactory } from '@/modules/channels/channel.factory';
 import { RiskScoringService } from '@/modules/risk/risk-scoring.service';
-import { renderTemplate, money, dateBR } from './template.util';
+import { renderTemplate, renderPositional, money, dateBR } from './template.util';
 import { isWithinWindow, nextAllowedSlot, withinDailyLimit } from './windows';
 import { channelChain } from './fallback';
 import { pickVariant } from './abtest';
@@ -68,14 +68,20 @@ export class DunningService {
       if (variante === 'B') template = step.templateB;
     }
 
-    const conteudo = renderTemplate(template, {
+    const vars = {
       nome: invoice.customer.nome.split(' ')[0],
       valor: money(Number(invoice.valor)),
       vencimento: dateBR(invoice.vencimento),
       pix: invoice.pixCopiaCola ?? '',
       link: invoice.linkPagamento ?? '',
       contrato: invoice.customer.contrato ?? '',
-    });
+    };
+
+    // Canal oficial: envia como template aprovado (nome + parâmetros na ordem {{1}}, {{2}}...).
+    // Cada templateParams do passo é uma variável Recorra (ex.: "{{nome}}") resolvida aqui por cliente.
+    const usaTemplate = !!step.templateName && (step.templateParams?.length ?? 0) > 0;
+    const templateParams = usaTemplate ? step.templateParams.map((tok) => renderTemplate(tok, vars)) : [];
+    const conteudo = usaTemplate ? renderPositional(template, templateParams) : renderTemplate(template, vars);
 
     const cadeia = channelChain(step.canal, step.canaisFallback) as ChannelType[];
     const agendadoPara = this.proximoSlot(timezone, rule);
@@ -90,6 +96,8 @@ export class DunningService {
         cadeiaCanais: cadeia,
         template,
         conteudo,
+        templateName: usaTemplate ? step.templateName : null,
+        templateParams,
         variante,
         status: 'FILA',
         agendadoPara,

@@ -5,7 +5,7 @@ import { Plus, X, RefreshCw, Trash2, Wifi, WifiOff, Loader2, MessageCircle, Mail
 import { api } from '@/lib/api';
 import { PageTitle } from '@/components/ui';
 
-interface Conexao { id: string; canal: string; apelido: string; ativo: boolean; status: string; instance?: string | null }
+interface Conexao { id: string; canal: string; apelido: string; ativo: boolean; status: string; instance?: string | null; origem?: string; oficial?: boolean; nxType?: string }
 
 const TIPOS = [
   { canal: 'WHATSAPP_CLOUD', label: 'WhatsApp API oficial', desc: 'Meta Cloud API — você informa as credenciais.', qr: false, icon: MessageCircle },
@@ -13,6 +13,7 @@ const TIPOS = [
   { canal: 'WHATSAPP_UAZAPI', label: 'WhatsApp (uazapi)', desc: 'Conecte seu número lendo o QR code.', qr: true, icon: MessageCircle },
   { canal: 'EMAIL', label: 'E-mail', desc: 'Remetente para envio de e-mails.', qr: false, icon: Mail },
   { canal: 'SMS', label: 'SMS', desc: 'Provedor de SMS.', qr: false, icon: Smartphone },
+  { canal: 'NX_SYSTEMS', label: 'NX Systems', desc: 'Central de atendimento NX.', qr: false, icon: MessageCircle },
 ];
 const statusInfo: Record<string, { label: string; cls: string; icon: typeof Wifi }> = {
   CONECTADO: { label: 'Conectado', cls: 'bg-success-tint text-[#0F6E56]', icon: Wifi },
@@ -26,6 +27,8 @@ export default function CanaisPage() {
   const [loading, setLoading] = useState(true);
   const [novo, setNovo] = useState(false);
   const [qr, setQr] = useState<Conexao | null>(null);
+  const [sincronizando, setSincronizando] = useState(false);
+  const [syncMsg, setSyncMsg] = useState('');
 
   const carregar = useCallback(async () => {
     setLoading(true);
@@ -34,48 +37,83 @@ export default function CanaisPage() {
   }, []);
   useEffect(() => { carregar(); }, [carregar]);
 
+  async function sincronizarNx() {
+    setSincronizando(true); setSyncMsg('Buscando canais no NX...');
+    try {
+      const r = await api<{ importados: number; atualizados: number; erros: string[] }>('/canais/sincronizar-nx', { method: 'POST' });
+      setSyncMsg(`✓ ${r.importados} novo(s) · ${r.atualizados} atualizado(s)${r.erros?.length ? ` — ${r.erros[0]}` : ''}`);
+      carregar();
+    } catch (e) { setSyncMsg(e instanceof Error ? e.message : 'Erro ao sincronizar'); }
+    finally { setSincronizando(false); }
+  }
+
   async function excluir(c: Conexao) {
-    if (!confirm(`Remover a conexão "${c.apelido}"?`)) return;
+    const msg = c.origem === 'nx'
+      ? `Remover "${c.apelido}" da Recorra? No NX ele permanece — você pode trazer de volta clicando em "Sincronizar canais".`
+      : `Remover a conexão "${c.apelido}"?`;
+    if (!confirm(msg)) return;
     await api(`/canais/${c.id}`, { method: 'DELETE' }).catch(() => {});
     carregar();
   }
+
+  const importadosNx = lista.filter((c) => c.origem === 'nx');
+  const outros = lista.filter((c) => c.origem !== 'nx');
 
   return (
     <div>
       <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
         <PageTitle title="Canais" subtitle="Conecte e monitore seus canais de envio: WhatsApp, e-mail e SMS" />
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <button onClick={sincronizarNx} disabled={sincronizando} className="flex items-center gap-2 rounded-lg border border-primary/40 bg-primary-tint px-3 py-2 text-sm font-medium text-primary hover:bg-primary hover:text-white disabled:opacity-60"><RefreshCw size={15} className={sincronizando ? 'animate-spin' : ''} /> Sincronizar canais (NX)</button>
           <button onClick={carregar} className="flex items-center gap-2 rounded-lg border border-line px-3 py-2 text-sm hover:bg-canvas"><RefreshCw size={15} /> Atualizar</button>
           <button onClick={() => setNovo(true)} className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover"><Plus size={16} /> Adicionar canal</button>
         </div>
       </div>
+      {syncMsg && <p className="mb-3 text-sm text-primary">{syncMsg}</p>}
 
+      {importadosNx.length > 0 && (
+        <div className="mb-6">
+          <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-ink">Canais do NX <span className="rounded-full bg-primary-tint px-2 py-0.5 text-xs font-normal text-primary">{importadosNx.length}</span></h2>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+            {importadosNx.map((c) => <CanalCard key={c.id} c={c} onExcluir={excluir} onQr={setQr} />)}
+          </div>
+        </div>
+      )}
+
+      {importadosNx.length > 0 && outros.length > 0 && <h2 className="mb-2 text-sm font-semibold text-ink">Outros canais</h2>}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-        {lista.map((c) => {
-          const tipo = TIPOS.find((t) => t.canal === c.canal);
-          const si = statusInfo[c.status] || statusInfo.CONFIGURADO;
-          const SIcon = si.icon;
-          const TIcon = tipo?.icon || MessageCircle;
-          return (
-            <div key={c.id} className="rounded-lg border border-line bg-surface p-4">
-              <div className="mb-2 flex items-start justify-between">
-                <div className="flex items-center gap-2"><TIcon size={18} className="text-muted" /><span className="font-medium text-ink">{c.apelido}</span></div>
-                <button onClick={() => excluir(c)} className="rounded p-1 text-muted hover:bg-danger-tint hover:text-danger"><Trash2 size={14} /></button>
-              </div>
-              <div className="mb-3 text-xs text-muted">{tipo?.label || c.canal}</div>
-              <div className="flex items-center justify-between">
-                <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${si.cls}`}><SIcon size={12} className={c.status === 'CONECTANDO' ? 'animate-spin' : ''} /> {si.label}</span>
-                {tipo?.qr && c.status !== 'CONECTADO' && <button onClick={() => setQr(c)} className="text-xs font-medium text-primary hover:underline">Conectar (QR)</button>}
-              </div>
-            </div>
-          );
-        })}
-        {!loading && lista.length === 0 && <div className="col-span-full rounded-lg border border-dashed border-line py-10 text-center text-sm text-muted">Nenhum canal conectado. Clique em "Adicionar canal".</div>}
+        {outros.map((c) => <CanalCard key={c.id} c={c} onExcluir={excluir} onQr={setQr} />)}
+        {!loading && lista.length === 0 && <div className="col-span-full rounded-lg border border-dashed border-line py-10 text-center text-sm text-muted">Nenhum canal conectado. Use "Sincronizar canais (NX)" ou "Adicionar canal".</div>}
       </div>
       {loading && <p className="mt-3 text-sm text-muted">Carregando...</p>}
 
       {novo && <NovoCanalModal onClose={() => setNovo(false)} onCreated={(conn) => { setNovo(false); carregar(); const t = TIPOS.find((x) => x.canal === conn.canal); if (t?.qr) setQr(conn); }} />}
       {qr && <QrModal conn={qr} onClose={() => { setQr(null); carregar(); }} />}
+    </div>
+  );
+}
+
+function CanalCard({ c, onExcluir, onQr }: { c: Conexao; onExcluir: (c: Conexao) => void; onQr: (c: Conexao) => void }) {
+  const tipo = TIPOS.find((t) => t.canal === c.canal);
+  const si = statusInfo[c.status] || statusInfo.CONFIGURADO;
+  const SIcon = si.icon;
+  const TIcon = tipo?.icon || MessageCircle;
+  return (
+    <div className="rounded-lg border border-line bg-surface p-4">
+      <div className="mb-2 flex items-start justify-between">
+        <div className="flex min-w-0 items-center gap-2"><TIcon size={18} className="shrink-0 text-muted" /><span className="truncate font-medium text-ink">{c.apelido}</span></div>
+        <button onClick={() => onExcluir(c)} title={c.origem === 'nx' ? 'Remover da Recorra (mantém no NX)' : 'Remover'} className="shrink-0 rounded p-1 text-muted hover:bg-danger-tint hover:text-danger"><Trash2 size={14} /></button>
+      </div>
+      <div className="mb-3 flex flex-wrap items-center gap-1.5 text-xs text-muted">
+        <span>{tipo?.label || c.canal}</span>
+        {c.origem === 'nx' && <span className="rounded-full bg-primary-tint px-1.5 py-0.5 font-medium text-primary">NX</span>}
+        {c.oficial === true && <span className="rounded-full bg-success-tint px-1.5 py-0.5 font-medium text-[#0F6E56]">Oficial (WABA)</span>}
+        {c.oficial === false && c.origem === 'nx' && <span className="rounded-full bg-canvas px-1.5 py-0.5 font-medium text-muted">Não oficial</span>}
+      </div>
+      <div className="flex items-center justify-between">
+        <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${si.cls}`}><SIcon size={12} className={c.status === 'CONECTANDO' ? 'animate-spin' : ''} /> {si.label}</span>
+        {tipo?.qr && c.status !== 'CONECTADO' && <button onClick={() => onQr(c)} className="text-xs font-medium text-primary hover:underline">Conectar (QR)</button>}
+      </div>
     </div>
   );
 }

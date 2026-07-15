@@ -9,9 +9,15 @@ type Creds = {
   apiUrl?: string; apiKey?: string; instance?: string; token?: string; phoneId?: string; from?: string; provider?: string;
   // HTTP genérico (API aberta)
   httpUrl?: string; httpMethod?: string; httpHeaders?: Record<string, string>; httpBodyTemplate?: string; httpMsgIdPath?: string; httpToFormat?: string;
-  // NX Systems
+  // NX Systems (conexão-base + canais importados)
   nxBaseUrl?: string; nxToken?: string; nxOficial?: boolean;
+  nxChannelId?: string; // id do canal no NX (marca conexões importadas)
+  nxType?: string | null; // "waba" (oficial) | "uazapi" | ...
+  nxName?: string | null; nxStatus?: string | null; tokenAPI?: string | null; wabaId?: string | null;
 };
+
+// Canal retornado pelo endpoint /listChannels do NX.
+interface NxCanal { id: number; name?: string | null; type?: string | null; status?: string | null; wabaId?: string | null; tokenAPI?: string | null }
 
 @Injectable()
 export class ConnectionsService {
@@ -42,8 +48,81 @@ export class ConnectionsService {
       let status = 'CONFIGURADO';
       if (r.canal === 'WHATSAPP_EVOLUTION' && c.instance) status = await this.statusEvolution(c.instance).catch(() => 'DESCONECTADO');
       if (r.canal === 'WHATSAPP_UAZAPI' && c.instance) status = await this.statusUazapi(c.instance).catch(() => 'DESCONECTADO');
-      return { id: r.id, canal: r.canal, apelido: r.apelido, ativo: r.ativo, status, instance: c.instance ?? null, createdAt: r.createdAt };
+      if (r.canal === 'NX_SYSTEMS' && c.nxStatus) status = c.nxStatus === 'CONNECTED' ? 'CONECTADO' : 'DESCONECTADO';
+      return {
+        id: r.id, canal: r.canal, apelido: r.apelido, ativo: r.ativo, status,
+        instance: c.instance ?? null, createdAt: r.createdAt,
+        // Metadados dos canais NX importados (para exibir organizado em Canais).
+        origem: c.nxChannelId ? 'nx' : undefined,
+        oficial: r.canal === 'NX_SYSTEMS' ? !!c.nxOficial : undefined,
+        nxType: c.nxType ?? undefined,
+      };
     }));
+  }
+
+  /**
+   * Importa os canais do NX (oficiais e não oficiais) como conexões na Recorra.
+   * Usa a(s) conexão(ões)-base NX (URL + token) para chamar /listChannels e faz
+   * upsert por nxChannelId. Remover na Recorra só apaga localmente; re-sincronizar traz de volta.
+   */
+  async sincronizarNx(tenantId: string) {
+    const contas = await this.prisma.channelAccount.findMany({ where: { tenantId, canal: 'NX_SYSTEMS' } });
+    const decifradas = contas.map((c) => ({ conta: c, creds: this.creds(c.id, c.credentials) }));
+    const bases = decifradas.filter((c) => c.creds.nxBaseUrl && c.creds.nxToken && !c.creds.nxChannelId);
+    if (bases.length === 0) throw new BadRequestException('Configure primeiro a integração NX (URL base + token) para sincronizar os canais.');
+
+    let importados = 0;
+    let atualizados = 0;
+    const erros: string[] = [];
+
+    for (const base of bases) {
+      const nx = axios.create({
+        baseURL: (base.creds.nxBaseUrl ?? '').replace(/\/$/, ''),
+        headers: { Authorization: `Bearer ${base.creds.nxToken}`, 'Content-Type': 'application/json' },
+        timeout: 15000,
+      });
+
+      let lista: NxCanal[] = [];
+      try {
+        const { data } = await nx.get('/listChannels');
+        lista = (data?.data ?? []) as NxCanal[];
+      } catch (e) {
+        erros.push(`listChannels (${base.conta.apelido}): ${this.axErr(e)}`);
+        continue;
+      }
+
+      for (const canal of lista) {
+        const nxChannelId = String(canal.id);
+        const oficial = (canal.type || '').toLowerCase() === 'waba';
+        const creds: Creds = {
+          nxBaseUrl: base.creds.nxBaseUrl,
+          nxToken: base.creds.nxToken,
+          nxOficial: oficial,
+          nxChannelId,
+          nxType: canal.type ?? null,
+          nxName: canal.name ?? null,
+          nxStatus: canal.status ?? null,
+          tokenAPI: canal.tokenAPI ?? null,
+          wabaId: canal.wabaId ?? null,
+        };
+        const apelido = canal.name?.trim() || `Canal NX #${canal.id}`;
+        const existente = decifradas.find((c) => c.creds.nxChannelId === nxChannelId);
+        if (existente) {
+          await this.prisma.channelAccount.update({ where: { id: existente.conta.id }, data: { apelido, credentials: this.crypto.encryptJson(creds) } });
+          atualizados++;
+        } else {
+          const criado = await this.prisma.channelAccount.create({ data: { tenantId, canal: 'NX_SYSTEMS', apelido, ativo: true, credentials: this.crypto.encryptJson(creds) } });
+          decifradas.push({ conta: criado, creds }); // evita duplicar se o NX repetir o id na mesma resposta
+          importados++;
+        }
+      }
+    }
+
+    return { importados, atualizados, erros };
+  }
+
+  private axErr(e: unknown): string {
+    return axios.isAxiosError(e) ? JSON.stringify(e.response?.data ?? e.message) : String(e);
   }
 
   // ---------- criação por tipo ----------

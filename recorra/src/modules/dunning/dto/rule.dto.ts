@@ -41,6 +41,15 @@ export class StepDto {
   templateB?: string;
 
   @IsOptional()
+  @IsString()
+  templateName?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  templateParams?: string[];
+
+  @IsOptional()
   @IsBoolean()
   abTest?: boolean;
 

@@ -491,6 +491,8 @@ model DunningStep {
   template       String
   templateB      String?
   abTest         Boolean       @default(false)
+  templateName   String?       // nome do template aprovado (envio oficial via NX/Meta)
+  templateParams String[]      @default([]) // variáveis Recorra que preenchem {{1}}, {{2}}...
   condicoes      Json?
   ativo          Boolean       @default(true)
 
@@ -511,6 +513,8 @@ model MessageDispatch {
   cadeiaCanais      ChannelType[]  @default([])
   template          String?
   conteudo          String?
+  templateName      String?        // template aprovado a enviar (canal oficial)
+  templateParams    String[]       @default([]) // parâmetros já resolvidos p/ este cliente
   variante          String?
   tentativaFallback Int            @default(0)
   status            DispatchStatus @default(FILA)

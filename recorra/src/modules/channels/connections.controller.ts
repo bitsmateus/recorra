@@ -28,6 +28,13 @@ export class ConnectionsController {
     return this.connections.testar(dto);
   }
 
+  /** Importa/atualiza os canais do NX (oficiais e não oficiais) como conexões na Recorra. */
+  @Post('sincronizar-nx')
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
+  sincronizarNx(@TenantId() tenantId: string) {
+    return this.connections.sincronizarNx(tenantId);
+  }
+
   @Get(':id/qrcode')
   qrcode(@TenantId() tenantId: string, @Param('id') id: string) {
     return this.connections.qrcode(tenantId, id);
