@@ -15,8 +15,11 @@ export class PaymentProviderFactory {
     private readonly crypto: CryptoService,
   ) {}
 
-  async forAccount(accountId: string): Promise<PaymentProvider> {
-    const account = await this.prisma.paymentProviderAccount.findUnique({ where: { id: accountId } });
+  async forAccount(accountId: string, tenantId?: string): Promise<PaymentProvider> {
+    // Quando tenantId é informado, escopa a busca (valida posse antes de decifrar credenciais).
+    const account = await this.prisma.paymentProviderAccount.findFirst({
+      where: tenantId ? { id: accountId, tenantId } : { id: accountId },
+    });
     if (!account || !account.ativo) throw new BadRequestException('Conta de gateway invalida');
 
     const creds = this.crypto.decryptJson<ProviderCredentials>(account.credentials);

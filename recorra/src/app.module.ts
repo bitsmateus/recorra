@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { LoggerModule } from 'nestjs-pino';
+import { env } from '@/config/env';
 import { PrismaModule } from '@/common/prisma/prisma.module';
 import { AuthModule } from '@/modules/auth/auth.module';
 import { MailModule } from '@/common/mail/mail.module';
@@ -28,6 +30,30 @@ import { HealthController } from '@/health.controller';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    // Logs estruturados (JSON) com mascaramento de PII/segredos (LGPD).
+    LoggerModule.forRoot({
+      pinoHttp: {
+        level: env.LOG_LEVEL,
+        redact: {
+          paths: [
+            'req.headers.authorization',
+            'req.headers.cookie',
+            'req.headers["x-api-key"]',
+            'req.body.senha',
+            'req.body.password',
+            'req.body.token',
+            'req.body.refreshToken',
+            'req.body.codigo',
+            'req.body.credentials',
+            '*.senhaHash',
+            '*.credentials',
+            '*.twoFaSecret',
+            '*.apiKey',
+          ],
+          censor: '[REDACTED]',
+        },
+      },
+    }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
     PrismaModule,
     MailModule,

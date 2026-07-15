@@ -4,13 +4,16 @@ import { ValidationPipe, Logger } from '@nestjs/common';
 import helmet from 'helmet';
 import { json, urlencoded } from 'express';
 import type { Request } from 'express';
+import { Logger as PinoLogger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 import { env } from '@/config/env';
 import { initSentry } from '@/config/observability';
 
 async function bootstrap() {
   initSentry();
-  const app = await NestFactory.create(AppModule, { bufferLogs: false, bodyParser: false });
+  const app = await NestFactory.create(AppModule, { bufferLogs: true, bodyParser: false });
+  // Logger estruturado (pino) com masking de PII.
+  app.useLogger(app.get(PinoLogger));
 
   app.use(
     json({

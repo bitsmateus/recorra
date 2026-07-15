@@ -1,9 +1,11 @@
 import { ForbiddenException, Injectable, NotFoundException , BadRequestException } from '@nestjs/common';
 import { ChargeMethod, InvoiceStatus } from '@prisma/client';
 import { PrismaService } from '@/common/prisma/prisma.service';
+import { AuditService } from '@/common/audit/audit.service';
 import { PaymentProviderFactory } from './payment-provider.factory';
 import { SplitRuleInput } from './payment-provider.interface';
 import { computeSplit } from './split';
+import { canTransition } from './invoice-status';
 import { featureEnabled, PlanTier, Feature } from '@/modules/platform/plans';
 import { onlyDigits } from "@/common/util/normalize";
 import * as XLSX from 'xlsx';
@@ -13,6 +15,7 @@ export class ChargesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly factory: PaymentProviderFactory,
+    private readonly audit: AuditService,
   ) {}
 
   async gerarCobranca(
@@ -22,6 +25,7 @@ export class ChargesService {
     metodo: ChargeMethod = 'PIX',
     splits?: SplitRuleInput[],
     origem = 'avulsa',
+    actorId?: string,
   ) {
     const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
     const flags = (tenant.featureFlags as Partial<Record<Feature, boolean>>) ?? undefined;
@@ -35,7 +39,11 @@ export class ChargesService {
     });
     if (!invoice) throw new NotFoundException('Fatura nao encontrada');
 
-    const provider = await this.factory.forAccount(accountId);
+    // Valida posse da conta de gateway pelo tenant (impede usar credenciais de outro tenant — IDOR).
+    const account = await this.prisma.paymentProviderAccount.findFirst({ where: { id: accountId, tenantId } });
+    if (!account) throw new NotFoundException('Conta de gateway nao encontrada');
+
+    const provider = await this.factory.forAccount(accountId, tenantId);
     const result = await provider.createCharge({
       customer: {
         nome: invoice.customer.nome,
@@ -51,10 +59,9 @@ export class ChargesService {
       splits,
     });
 
-    const account = await this.prisma.paymentProviderAccount.findUniqueOrThrow({ where: { id: accountId } });
     const splitCalc = splits?.length ? computeSplit(Number(invoice.valor), splits) : undefined;
 
-    return this.prisma.invoice.update({
+    const upd = await this.prisma.invoice.update({
       where: { id: invoice.id },
       data: {
         providerAccountId: accountId,
@@ -69,6 +76,11 @@ export class ChargesService {
         origem,
       },
     });
+    await this.audit.record({
+      tenantId, userId: actorId, acao: 'invoice.charge.generate', entidade: 'Invoice', entidadeId: invoice.id,
+      depois: { provider: account.provider, accountId, metodo, valor: Number(invoice.valor), externalId: result.externalId, origem },
+    });
+    return upd;
   }
 
   /** Cria uma fatura avulsa para o cliente e, se accountId for informado, ja gera o Pix. */
@@ -203,8 +215,9 @@ export class ChargesService {
       const detail = e?.response?.data
         ? JSON.stringify(e.response.data)
         : e?.message || String(e);
+      // Detalhe do upstream fica só no log do servidor; o cliente recebe mensagem genérica.
       console.error("[importarDoGateway] falhou:", detail, e?.stack);
-      throw new BadRequestException(`Falha ao importar do gateway: ${detail}`);
+      throw new BadRequestException("Falha ao importar do gateway. Verifique as credenciais e tente novamente.");
     }
   }
 
@@ -263,15 +276,35 @@ export class ChargesService {
     tenantId: string,
     id: string,
     dto: { valor?: number; vencimento?: string; descricao?: string; status?: string },
+    actorId?: string,
   ) {
     const inv = await this.prisma.invoice.findFirst({ where: { id, tenantId } });
     if (!inv) throw new NotFoundException('Fatura nao encontrada');
     const data: any = {};
-    if (dto.valor != null) data.valor = Number(dto.valor);
+    if (dto.valor != null) {
+      const valor = Number(dto.valor);
+      if (!(valor > 0)) throw new BadRequestException('Valor invalido');
+      // Não permite alterar o valor depois que a cobrança já foi emitida no gateway
+      // (evita divergência Recorra × gateway).
+      if (inv.externalId) throw new BadRequestException('Fatura ja emitida no gateway: valor nao pode ser alterado. Cancele e gere uma nova.');
+      data.valor = valor;
+    }
     if (dto.vencimento) data.vencimento = new Date(dto.vencimento);
     if (dto.descricao !== undefined) data.descricao = dto.descricao || null;
-    if (dto.status) data.status = dto.status;
-    return this.prisma.invoice.update({ where: { id }, data });
+    if (dto.status && dto.status !== inv.status) {
+      // Valida a transição de estado (bloqueia CANCELADA→PAGA, PAGA→PENDENTE, etc.).
+      if (!canTransition(inv.status, dto.status as InvoiceStatus)) {
+        throw new BadRequestException(`Transicao de status invalida: ${inv.status} → ${dto.status}`);
+      }
+      data.status = dto.status;
+    }
+    const upd = await this.prisma.invoice.update({ where: { id }, data });
+    await this.audit.record({
+      tenantId, userId: actorId, acao: 'invoice.update', entidade: 'Invoice', entidadeId: id,
+      antes: { status: inv.status, valor: Number(inv.valor) },
+      depois: { status: upd.status, valor: Number(upd.valor) },
+    });
+    return upd;
   }
 
   /** Gera um arquivo .xlsx modelo para importacao de cobrancas. */
@@ -299,7 +332,7 @@ export class ChargesService {
    *  - 'ambos':   cancela no gateway e apaga o registro local.
    *  - 'gateway': cancela no gateway e mantem o registro local (status CANCELADA).
    */
-  async removeInvoice(tenantId: string, id: string, escopo: 'recorra' | 'ambos' | 'gateway' = 'recorra') {
+  async removeInvoice(tenantId: string, id: string, escopo: 'recorra' | 'ambos' | 'gateway' = 'recorra', actorId?: string) {
     const inv = await this.prisma.invoice.findFirst({ where: { id, tenantId } });
     if (!inv) throw new NotFoundException('Fatura nao encontrada');
 
@@ -316,7 +349,8 @@ export class ChargesService {
           gatewayMsg = 'Cobranca cancelada no gateway.';
         } catch (e: any) {
           const detail = e?.response?.data ? JSON.stringify(e.response.data) : e?.message || String(e);
-          throw new BadRequestException(`Nao foi possivel cancelar no gateway: ${detail}`);
+          console.error('[removeInvoice] cancelamento no gateway falhou:', detail);
+          throw new BadRequestException('Nao foi possivel cancelar a cobranca no gateway.');
         }
       }
     }
@@ -326,10 +360,18 @@ export class ChargesService {
         where: { id },
         data: { status: 'CANCELADA', pixCopiaCola: null, boletoLinha: null, boletoUrl: null, linkPagamento: null },
       });
+      await this.audit.record({
+        tenantId, userId: actorId, acao: 'invoice.cancel', entidade: 'Invoice', entidadeId: id,
+        antes: { status: inv.status }, depois: { status: 'CANCELADA', escopo },
+      });
       return { ok: true, escopo, mantidoNoRecorra: true, invoice: upd, mensagem: gatewayMsg };
     }
 
     await this.prisma.invoice.delete({ where: { id } });
+    await this.audit.record({
+      tenantId, userId: actorId, acao: 'invoice.delete', entidade: 'Invoice', entidadeId: id,
+      antes: { status: inv.status, valor: Number(inv.valor), escopo },
+    });
     return { ok: true, escopo, mantidoNoRecorra: false, mensagem: gatewayMsg };
   }
 }

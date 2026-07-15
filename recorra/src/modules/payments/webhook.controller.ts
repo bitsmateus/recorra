@@ -27,8 +27,9 @@ export class WebhookController {
     const parsed = provider.parseWebhook(headers, body, req.rawBody);
 
     if (!parsed.valid) {
-      this.logger.warn(`Webhook com assinatura invalida para conta ${accountId}`);
-      return { ok: false };
+      // Assinatura ausente/inválida: NÃO confiamos no corpo, mas ainda reconfirmamos
+      // o status na API do provedor (autoritativo) — impede forjar "pago".
+      this.logger.warn(`Webhook sem assinatura valida para conta ${accountId} — sera reconfirmado via API`);
     }
 
     const existing = await this.prisma.webhookEvent.findUnique({
@@ -43,25 +44,37 @@ export class WebhookController {
         provider: account.provider,
         tipo: parsed.eventType,
         payload: body as object,
-        assinaturaOk: true,
+        assinaturaOk: parsed.valid,
         idempotencyKey: parsed.idempotencyKey,
       },
       update: {},
     });
 
-    let status = parsed.status;
-    let pagoEm = parsed.pagoEm;
-    if (parsed.externalId && !status) {
-      try {
-        const consulta = await provider.getChargeStatus(parsed.externalId);
-        status = consulta.status;
-        pagoEm = consulta.pagoEm;
-      } catch {
-        // se falhar a consulta, encerra sem marcar
-      }
+    // Claim atômico: só UM request transiciona processadoEm de null→agora.
+    // Impede que webhooks concorrentes idênticos processem em duplicidade
+    // (ex.: 2ª via da mensagem de confirmação). A reconciliação (polling) é a
+    // rede de segurança caso o processamento falhe após o claim.
+    const claim = await this.prisma.webhookEvent.updateMany({
+      where: { idempotencyKey: parsed.idempotencyKey, processadoEm: null },
+      data: { processadoEm: new Date() },
+    });
+    if (claim.count === 0) return { ok: true };
+
+    // SEMPRE reconfirma o status na API do provedor. Nunca confia no status do
+    // corpo do webhook — essa é a barreira contra webhooks de pagamento forjados.
+    if (!parsed.externalId) return { ok: true };
+    let status: string | undefined;
+    let pagoEm: Date | undefined;
+    try {
+      const consulta = await provider.getChargeStatus(parsed.externalId);
+      status = consulta.status;
+      pagoEm = consulta.pagoEm;
+    } catch {
+      // se falhar a consulta, encerra sem marcar (não confia no corpo)
+      return { ok: false };
     }
 
-    if (parsed.externalId && status === 'PAGA') {
+    if (status === 'PAGA') {
       const invoice = await this.prisma.invoice.findFirst({
         where: { tenantId: account.tenantId, provider: account.provider, externalId: parsed.externalId },
         include: { customer: true },
@@ -93,11 +106,7 @@ export class WebhookController {
       }
     }
 
-    await this.prisma.webhookEvent.update({
-      where: { idempotencyKey: parsed.idempotencyKey },
-      data: { processadoEm: new Date() },
-    });
-
+    // processadoEm já foi setado atomicamente no claim acima.
     return { ok: true };
   }
 }

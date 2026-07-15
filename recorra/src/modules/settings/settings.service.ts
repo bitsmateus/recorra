@@ -43,7 +43,7 @@ export class SettingsService {
   async testIntegration(tenantId: string, id: string) {
     const integ = await this.prisma.sourceIntegration.findFirstOrThrow({ where: { id, tenantId } });
     try {
-      const connector = await this.connectors.forIntegration(integ.id);
+      const connector = await this.connectors.forIntegration(integ.id, tenantId);
       const ok = await connector.testConnection();
       await this.prisma.sourceIntegration.update({ where: { id }, data: { status: ok ? 'ok' : 'falha' } });
       return { ok };

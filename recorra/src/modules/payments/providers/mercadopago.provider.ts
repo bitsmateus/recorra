@@ -82,7 +82,8 @@ export class MercadoPagoProvider implements PaymentProvider {
     const paymentId = evt.data?.id ? String(evt.data.id) : undefined;
     const xSig = headers['x-signature'] ?? '';
     const reqId = headers['x-request-id'] ?? '';
-    const valid = this.webhookSecret ? verifyMercadoPagoSignature(xSig, reqId, paymentId ?? '', this.webhookSecret) : true;
+    // Fail-closed: sem webhookSecret configurado, o webhook não é confiável.
+    const valid = !!this.webhookSecret && verifyMercadoPagoSignature(xSig, reqId, paymentId ?? '', this.webhookSecret);
     return {
       valid,
       eventType: evt.type ?? evt.action ?? 'payment',

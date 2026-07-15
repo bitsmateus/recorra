@@ -3,6 +3,8 @@ import { ChannelType } from '@prisma/client';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { CryptoService } from '@/common/crypto/crypto.service';
 import { MessageChannel, ChannelCredentials } from './message-channel.interface';
+import { verifyInboundSignature } from '@/modules/inbox/inbound-signature';
+import { ChannelAccount } from '@prisma/client';
 import { WhatsAppCloudChannel } from './providers/whatsapp-cloud.channel';
 import { WhatsAppEvolutionChannel } from './providers/whatsapp-evolution.channel';
 import { WhatsAppUazapiChannel } from './providers/whatsapp-uazapi.channel';
@@ -30,6 +32,17 @@ export class ChannelFactory {
     if (!account) throw new BadRequestException(`Nenhuma conta ativa para o canal ${canal}`);
     const creds = this.crypto.decryptJson<ChannelCredentials>(account.credentials);
     return this.build(account.canal, creds);
+  }
+
+  /**
+   * Valida um webhook de ENTRADA (inbound) e, se autêntico, retorna a conta.
+   * Retorna null se a conta não existe/está inativa ou a assinatura é inválida.
+   */
+  async verifyInbound(accountId: string, headers: Record<string, string>, rawBody: string): Promise<ChannelAccount | null> {
+    const account = await this.prisma.channelAccount.findUnique({ where: { id: accountId } });
+    if (!account || !account.ativo) return null;
+    const creds = this.crypto.decryptJson<ChannelCredentials>(account.credentials);
+    return verifyInboundSignature(account.canal, creds, headers, rawBody) ? account : null;
   }
 
   build(canal: ChannelType, creds: ChannelCredentials): MessageChannel {

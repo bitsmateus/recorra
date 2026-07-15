@@ -54,9 +54,20 @@ export class InboxService {
    * Processa uma mensagem recebida do cliente: registra na conversa e aciona
    * o chatbot de negociação (auto-resposta + ações).
    */
-  async handleInbound(accountId: string, from: string, texto: string) {
-    const account = await this.prisma.channelAccount.findUnique({ where: { id: accountId } });
-    if (!account) return { ok: true };
+  async handleInbound(
+    accountId: string,
+    from: string,
+    texto: string,
+    headers: Record<string, string> = {},
+    rawBody = '',
+  ) {
+    // Fail-closed: só processa se o webhook for comprovadamente do provedor
+    // configurado para a conta (evita injeção/spoofing de mensagens — R-06).
+    const account = await this.channels.verifyInbound(accountId, headers, rawBody);
+    if (!account) {
+      this.logger.warn(`Inbound rejeitado (conta inexistente ou assinatura invalida): ${accountId}`);
+      return { ok: false };
+    }
     const tenantId = account.tenantId;
     const contato = normalizePhoneBR(from) ?? from;
 

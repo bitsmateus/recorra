@@ -13,10 +13,15 @@ export interface GoogleProfile {
  * audiência (GOOGLE_CLIENT_ID). Retorna o perfil ou lança erro.
  */
 export async function verifyGoogleIdToken(idToken: string): Promise<GoogleProfile> {
+  // Sem GOOGLE_CLIENT_ID não há como validar a audiência — recusa o login por
+  // segurança (evita aceitar id_token emitido para outro app).
+  if (!env.GOOGLE_CLIENT_ID) {
+    throw new Error('Login com Google indisponível: GOOGLE_CLIENT_ID não configurado');
+  }
   const { data } = await axios.get('https://oauth2.googleapis.com/tokeninfo', {
     params: { id_token: idToken },
   });
-  if (env.GOOGLE_CLIENT_ID && data.aud !== env.GOOGLE_CLIENT_ID) {
+  if (data.aud !== env.GOOGLE_CLIENT_ID) {
     throw new Error('Audiência do token Google inválida');
   }
   return {

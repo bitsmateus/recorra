@@ -3,7 +3,8 @@ import { ChargeMethod } from '@prisma/client';
 import { JwtAuthGuard } from '@/common/auth/jwt-auth.guard';
 import { RolesGuard } from '@/common/auth/roles.guard';
 import { Roles } from '@/common/auth/roles.decorator';
-import { TenantId } from '@/common/auth/current-user.decorator';
+import { TenantId, CurrentUser } from '@/common/auth/current-user.decorator';
+import { AuthUser } from '@/common/auth/jwt.types';
 import { ChargesService } from './charges.service';
 import { ReconciliationService } from './reconciliation.service';
 import { SplitRuleInput } from './payment-provider.interface';
@@ -44,35 +45,38 @@ export class ChargesController {
   @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
   editar(
     @TenantId() tenantId: string,
+    @CurrentUser() actor: AuthUser,
     @Param('invoiceId') invoiceId: string,
     @Body('valor') valor?: number,
     @Body('vencimento') vencimento?: string,
     @Body('descricao') descricao?: string,
     @Body('status') status?: string,
   ) {
-    return this.charges.updateInvoice(tenantId, invoiceId, { valor, vencimento, descricao, status });
+    return this.charges.updateInvoice(tenantId, invoiceId, { valor, vencimento, descricao, status }, actor.id);
   }
 
   @Delete(':invoiceId')
   @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
   excluir(
     @TenantId() tenantId: string,
+    @CurrentUser() actor: AuthUser,
     @Param('invoiceId') invoiceId: string,
     @Query('escopo') escopo?: 'recorra' | 'ambos' | 'gateway',
   ) {
-    return this.charges.removeInvoice(tenantId, invoiceId, escopo ?? 'recorra');
+    return this.charges.removeInvoice(tenantId, invoiceId, escopo ?? 'recorra', actor.id);
   }
 
   @Post(':invoiceId/gerar')
   @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
   gerar(
     @TenantId() tenantId: string,
+    @CurrentUser() actor: AuthUser,
     @Param('invoiceId') invoiceId: string,
     @Body('accountId') accountId: string,
     @Body('metodo') metodo: ChargeMethod = 'PIX',
     @Body('splits') splits?: SplitRuleInput[],
   ) {
-    return this.charges.gerarCobranca(tenantId, invoiceId, accountId, metodo, splits);
+    return this.charges.gerarCobranca(tenantId, invoiceId, accountId, metodo, splits, 'avulsa', actor.id);
   }
 
   @Post(':invoiceId/contestar')

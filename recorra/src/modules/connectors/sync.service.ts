@@ -28,8 +28,9 @@ export class SyncService {
   }
 
   async syncCustomers(tenantId: string, integrationId: string): Promise<number> {
-    const integ = await this.prisma.sourceIntegration.findUniqueOrThrow({ where: { id: integrationId } });
-    const connector = await this.connectors.forIntegration(integrationId);
+    // Escopo por tenant: impede sincronizar integração de outro tenant (IDOR).
+    const integ = await this.prisma.sourceIntegration.findFirstOrThrow({ where: { id: integrationId, tenantId } });
+    const connector = await this.connectors.forIntegration(integrationId, tenantId);
     const log = await this.prisma.syncLog.create({
       data: { tenantId, integrationId, tipo: 'CLIENTES' },
     });
@@ -78,8 +79,9 @@ export class SyncService {
   }
 
   async syncInvoices(tenantId: string, integrationId: string): Promise<number> {
-    const integ = await this.prisma.sourceIntegration.findUniqueOrThrow({ where: { id: integrationId } });
-    const connector = await this.connectors.forIntegration(integrationId);
+    // Escopo por tenant: impede sincronizar integração de outro tenant (IDOR).
+    const integ = await this.prisma.sourceIntegration.findFirstOrThrow({ where: { id: integrationId, tenantId } });
+    const connector = await this.connectors.forIntegration(integrationId, tenantId);
     const log = await this.prisma.syncLog.create({
       data: { tenantId, integrationId, tipo: 'FATURAS' },
     });

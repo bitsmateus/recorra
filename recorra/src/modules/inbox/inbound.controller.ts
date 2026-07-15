@@ -1,4 +1,5 @@
-import { Body, Controller, HttpCode, Param, Post } from '@nestjs/common';
+import { Body, Controller, Headers, HttpCode, Param, Post, Req } from '@nestjs/common';
+import { Request } from 'express';
 import { InboxService } from './inbox.service';
 
 /**
@@ -13,10 +14,15 @@ export class InboundController {
 
   @Post(':accountId')
   @HttpCode(200)
-  async receive(@Param('accountId') accountId: string, @Body() body: any) {
+  async receive(
+    @Param('accountId') accountId: string,
+    @Headers() headers: Record<string, string>,
+    @Body() body: any,
+    @Req() req: Request & { rawBody?: string },
+  ) {
     const parsed = this.parse(body);
     if (!parsed) return { ok: true };
-    return this.inbox.handleInbound(accountId, parsed.from, parsed.text);
+    return this.inbox.handleInbound(accountId, parsed.from, parsed.text, headers, req.rawBody ?? '');
   }
 
   /** Extrai { from, text } dos diferentes formatos de payload. */

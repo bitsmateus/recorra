@@ -1,4 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
+import { safeHttpAgents } from '@/common/net/safe-http';
 import {
   SourceConnector,
   SourceCustomer,
@@ -19,6 +20,7 @@ export class MkAuthConnector implements SourceConnector {
 
   constructor(creds: SourceCredentials) {
     this.http = axios.create({
+      ...safeHttpAgents(),
       baseURL: creds.urlBase.replace(/\/$/, '') + '/api',
       headers: { Authorization: `Bearer ${creds.token}`, 'Content-Type': 'application/json' },
       timeout: 20000,

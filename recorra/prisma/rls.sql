@@ -1,5 +1,11 @@
 -- ============================================================
--- Row-Level Security (RLS) — SEGUNDA barreira de isolamento por tenant.
+-- Row-Level Security (RLS) — policy PERMISSIVA (interim/dev).
+--
+-- ⚠️ IMPORTANTE (R-03): esta policy NÃO protege sozinha — enquanto
+-- `app.current_tenant` não é definido, ela LIBERA tudo. Para a 2ª barreira
+-- valer de fato, ative `RLS_ENFORCED=true` na API e aplique a policy ESTRITA
+-- em `prisma/rls-strict.sql`. Esta versão fica como fallback/dev.
+--
 -- A PRIMEIRA barreira é sempre o `where tenantId` na aplicação.
 -- Rode após `prisma migrate deploy`:  psql "$DATABASE_URL" -f prisma/rls.sql
 --

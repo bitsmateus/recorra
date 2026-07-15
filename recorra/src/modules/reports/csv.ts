@@ -1,7 +1,10 @@
 /** Geração de CSV para exportação — pura e testável. */
 
 function escapeCell(v: unknown): string {
-  const s = v === null || v === undefined ? '' : String(v);
+  let s = v === null || v === undefined ? '' : String(v);
+  // Anti CSV/Formula injection: neutraliza células que o Excel/Sheets
+  // interpretaria como fórmula (=, +, -, @, tab, CR) prefixando com apóstrofo.
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
   if (/[",;\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
   return s;
 }

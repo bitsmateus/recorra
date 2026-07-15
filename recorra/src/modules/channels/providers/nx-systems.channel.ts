@@ -1,4 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
+import { safeHttpAgents } from '@/common/net/safe-http';
 import { randomUUID } from 'node:crypto';
 import {
   MessageChannel,
@@ -28,6 +29,7 @@ export class NxSystemsChannel implements MessageChannel {
   constructor(creds: ChannelCredentials) {
     this.oficial = creds.nxOficial === true;
     this.http = axios.create({
+      ...safeHttpAgents(),
       baseURL: (creds.nxBaseUrl ?? '').replace(/\/$/, ''),
       headers: { Authorization: `Bearer ${creds.nxToken ?? ''}`, 'Content-Type': 'application/json' },
       timeout: 15000,

@@ -87,11 +87,14 @@ export class EfiProvider implements PaymentProvider {
   parseWebhook(_headers: Record<string, string>, body: unknown): WebhookParseResult {
     const evt = body as { pix?: { txid?: string; horario?: string }[] };
     const pix = evt.pix?.[0];
+    // O webhook Pix da Efí é protegido por mTLS no transporte, não por assinatura
+    // no corpo — não dá para validar aqui. Marcamos como NÃO confiável e o
+    // controller SEMPRE reconfirma o status via getChargeStatus (autoritativo).
     return {
-      valid: true,
+      valid: false,
       eventType: 'pix',
       externalId: pix?.txid,
-      status: pix ? 'PAGA' : undefined,
+      status: undefined,
       pagoEm: pix?.horario ? new Date(pix.horario) : undefined,
       idempotencyKey: `efi:pix:${pix?.txid}:${pix?.horario}`,
     };

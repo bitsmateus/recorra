@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@/common/prisma/prisma.service';
+import { AuditService } from '@/common/audit/audit.service';
 import { valorComDesconto, buildInstallments } from './agreement';
 
 interface CreateAgreementDto {
@@ -18,7 +19,13 @@ interface CreateAgreementDto {
  */
 @Injectable()
 export class AgreementsService {
-  constructor(private readonly prisma: PrismaService) {}
+  /** Teto de desconto permitido em acordo (proteção contra perdão total acidental/malicioso). */
+  private static readonly MAX_DESCONTO_PCT = 50;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   list(tenantId: string) {
     return this.prisma.agreement.findMany({
@@ -37,9 +44,13 @@ export class AgreementsService {
     return a;
   }
 
-  async create(tenantId: string, dto: CreateAgreementDto) {
+  async create(tenantId: string, dto: CreateAgreementDto, actorId?: string) {
     if (!dto.faturaIds?.length) throw new BadRequestException('Informe as faturas a renegociar');
     if (dto.parcelas < 1) throw new BadRequestException('Número de parcelas inválido');
+    const desconto = dto.descontoPct ?? 0;
+    if (desconto < 0 || desconto > AgreementsService.MAX_DESCONTO_PCT) {
+      throw new BadRequestException(`Desconto inválido: deve ser entre 0% e ${AgreementsService.MAX_DESCONTO_PCT}%.`);
+    }
 
     const faturas = await this.prisma.invoice.findMany({
       where: { tenantId, id: { in: dto.faturaIds }, customerId: dto.customerId },
@@ -53,7 +64,7 @@ export class AgreementsService {
     const parcelas = buildInstallments(valorAcordado, dto.parcelas, primeira);
 
     // Transação: cria acordo + parcelas + faturas novas; cancela as originais.
-    return this.prisma.$transaction(async (tx) => {
+    const criado = await this.prisma.$transaction(async (tx) => {
       const agreement = await tx.agreement.create({
         data: {
           tenantId,
@@ -95,11 +106,21 @@ export class AgreementsService {
         include: { installments: { orderBy: { numero: 'asc' } } },
       });
     });
+
+    await this.audit.record({
+      tenantId, userId: actorId, acao: 'agreement.create', entidade: 'Agreement', entidadeId: criado.id,
+      depois: { valorOriginal, descontoPct, valorAcordado, parcelas: dto.parcelas, faturasOrigem: dto.faturaIds },
+    });
+    return criado;
   }
 
-  async cancel(tenantId: string, id: string) {
+  async cancel(tenantId: string, id: string, actorId?: string) {
     await this.get(tenantId, id);
     await this.prisma.agreement.update({ where: { id }, data: { status: 'CANCELADO' } });
+    await this.audit.record({
+      tenantId, userId: actorId, acao: 'agreement.cancel', entidade: 'Agreement', entidadeId: id,
+      depois: { status: 'CANCELADO' },
+    });
     return { ok: true };
   }
 

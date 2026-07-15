@@ -1,4 +1,5 @@
 import axios, { AxiosInstance, Method } from 'axios';
+import { safeHttpAgents } from '@/common/net/safe-http';
 import {
   MessageChannel,
   SendMessageInput,
@@ -29,7 +30,7 @@ export class HttpGenericChannel implements MessageChannel {
 
   constructor(creds: ChannelCredentials) {
     this.creds = creds;
-    this.http = axios.create({ timeout: 15000 });
+    this.http = axios.create({ ...safeHttpAgents(), timeout: 15000 });
   }
 
   /** Normaliza o destinatário conforme o formato esperado pelo sistema externo. */

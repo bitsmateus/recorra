@@ -6,6 +6,7 @@ import {
   SourceCredentials,
 } from '../source-connector.interface';
 import { onlyDigits } from '@/common/util/normalize';
+import { safeHttpAgents } from '@/common/net/safe-http';
 
 /**
  * Conector IXC Soft.
@@ -24,6 +25,7 @@ export class IxcConnector implements SourceConnector {
 
   constructor(creds: SourceCredentials) {
     this.http = axios.create({
+      ...safeHttpAgents(),
       baseURL: creds.urlBase.replace(/\/$/, '') + '/webservice/v1',
       headers: {
         // IXC: Authorization Basic base64(token:) — token no usuário, senha vazia.

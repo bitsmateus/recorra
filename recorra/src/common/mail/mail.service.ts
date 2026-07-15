@@ -13,7 +13,13 @@ export class MailService {
 
   async send(to: string, subject: string, html: string): Promise<void> {
     if (!env.RESEND_API_KEY) {
-      this.logger.warn(`[DEV] E-mail para ${to} — "${subject}"\n${html}`);
+      // NUNCA logar o corpo/token — em produção isso permitiria account takeover
+      // por quem tem acesso a logs. Em produção, exigir provedor de e-mail.
+      if (env.NODE_ENV === 'production') {
+        this.logger.error(`RESEND_API_KEY ausente: e-mail para ${to} ("${subject}") NÃO enviado.`);
+        throw new Error('Provedor de e-mail não configurado');
+      }
+      this.logger.warn(`[DEV] E-mail para ${to} — "${subject}" (corpo/token omitidos do log)`);
       return;
     }
     await axios.post(

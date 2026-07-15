@@ -1,4 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
+import { safeHttpAgents } from '@/common/net/safe-http';
 import {
   MessageChannel,
   SendMessageInput,
@@ -18,6 +19,7 @@ export class WhatsAppEvolutionChannel implements MessageChannel {
 
   constructor(creds: ChannelCredentials) {
     this.http = axios.create({
+      ...safeHttpAgents(),
       baseURL: (creds.apiUrl ?? '').replace(/\/$/, ''),
       headers: { apikey: creds.apiKey ?? '', 'Content-Type': 'application/json' },
       timeout: 15000,

@@ -1,4 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
+import { safeHttpAgents } from '@/common/net/safe-http';
 import {
   SourceConnector,
   SourceCustomer,
@@ -22,6 +23,7 @@ export class HubsoftConnector implements SourceConnector {
   constructor(creds: SourceCredentials) {
     this.creds = creds;
     this.http = axios.create({
+      ...safeHttpAgents(),
       baseURL: creds.urlBase.replace(/\/$/, ''),
       timeout: 20000,
     });

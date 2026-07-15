@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import * as XLSX from 'xlsx';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { onlyDigits, parseMoney } from '@/common/util/normalize';
@@ -12,7 +12,23 @@ export interface ImportResult {
 
 @Injectable()
 export class ImportService {
+  private static readonly MAX_UPLOAD_BYTES = 15 * 1024 * 1024; // 15 MB
+  private static readonly MAX_ROWS = 50_000;
+
   constructor(private readonly prisma: PrismaService) {}
+
+  /** Barra uploads grandes demais (mitiga DoS/ReDoS no parser de planilha). */
+  private assertUploadSize(buf: Buffer) {
+    if (buf.length > ImportService.MAX_UPLOAD_BYTES) {
+      throw new BadRequestException('Arquivo muito grande (limite de 15 MB).');
+    }
+  }
+
+  private assertRowCount(len: number) {
+    if (len > ImportService.MAX_ROWS) {
+      throw new BadRequestException(`Planilha com linhas demais (limite de ${ImportService.MAX_ROWS}).`);
+    }
+  }
 
   async importCsv(tenantId: string, csv: string): Promise<ImportResult> {
     const linhas = (csv ?? '').split(/\r?\n/).filter((l) => l.trim().length > 0);
@@ -24,9 +40,11 @@ export class ImportService {
 
   async importXlsx(tenantId: string, base64: string): Promise<ImportResult> {
     const buf = Buffer.from(base64.replace(/^data:.*;base64,/, ''), 'base64');
+    this.assertUploadSize(buf);
     const wb = XLSX.read(buf, { type: 'buffer' });
     const sheet = wb.Sheets[wb.SheetNames[0]];
     const matrix: string[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' });
+    this.assertRowCount(matrix.length);
     if (matrix.length < 2) return { clientes: 0, faturas: 0, erros: [] };
     const header = matrix[0].map((h) => String(h).trim().toLowerCase());
     return this.processRows(tenantId, header, matrix.slice(1));
@@ -114,9 +132,11 @@ export class ImportService {
   private lerArquivo(data: string): { header: string[]; rows: string[][] } {
     const raw = data.replace(/^data:.*;base64,/, '');
     const buf = Buffer.from(raw, 'base64');
+    this.assertUploadSize(buf);
     const wb = XLSX.read(buf, { type: 'buffer', codepage: 65001 });
     const sheet = wb.Sheets[wb.SheetNames[0]];
     const matrix: string[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' });
+    this.assertRowCount(matrix.length);
     if (!matrix.length) return { header: [], rows: [] };
     const header = matrix[0].map((h) => String(h ?? '').trim());
     const rows = matrix.slice(1).map((r) => r.map((c) => String(c ?? '')));

@@ -10,6 +10,7 @@ import {
   ImportedCustomer,
   ImportedPayment,
 } from '../payment-provider.interface';
+import { safeEqual } from '@/common/auth/tokens';
 
 export class AsaasProvider implements PaymentProvider {
   readonly type = 'ASAAS';
@@ -117,16 +118,18 @@ export class AsaasProvider implements PaymentProvider {
   }
 
   parseWebhook(headers: Record<string, string>, body: unknown): WebhookParseResult {
-    const token = headers['asaas-access-token'] ?? headers['Asaas-Access-Token'];
-    const valid = !this.webhookToken || token === this.webhookToken;
+    const token = headers['asaas-access-token'] ?? headers['Asaas-Access-Token'] ?? '';
+    // Fail-closed: sem webhookToken configurado, o webhook não é confiável.
+    // Comparação em tempo constante (evita timing attack).
+    const valid = !!this.webhookToken && safeEqual(token, this.webhookToken);
     const evt = body as { event?: string; payment?: { id?: string; status?: string; paymentDate?: string } };
-    const status = evt.payment?.status ? this.normalizeStatus(evt.payment.status) : undefined;
 
     return {
       valid,
       eventType: evt.event ?? 'UNKNOWN',
       externalId: evt.payment?.id,
-      status,
+      // Não confiamos no status do corpo — o controller reconfirma via API.
+      status: undefined,
       pagoEm: evt.payment?.paymentDate ? new Date(evt.payment.paymentDate) : undefined,
       idempotencyKey: `asaas:${evt.event}:${evt.payment?.id}:${evt.payment?.status}`,
     };

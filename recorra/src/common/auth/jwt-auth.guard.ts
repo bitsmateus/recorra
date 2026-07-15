@@ -17,6 +17,12 @@ export class JwtAuthGuard implements CanActivate {
     const token = header.slice(7);
     try {
       const payload = await this.jwt.verifyAsync<JwtPayload>(token, { secret: env.JWT_SECRET });
+      // Defesa em profundidade: rejeita tokens sem tenantId/role (ex.: token de
+      // plataforma). Sem isso, `where:{tenantId:undefined}` no Prisma ignoraria o
+      // filtro e vazaria dados entre tenants.
+      if (!payload.tenantId || !payload.role) {
+        throw new UnauthorizedException('Token sem escopo de tenant');
+      }
       // Anexa o usuário autenticado ao request.
       (req as Request & { user: unknown }).user = {
         id: payload.sub,

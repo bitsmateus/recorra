@@ -1,9 +1,10 @@
-import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
 import { PlanTier } from '@prisma/client';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { env } from '@/config/env';
+import { generateTotpSecret, totpAuthUrl, verifyTotp } from '@/common/auth/totp';
 import { detectAnomalies } from './anomaly';
 import { PLANS } from './plans';
 
@@ -14,16 +15,40 @@ export class PlatformService {
     private readonly jwt: JwtService,
   ) {}
 
-  async login(email: string, senha: string) {
+  async login(email: string, senha: string, codigo?: string) {
     const admin = await this.prisma.platformAdmin.findUnique({ where: { email } });
     if (!admin || !admin.ativo) throw new UnauthorizedException('Credenciais invalidas');
     const ok = await argon2.verify(admin.senhaHash, senha);
     if (!ok) throw new UnauthorizedException('Credenciais invalidas');
+    // 2FA (TOTP) obrigatório quando ativado — o superadmin controla todos os tenants.
+    if (admin.twoFaEnabled && admin.twoFaSecret) {
+      if (!codigo) throw new UnauthorizedException('2FA_REQUIRED');
+      if (!verifyTotp(codigo, admin.twoFaSecret)) throw new UnauthorizedException('Código 2FA inválido');
+    }
     const token = await this.jwt.signAsync(
       { sub: admin.id, email: admin.email, scope: 'platform' },
       { secret: env.JWT_SECRET, expiresIn: '8h' },
     );
-    return { accessToken: token, nome: admin.nome };
+    return { accessToken: token, nome: admin.nome, twoFaEnabled: admin.twoFaEnabled };
+  }
+
+  /** Inicia a configuração de 2FA do superadmin (retorna o segredo/otpauth). */
+  async setup2fa(adminId: string) {
+    const secret = generateTotpSecret();
+    const admin = await this.prisma.platformAdmin.update({
+      where: { id: adminId },
+      data: { twoFaSecret: secret, twoFaEnabled: false },
+    });
+    return { secret, otpauthUrl: totpAuthUrl(admin.email, secret) };
+  }
+
+  /** Confirma o código e ativa o 2FA do superadmin. */
+  async enable2fa(adminId: string, codigo: string) {
+    const admin = await this.prisma.platformAdmin.findUniqueOrThrow({ where: { id: adminId } });
+    if (!admin.twoFaSecret) throw new BadRequestException('Configure o 2FA primeiro');
+    if (!verifyTotp(codigo, admin.twoFaSecret)) throw new BadRequestException('Código inválido');
+    await this.prisma.platformAdmin.update({ where: { id: adminId }, data: { twoFaEnabled: true } });
+    return { ok: true };
   }
 
   // ---------------- Tenants ----------------

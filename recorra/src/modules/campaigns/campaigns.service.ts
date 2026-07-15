@@ -268,8 +268,11 @@ export class CampaignsService {
     const imediatos: string[] = [];
 
     let ignorados = 0;
+    const canalCampanha = camp.canal ?? 'WHATSAPP_EVOLUTION';
     for (const cliente of publico) {
       try {
+        // Respeita opt-out (LGPD): não envia para quem revogou o consentimento no canal.
+        if (await this.optOut(cliente.id, canalCampanha)) { ignorados++; continue; }
         if (camp.tipoEnvio === 'LEMBRETE') {
           // Puxa as faturas em aberto do cliente e injeta o Pix/boleto/link de cada uma.
           const abertas = await this.prisma.invoice.findMany({
@@ -353,6 +356,12 @@ export class CampaignsService {
     await this.prisma.campaignRun.update({ where: { id: run.id }, data: { enviados, falhas } });
 
     return { runId: run.id, total: publico.length, enviados, falhas };
+  }
+
+  /** Opt-out (LGPD): true se o cliente revogou o consentimento para o canal. */
+  private async optOut(customerId: string, canal: ChannelType): Promise<boolean> {
+    const revogado = await this.prisma.consent.findFirst({ where: { customerId, canal, status: 'REVOGADO' } });
+    return !!revogado;
   }
 
   /** Relatório: destinatários da última run (ou de uma run específica), com status atual do disparo. */

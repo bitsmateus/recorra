@@ -22,6 +22,11 @@ export interface ChannelCredentials {
   apiUrl?: string;
   apiKey?: string;
   instance?: string;
+  // Segredo para validar webhooks de ENTRADA (inbound):
+  //  - WhatsApp Cloud (Meta): App Secret (verifica X-Hub-Signature-256)
+  //  - uazapi / genérico: token compartilhado enviado no header pelo provedor
+  //  (Evolution valida pelo header `apikey` = apiKey da instância)
+  webhookSecret?: string;
   // E-mail
   from?: string;
   // HTTP genérico (API aberta) — ver HttpGenericChannel

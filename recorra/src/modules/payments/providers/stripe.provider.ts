@@ -77,12 +77,14 @@ export class StripeProvider implements PaymentProvider {
     const evt = body as { type?: string; data?: { object?: { id?: string; status?: string } } };
     const obj = evt.data?.object;
     const sig = headers['stripe-signature'] ?? headers['Stripe-Signature'] ?? '';
-    const valid = this.webhookSecret ? verifyStripeSignature(rawBody ?? '', sig, this.webhookSecret) : true;
+    // Fail-closed: sem webhookSecret configurado, o webhook não é confiável.
+    const valid = !!this.webhookSecret && verifyStripeSignature(rawBody ?? '', sig, this.webhookSecret);
     return {
       valid,
       eventType: evt.type ?? 'payment_intent',
       externalId: obj?.id,
-      status: obj?.status ? this.normalizeStatus(obj.status) : undefined,
+      // Não confiamos no status do corpo — o controller reconfirma via API.
+      status: undefined,
       idempotencyKey: `stripe:${evt.type}:${obj?.id}:${obj?.status}`,
     };
   }

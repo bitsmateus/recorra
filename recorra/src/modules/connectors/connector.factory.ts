@@ -20,8 +20,11 @@ export class ConnectorFactory {
     private readonly crypto: CryptoService,
   ) {}
 
-  async forIntegration(integrationId: string): Promise<SourceConnector> {
-    const integ = await this.prisma.sourceIntegration.findUnique({ where: { id: integrationId } });
+  async forIntegration(integrationId: string, tenantId?: string): Promise<SourceConnector> {
+    // Quando tenantId é informado, escopa a busca (valida posse antes de decifrar credenciais).
+    const integ = await this.prisma.sourceIntegration.findFirst({
+      where: tenantId ? { id: integrationId, tenantId } : { id: integrationId },
+    });
     if (!integ || !integ.ativo) throw new BadRequestException('Integração inválida');
     if (!integ.credentials || !integ.urlBase) {
       throw new BadRequestException('Integração sem credenciais configuradas');

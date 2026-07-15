@@ -1,7 +1,9 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
+import { Request } from 'express';
 import { PlanTier } from '@prisma/client';
 import { PlatformService } from './platform.service';
-import { PlatformGuard } from './platform.guard';
+import { PlatformGuard, PlatformPayload } from './platform.guard';
 import { BillingSaasService } from './billing-saas.service';
 
 @Controller('admin')
@@ -11,9 +13,23 @@ export class PlatformController {
     private readonly billing: BillingSaasService,
   ) {}
 
+  // Rate limit estrito: o superadmin controla todos os tenants (alvo de brute force).
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
   @Post('login')
-  login(@Body('email') email: string, @Body('senha') senha: string) {
-    return this.platform.login(email, senha);
+  login(@Body('email') email: string, @Body('senha') senha: string, @Body('codigo') codigo?: string) {
+    return this.platform.login(email, senha, codigo);
+  }
+
+  @Post('2fa/setup')
+  @UseGuards(PlatformGuard)
+  setup2fa(@Req() req: Request & { admin: PlatformPayload }) {
+    return this.platform.setup2fa(req.admin.sub);
+  }
+
+  @Post('2fa/enable')
+  @UseGuards(PlatformGuard)
+  enable2fa(@Req() req: Request & { admin: PlatformPayload }, @Body('codigo') codigo: string) {
+    return this.platform.enable2fa(req.admin.sub, codigo);
   }
 
   @Get('metrics')

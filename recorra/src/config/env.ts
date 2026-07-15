@@ -11,10 +11,23 @@ const envSchema = z.object({
   DATABASE_URL: z.string().url(),
   REDIS_URL: z.string().url(),
 
-  JWT_SECRET: z.string().min(32, 'JWT_SECRET precisa ter no mínimo 32 caracteres'),
+  JWT_SECRET: z
+    .string()
+    .min(32, 'JWT_SECRET precisa ter no mínimo 32 caracteres')
+    .refine((v) => !v.startsWith('troque-isto'), 'JWT_SECRET ainda é o placeholder do .env.example — gere um segredo real'),
   JWT_ACCESS_TTL: z.string().default('15m'),
   JWT_REFRESH_TTL: z.string().default('30d'),
-  ENCRYPTION_KEY: z.string().min(16, 'ENCRYPTION_KEY inválida (base64 de 32 bytes)'),
+  ENCRYPTION_KEY: z
+    .string()
+    .min(32, 'ENCRYPTION_KEY inválida (use base64 de 32 bytes: openssl rand -base64 32)')
+    .refine((v) => !v.startsWith('troque-isto'), 'ENCRYPTION_KEY ainda é o placeholder do .env.example — gere uma chave real'),
+
+  // Ativa a aplicação da RLS por requisição (2ª barreira de isolamento).
+  // Mantenha `false` até rodar prisma/rls-strict.sql e validar (ver R-03 no SECURITY_AUDIT.md).
+  RLS_ENFORCED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
 
   APP_URL: z.string().url().default('http://localhost:3000'),
   FRONTEND_URL: z.string().url().default('http://localhost:3001'),

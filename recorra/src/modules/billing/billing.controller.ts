@@ -3,7 +3,8 @@ import { ChargeMethod } from '@prisma/client';
 import { JwtAuthGuard } from '@/common/auth/jwt-auth.guard';
 import { RolesGuard } from '@/common/auth/roles.guard';
 import { Roles } from '@/common/auth/roles.decorator';
-import { TenantId } from '@/common/auth/current-user.decorator';
+import { TenantId, CurrentUser } from '@/common/auth/current-user.decorator';
+import { AuthUser } from '@/common/auth/jwt.types';
 import { SubscriptionsService } from './subscriptions.service';
 import { AgreementsService } from './agreements.service';
 import { Ciclo } from './recurrence';
@@ -58,14 +59,15 @@ export class BillingController {
   @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
   createAcordo(
     @TenantId() tenantId: string,
+    @CurrentUser() actor: AuthUser,
     @Body() dto: { customerId: string; faturaIds: string[]; descontoPct?: number; parcelas: number; primeiraData?: string; observacao?: string },
   ) {
-    return this.agreements.create(tenantId, dto);
+    return this.agreements.create(tenantId, dto, actor.id);
   }
 
   @Patch('acordos/:id/cancelar')
   @Roles('OWNER', 'ADMIN')
-  cancelAcordo(@TenantId() tenantId: string, @Param('id') id: string) {
-    return this.agreements.cancel(tenantId, id);
+  cancelAcordo(@TenantId() tenantId: string, @CurrentUser() actor: AuthUser, @Param('id') id: string) {
+    return this.agreements.cancel(tenantId, id, actor.id);
   }
 }
