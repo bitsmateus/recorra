@@ -31,6 +31,7 @@
 | R-20 idempotência webhook | ✅ Corrigido | claim atômico (`updateMany processadoEm null→now`) impede processamento duplicado |
 | R-21 teto de desconto | ✅ Corrigido | `agreements.create` rejeita desconto <0% ou >50% |
 | R-22 PII em logs | ✅ Corrigido | `nestjs-pino` com `redact` (authorization/x-api-key/senha/token/credentials/twoFaSecret) — retenção segue como config |
+| **R-23 segredos em `--build-arg`** | 🔴 Alto — **ação sua** | segredos de produção (ENCRYPTION_KEY, JWT_SECRET, DATABASE/REDIS URL, API keys) vazaram no build log do EasyPanel; **rotacionar todos** e mover de "Build args" para env de runtime. Suporte a rotação sem downtime entregue (`ENCRYPTION_KEY_OLD` + `npm run rotate:key`) |
 
 PoCs de regressão: `recorra/test/security/` — **todos verdes** após as correções (`npx vitest run`, 110/110).
 

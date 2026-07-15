@@ -21,6 +21,8 @@ const envSchema = z.object({
     .string()
     .min(32, 'ENCRYPTION_KEY inválida (use base64 de 32 bytes: openssl rand -base64 32)')
     .refine((v) => !v.startsWith('troque-isto'), 'ENCRYPTION_KEY ainda é o placeholder do .env.example — gere uma chave real'),
+  // Chave antiga durante a rotação (fallback de decifragem). Remover após re-cifrar tudo.
+  ENCRYPTION_KEY_OLD: z.string().optional(),
 
   // Ativa a aplicação da RLS por requisição (2ª barreira de isolamento).
   // Mantenha `false` até rodar prisma/rls-strict.sql e validar (ver R-03 no SECURITY_AUDIT.md).
