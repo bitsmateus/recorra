@@ -118,7 +118,11 @@ export class CampaignsService {
   async create(tenantId: string, input: CampaignInput) {
     if (!input.nome?.trim()) throw new BadRequestException('Nome é obrigatório');
     if (input.tipoEnvio === 'REGUA' && !input.ruleId) throw new BadRequestException('Selecione uma régua');
-    if ((input.tipoEnvio === 'MENSAGEM' || input.tipoEnvio === 'LEMBRETE') && !input.mensagem?.trim()) throw new BadRequestException('Escreva a mensagem');
+    // Mensagem única: aceita texto livre OU um template (canal oficial usa template).
+    if (input.tipoEnvio === 'MENSAGEM' && !input.mensagem?.trim() && !input.templateNome?.trim()) {
+      throw new BadRequestException('Escreva a mensagem ou escolha um template');
+    }
+    if (input.tipoEnvio === 'LEMBRETE' && !input.mensagem?.trim()) throw new BadRequestException('Escreva a mensagem');
     const proxima = this.calcularProxima(input.agendamento || 'UMA_VEZ', input.diaDoMes ?? null);
     return this.prisma.campaign.create({
       data: { tenantId, ...this.dados(input), proximaExecucao: proxima, status: 'RASCUNHO' },
