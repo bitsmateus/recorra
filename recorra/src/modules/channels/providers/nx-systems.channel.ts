@@ -62,7 +62,7 @@ export class NxSystemsChannel implements MessageChannel {
           type: 'template',
           template: {
             name: input.templateName,
-            language: { code: 'pt_BR' },
+            language: { code: input.templateLanguage || 'pt_BR' },
             ...(params.length
               ? { components: [{ type: 'body', parameters: params.map((t) => ({ type: 'text', text: t })) }] }
               : {}),

@@ -4,6 +4,7 @@ export interface SendMessageInput {
   text: string;
   templateName?: string; // nome do template aprovado (WhatsApp Cloud utility)
   templateParams?: string[];
+  templateLanguage?: string; // idioma do template aprovado (ex.: 'en', 'pt_BR'); default pt_BR
 }
 
 export interface SendMessageResult {

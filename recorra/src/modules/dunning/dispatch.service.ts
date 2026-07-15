@@ -34,6 +34,13 @@ export class DispatchService {
       }
     }
 
+    // Idioma do template (ex.: 'en', 'pt_BR') — a Meta exige o idioma exato do template aprovado.
+    let templateLanguage: string | undefined;
+    if (d.templateName) {
+      const tpl = await this.prisma.whatsAppTemplate.findFirst({ where: { tenantId: d.tenantId, nome: d.templateName }, select: { idioma: true } });
+      templateLanguage = tpl?.idioma ?? undefined;
+    }
+
     try {
       const channel = await this.channels.forTenantChannel(d.tenantId, d.canal, (d as { channelAccountId?: string | null }).channelAccountId);
       const res = await channel.send({
@@ -41,6 +48,7 @@ export class DispatchService {
         text: d.conteudo ?? '',
         templateName: d.templateName ?? undefined,
         templateParams: d.templateParams?.length ? d.templateParams : undefined,
+        templateLanguage,
       });
       if (res.status === 'ENVIADO') {
         await this.prisma.messageDispatch.update({

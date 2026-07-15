@@ -40,7 +40,7 @@ export class WhatsAppCloudChannel implements MessageChannel {
             type: 'template',
             template: {
               name: input.templateName,
-              language: { code: 'pt_BR' },
+              language: { code: input.templateLanguage || 'pt_BR' },
               components: input.templateParams?.length
                 ? [{ type: 'body', parameters: input.templateParams.map((t) => ({ type: 'text', text: t })) }]
                 : undefined,
