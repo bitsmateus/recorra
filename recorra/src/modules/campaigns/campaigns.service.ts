@@ -10,6 +10,9 @@ export interface CampaignInput {
   ruleId?: string | null;
   mensagem?: string | null;
   canal?: ChannelType | null;
+  channelAccountId?: string | null;
+  templateNome?: string | null;
+  templateParams?: string[];
   escopoFatura?: 'TODAS' | 'PROXIMA';
   filtroTodos?: boolean;
   filtroEtiqueta?: string | null;
@@ -93,6 +96,10 @@ export class CampaignsService {
       ruleId: input.tipoEnvio === 'REGUA' ? input.ruleId || null : null,
       mensagem: (input.tipoEnvio === 'MENSAGEM' || input.tipoEnvio === 'LEMBRETE') ? input.mensagem || null : null,
       canal: input.canal || null,
+      channelAccountId: input.channelAccountId || null,
+      // Template WABA só faz sentido em Mensagem única com canal oficial.
+      templateNome: input.tipoEnvio === 'MENSAGEM' ? input.templateNome || null : null,
+      templateParams: input.tipoEnvio === 'MENSAGEM' && input.templateNome ? (input.templateParams ?? []) : [],
       escopoFatura: input.escopoFatura || 'TODAS',
       delaySegundos: input.delaySegundos != null ? Math.max(0, Math.min(600, Math.floor(input.delaySegundos))) : 5,
       filtroTodos: !!input.filtroTodos,
@@ -308,11 +315,21 @@ export class CampaignsService {
             ? await this.prisma.invoice.findFirst({ where: { tenantId, customerId: cliente.id, status: { in: ['PENDENTE', 'VENCIDA'] } }, orderBy: { vencimento: 'asc' } })
             : null;
           if (inv && /\{\{\s*pix\s*\}\}/i.test(camp.mensagem || '')) inv = await this.garantirPix(inv);
+          // Canal oficial (WABA): envia template com as variáveis mapeadas por cliente.
+          const usaTemplate = !!camp.templateNome;
+          const templateParams = usaTemplate
+            ? (camp.templateParams ?? []).map((tok) => this.render(tok, cliente, inv))
+            : [];
           const d = await this.prisma.messageDispatch.create({
             data: {
               tenantId, customerId: cliente.id, invoiceId: inv?.id, campaignId: camp.id,
               canal: camp.canal ?? 'WHATSAPP_EVOLUTION',
-              conteudo: this.render(camp.mensagem, cliente, inv),
+              channelAccountId: camp.channelAccountId ?? undefined,
+              templateName: usaTemplate ? camp.templateNome : undefined,
+              templateParams,
+              conteudo: usaTemplate
+                ? `[template: ${camp.templateNome}] ${templateParams.join(' | ')}`
+                : this.render(camp.mensagem, cliente, inv),
               status: 'FILA', agendadoPara: new Date(),
             },
           });

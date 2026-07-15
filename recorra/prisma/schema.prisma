@@ -777,6 +777,9 @@ model Campaign {
   ruleId    String?
   mensagem  String?
   canal     ChannelType?
+  channelAccountId String? // conexão específica (ex.: qual WhatsApp oficial)
+  templateNome     String? // nome do template WABA aprovado (canal oficial)
+  templateParams   String[] @default([]) // tokens p/ cada {{n}} (ex.: "{{nome}}", "texto fixo")
   escopoFatura String @default("TODAS")
   delaySegundos Int   @default(5)
 
