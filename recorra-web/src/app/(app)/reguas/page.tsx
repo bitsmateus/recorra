@@ -524,9 +524,10 @@ function StepCard({
   }
 
   // Conexões (canais) conectadas do tenant
-  const [canais, setCanais] = useState<{ id: string; canal: string; apelido: string; status: string; oficial?: boolean }[]>([]);
-  useEffect(() => { api<{ id: string; canal: string; apelido: string; status: string; oficial?: boolean }[]>('/canais').then(setCanais).catch(() => setCanais([])); }, []);
-  const conectados = canais.filter((c) => c.status !== 'DESCONECTADO');
+  const [canais, setCanais] = useState<{ id: string; canal: string; apelido: string; status: string; oficial?: boolean; origem?: string }[]>([]);
+  useEffect(() => { api<{ id: string; canal: string; apelido: string; status: string; oficial?: boolean; origem?: string }[]>('/canais').then(setCanais).catch(() => setCanais([])); }, []);
+  // Exclui a conexão-base do NX (URL+token) — não é canal de envio; usa-se os canais importados.
+  const conectados = canais.filter((c) => c.status !== 'DESCONECTADO' && !(c.canal === 'NX_SYSTEMS' && c.origem !== 'nx'));
   const canalSelId = step.channelAccountId || conectados.find((c) => c.canal === step.canal)?.id || '';
   const conn = conectados.find((c) => c.id === canalSelId);
 

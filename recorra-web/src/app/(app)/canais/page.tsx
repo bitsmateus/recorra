@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Plus, X, RefreshCw, Trash2, Wifi, WifiOff, Loader2, MessageCircle, Mail, Smartphone } from 'lucide-react';
+import { Plus, X, RefreshCw, Trash2, Wifi, WifiOff, Loader2, MessageCircle, Mail, Smartphone, Plug } from 'lucide-react';
 import { api } from '@/lib/api';
 import { PageTitle } from '@/components/ui';
 
@@ -48,16 +48,20 @@ export default function CanaisPage() {
   }
 
   async function excluir(c: Conexao) {
-    const msg = c.origem === 'nx'
-      ? `Remover "${c.apelido}" da Recorra? No NX ele permanece — você pode trazer de volta clicando em "Sincronizar canais".`
-      : `Remover a conexão "${c.apelido}"?`;
+    const base = c.canal === 'NX_SYSTEMS' && c.origem !== 'nx';
+    const msg = base
+      ? `Remover a integração NX "${c.apelido}"? Isso desliga a sincronização de canais (a URL e o token serão apagados da Recorra). Os canais já importados continuam, mas não dá para sincronizar de novo sem reconfigurar.`
+      : c.origem === 'nx'
+        ? `Remover "${c.apelido}" da Recorra? No NX ele permanece — você pode trazer de volta clicando em "Sincronizar canais".`
+        : `Remover a conexão "${c.apelido}"?`;
     if (!confirm(msg)) return;
     await api(`/canais/${c.id}`, { method: 'DELETE' }).catch(() => {});
     carregar();
   }
 
   const importadosNx = lista.filter((c) => c.origem === 'nx');
-  const outros = lista.filter((c) => c.origem !== 'nx');
+  const basesNx = lista.filter((c) => c.canal === 'NX_SYSTEMS' && c.origem !== 'nx');
+  const outros = lista.filter((c) => c.canal !== 'NX_SYSTEMS');
 
   return (
     <div>
@@ -70,6 +74,22 @@ export default function CanaisPage() {
         </div>
       </div>
       {syncMsg && <p className="mb-3 text-sm text-primary">{syncMsg}</p>}
+
+      {/* Integração NX (URL + token) — fonte da sincronização, não é um canal de envio */}
+      {basesNx.length > 0 && (
+        <div className="mb-6 flex flex-wrap items-center gap-3 rounded-lg border border-line bg-canvas px-4 py-3">
+          <Plug size={16} className="text-muted" />
+          <span className="text-sm font-medium text-ink">Integração NX</span>
+          {basesNx.map((b) => (
+            <span key={b.id} className="flex items-center gap-1.5 rounded-full border border-line bg-surface px-2.5 py-1 text-xs">
+              {b.apelido}
+              <span className={`h-1.5 w-1.5 rounded-full ${b.status === 'CONECTADO' ? 'bg-success' : 'bg-primary'}`} />
+              <button onClick={() => excluir(b)} title="Remover integração" className="text-muted hover:text-danger"><X size={12} /></button>
+            </span>
+          ))}
+          <span className="text-xs text-muted">Guarda a URL + token usados para sincronizar os canais. Não é um canal de envio.</span>
+        </div>
+      )}
 
       {importadosNx.length > 0 && (
         <div className="mb-6">
