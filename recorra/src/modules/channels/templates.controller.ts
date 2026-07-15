@@ -29,6 +29,13 @@ export class TemplatesController {
     return this.templates.categorizar(corpo ?? '');
   }
 
+  /** Sincroniza os templates aprovados direto do Graph da Meta (via canal NX). */
+  @Post('sincronizar')
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
+  sincronizar(@TenantId() tenantId: string) {
+    return this.templates.sincronizar(tenantId);
+  }
+
   @Post()
   @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
   create(@TenantId() tenantId: string, @Body() dto: TemplateBody) {

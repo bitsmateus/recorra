@@ -235,11 +235,24 @@ function TemplatesSection() {
   const [corpo, setCorpo] = useState('');
   const [sugestao, setSugestao] = useState<{ categoria: string; alertaCusto: boolean } | null>(null);
   const [msg, setMsg] = useState('');
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState('');
 
   const load = useCallback(() => {
     api<Row[]>('/config/templates').then(setRows).catch(() => {});
   }, []);
   useEffect(load, [load]);
+
+  async function sincronizar() {
+    setSyncing(true); setSyncMsg('Buscando templates na Meta via NX...');
+    try {
+      const r = await api<{ canais: number; importados: number; atualizados: number; erros: string[] }>('/config/templates/sincronizar', { method: 'POST' });
+      const partes = [`${r.importados} novo(s)`, `${r.atualizados} atualizado(s)`, `${r.canais} WABA(s)`];
+      setSyncMsg(`✓ ${partes.join(' · ')}${r.erros?.length ? ` — ${r.erros.length} aviso(s): ${r.erros[0]}` : ''}`);
+      load();
+    } catch (e) { setSyncMsg(e instanceof Error ? e.message : 'Erro na sincronização'); }
+    finally { setSyncing(false); }
+  }
 
   async function categorizar(texto: string) {
     setCorpo(texto);
@@ -256,9 +269,23 @@ function TemplatesSection() {
   }
 
   const catColor: Record<string, string> = { UTILITY: '#0F6E56', MARKETING: '#A32D2D', AUTHENTICATION: '#854F0B' };
+  const statusColor: Record<string, { bg: string; fg: string }> = {
+    APROVADO: { bg: '#E1F5EE', fg: '#0F6E56' }, PENDENTE: { bg: '#FAEEDA', fg: '#854F0B' },
+    REJEITADO: { bg: '#FCEBEB', fg: '#A32D2D' }, RASCUNHO: { bg: '#F1F5F9', fg: '#64748B' },
+  };
 
   return (
     <Section title="Templates do WhatsApp (HSM)">
+      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-primary/30 bg-primary-tint/40 p-3">
+        <div className="flex-1 text-sm text-ink">
+          <div className="font-medium">Puxar templates aprovados da Meta</div>
+          <div className="text-xs text-muted">Sincroniza os templates da sua WABA (via canal NX) — nome, corpo, categoria e status de aprovação.</div>
+        </div>
+        <button onClick={sincronizar} disabled={syncing} className="rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-60">
+          {syncing ? 'Sincronizando...' : 'Sincronizar do WhatsApp (NX)'}
+        </button>
+      </div>
+      {syncMsg && <p className="mb-3 text-sm text-primary">{syncMsg}</p>}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
         <Field label="Nome do template" value={nome} onChange={setNome} />
         <label className="block md:col-span-2">
@@ -278,9 +305,12 @@ function TemplatesSection() {
       </div>
       <div className="mt-4 space-y-2">
         {rows.map((r) => (
-          <div key={r.id} className="flex items-center justify-between rounded border border-line px-3 py-2 text-sm">
-            <span>{String(r.nome)}</span>
-            <span className="rounded-full px-2 py-0.5 text-xs font-medium" style={{ background: '#E1F5EE', color: catColor[String(r.categoria)] || '#0E7C7B' }}>{String(r.categoria)}</span>
+          <div key={r.id} className="flex items-center justify-between gap-2 rounded border border-line px-3 py-2 text-sm">
+            <span className="min-w-0 flex-1 truncate">{String(r.nome)}</span>
+            <div className="flex shrink-0 items-center gap-1.5">
+              {r.status ? <span className="rounded-full px-2 py-0.5 text-xs font-medium" style={{ background: (statusColor[String(r.status)] || statusColor.RASCUNHO).bg, color: (statusColor[String(r.status)] || statusColor.RASCUNHO).fg }}>{String(r.status)}</span> : null}
+              <span className="rounded-full px-2 py-0.5 text-xs font-medium" style={{ background: '#E1F5EE', color: catColor[String(r.categoria)] || '#0E7C7B' }}>{String(r.categoria)}</span>
+            </div>
           </div>
         ))}
       </div>
