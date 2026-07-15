@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '@/common/auth/jwt-auth.guard';
 import { RolesGuard } from '@/common/auth/roles.guard';
 import { Roles } from '@/common/auth/roles.decorator';
@@ -27,6 +27,12 @@ export class SettingsController {
   @Roles('OWNER', 'ADMIN')
   testIntegration(@TenantId() tenantId: string, @Param('id') id: string) {
     return this.settings.testIntegration(tenantId, id);
+  }
+
+  @Delete('integracoes/:id')
+  @Roles('OWNER', 'ADMIN')
+  removeIntegration(@TenantId() tenantId: string, @Param('id') id: string) {
+    return this.settings.removeIntegration(tenantId, id);
   }
 
   // Gateways

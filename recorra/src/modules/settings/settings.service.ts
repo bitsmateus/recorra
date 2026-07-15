@@ -39,6 +39,11 @@ export class SettingsService {
     return rest;
   }
 
+  async removeIntegration(tenantId: string, id: string) {
+    await this.prisma.sourceIntegration.deleteMany({ where: { id, tenantId } });
+    return { ok: true };
+  }
+
   /** Testa a conexão com o ERP configurado. */
   async testIntegration(tenantId: string, id: string) {
     const integ = await this.prisma.sourceIntegration.findFirstOrThrow({ where: { id, tenantId } });
