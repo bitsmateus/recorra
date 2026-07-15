@@ -3,6 +3,7 @@ import { ChannelType, Prisma, RiskBand } from '@prisma/client';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { DispatchService } from '@/modules/dunning/dispatch.service';
 import { PaymentProviderFactory } from '@/modules/payments/payment-provider.factory';
+import { DispatchQueue } from '@/queue/dispatch-queue';
 
 export interface CampaignInput {
   nome: string;
@@ -33,6 +34,7 @@ export class CampaignsService {
     private readonly prisma: PrismaService,
     private readonly dispatch: DispatchService,
     private readonly factory: PaymentProviderFactory,
+    private readonly dispatchQueue: DispatchQueue,
   ) {}
 
   /** Conta entregues/fila/falha de uma run a partir do status ATUAL dos disparos. */
@@ -314,11 +316,13 @@ export class CampaignsService {
 
         let primeiroDispatchId: string | undefined;
         if (camp.tipoEnvio === 'MENSAGEM') {
-          // Se a mensagem usa variáveis de fatura, puxa a fatura em aberto mais próxima do cliente.
-          let inv = this.temVariavelFatura(camp.mensagem)
+          // Num template, as variáveis (valor/vencimento/link) estão em templateParams,
+          // não em `mensagem`. Consideramos ambos ao decidir se puxa a fatura do cliente.
+          const textoVars = camp.templateNome ? (camp.templateParams ?? []).join(' ') : (camp.mensagem ?? '');
+          let inv = this.temVariavelFatura(textoVars)
             ? await this.prisma.invoice.findFirst({ where: { tenantId, customerId: cliente.id, status: { in: ['PENDENTE', 'VENCIDA'] } }, orderBy: { vencimento: 'asc' } })
             : null;
-          if (inv && /\{\{\s*pix\s*\}\}/i.test(camp.mensagem || '')) inv = await this.garantirPix(inv);
+          if (inv && /\{\{\s*pix\s*\}\}/i.test(textoVars)) inv = await this.garantirPix(inv);
           // Canal oficial (WABA): envia template com as variáveis mapeadas por cliente.
           const usaTemplate = !!camp.templateNome;
           const templateParams = usaTemplate
@@ -405,11 +409,14 @@ export class CampaignsService {
     return { campanha: camp.nome, run, resumo, destinatarios };
   }
 
-  /** Envia uma lista de disparos em sequência, aguardando `delaySeg` segundos entre cada um. */
+  /**
+   * Enfileira os disparos no BullMQ, com atraso escalonado para respeitar o intervalo
+   * entre mensagens. Usar a fila (jobId = id do disparo) evita duplicação: o worker é o
+   * único processador e o agendador (cron) não cria job repetido para o mesmo disparo.
+   */
   private async enviarComDelay(ids: string[], delaySeg: number) {
     for (let i = 0; i < ids.length; i++) {
-      try { await this.dispatch.processOne(ids[i]); } catch { /* erro já registrado no disparo */ }
-      if (delaySeg > 0 && i < ids.length - 1) await new Promise((r) => setTimeout(r, delaySeg * 1000));
+      try { await this.dispatchQueue.enqueue(ids[i], i * (delaySeg > 0 ? delaySeg : 0) * 1000); } catch { /* erro já registrado no disparo */ }
     }
   }
 

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Plus, Play, Pause, BarChart3, Pencil, Trash2, X, Megaphone, ExternalLink, Copy, Filter } from 'lucide-react';
 import { api } from '@/lib/api';
 import { PageTitle } from '@/components/ui';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 
 interface Regua { id: string; nome: string }
 interface Etiqueta { nome: string }
@@ -95,6 +96,7 @@ export default function CampanhasPage() {
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<{ open: boolean; edit?: Campaign | null }>({ open: false });
   const [relatorio, setRelatorio] = useState<Campaign | null>(null);
+  const [confirmarDisparo, setConfirmarDisparo] = useState<Campaign | null>(null);
   const [msg, setMsg] = useState('');
   const emptyFiltros = { q: '', status: '', tipoEnvio: '', ruleId: '', agendamento: '', etiqueta: '', canal: '', de: '', ate: '' };
   const [filtros, setFiltros] = useState(emptyFiltros);
@@ -116,7 +118,6 @@ export default function CampanhasPage() {
   const filtrosAtivos = Object.values(filtros).filter(Boolean).length;
 
   async function executar(c: Campaign) {
-    if (!confirm(`Disparar a campanha "${c.nome}" agora?`)) return;
     setMsg(`Disparando "${c.nome}"...`);
     const r = await api<{ total: number; enviados: number; falhas: number }>(`/campanhas/${c.id}/executar`, { method: 'POST' }).catch((e) => { setMsg(e.message); return null; });
     if (r) setMsg(`✓ ${c.nome}: ${r.enviados} de ${r.total} colocados na fila de envio. O envio real acontece em seguida — acompanhe no relatório.`);
@@ -192,7 +193,7 @@ export default function CampanhasPage() {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-1">
-                      <button onClick={() => executar(c)} title="Disparar agora" className="rounded p-1.5 text-muted hover:bg-primary-tint hover:text-primary"><Play size={15} /></button>
+                      <button onClick={() => setConfirmarDisparo(c)} title="Disparar agora" className="rounded p-1.5 text-muted hover:bg-primary-tint hover:text-primary"><Play size={15} /></button>
                       <button onClick={() => setRelatorio(c)} title="Relatório" className="rounded p-1.5 text-muted hover:bg-canvas hover:text-primary"><BarChart3 size={15} /></button>
                       {c.agendamento !== 'UMA_VEZ' && <button onClick={() => toggleStatus(c)} title={c.status === 'PAUSADA' ? 'Ativar' : 'Pausar'} className="rounded p-1.5 text-muted hover:bg-canvas hover:text-primary">{c.status === 'PAUSADA' ? <Play size={15} /> : <Pause size={15} />}</button>}
                       <button onClick={() => duplicar(c)} title="Duplicar" className="rounded p-1.5 text-muted hover:bg-canvas hover:text-primary"><Copy size={15} /></button>
@@ -211,6 +212,15 @@ export default function CampanhasPage() {
 
       {modal.open && <CampanhaModal edit={modal.edit} onClose={() => setModal({ open: false })} onSaved={() => { setModal({ open: false }); carregar(); }} />}
       {relatorio && <RelatorioModal campanha={relatorio} onClose={() => setRelatorio(null)} />}
+      {confirmarDisparo && (
+        <ConfirmDialog
+          titulo="Disparar campanha"
+          mensagem={<>Disparar a campanha <b className="text-ink">{confirmarDisparo.nome}</b> agora? As mensagens vão para a fila de envio.</>}
+          confirmLabel="Disparar agora"
+          onConfirm={() => { const c = confirmarDisparo; setConfirmarDisparo(null); executar(c); }}
+          onClose={() => setConfirmarDisparo(null)}
+        />
+      )}
     </div>
   );
 }

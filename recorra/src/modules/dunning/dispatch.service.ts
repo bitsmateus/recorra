@@ -24,6 +24,16 @@ export class DispatchService {
       return 'IGNORADO';
     }
 
+    // O WhatsApp recusa template com parâmetro vazio (retorna ERR_SEND_TEMPLATE).
+    // Falhamos com mensagem clara em vez de deixar o provedor recusar sem contexto.
+    if (d.templateName && d.templateParams?.length) {
+      const vazias = d.templateParams.map((p, i) => (!p || !p.trim() ? i + 1 : 0)).filter(Boolean);
+      if (vazias.length) {
+        await this.marcar(d.id, 'FALHA', `Template "${d.templateName}": variável(is) {{${vazias.join('}}, {{')}}} sem valor (cliente provavelmente sem cobrança em aberto). O WhatsApp não envia template com campo vazio.`);
+        return 'FALHA';
+      }
+    }
+
     try {
       const channel = await this.channels.forTenantChannel(d.tenantId, d.canal, (d as { channelAccountId?: string | null }).channelAccountId);
       const res = await channel.send({
