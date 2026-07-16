@@ -387,7 +387,7 @@ export class CampaignsService {
           const now = Date.now();
           // A régua pode ter passos com template aprovado (WhatsApp) ou texto livre (SMS/e-mail).
           // Só busca a fatura quando algum passo precisa de dado de cobrança.
-          const textoPassos = camp.rule.steps.map((s) => `${s.template} ${(s.templateParams ?? []).join(' ')}`).join(' ');
+          const textoPassos = camp.rule.steps.map((s) => `${s.template} ${s.emailAssunto ?? ''} ${(s.templateParams ?? []).join(' ')}`).join(' ');
           let invRegua = this.temVariavelFatura(textoPassos)
             ? await this.prisma.invoice.findFirst({ where: { tenantId, customerId: cliente.id, status: { in: ['PENDENTE', 'VENCIDA'] } }, orderBy: { vencimento: 'asc' } })
             : null;
@@ -403,6 +403,7 @@ export class CampaignsService {
                 template: step.template,
                 templateName: usaTpl ? step.templateName : undefined,
                 templateParams: paramsStep,
+                assunto: this.render(step.emailAssunto, cliente, invRegua) || null,
                 conteudo: usaTpl
                   ? `[template: ${step.templateName}] ${paramsStep.join(' | ')}`
                   : this.render(step.template, cliente, invRegua),

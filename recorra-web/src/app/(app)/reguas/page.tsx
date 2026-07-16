@@ -17,6 +17,7 @@ interface Step {
   channelAccountId?: string;
   canaisFallback?: Canal[];
   template: string;
+  emailAssunto?: string; // assunto do e-mail deste passo (só no canal EMAIL)
   templateB?: string;
   abTest?: boolean;
   templateName?: string; // nome do template aprovado (canal oficial)
@@ -541,6 +542,13 @@ function StepCard({
   async function sincronizarTemplates() {
     setTemplates(await api<{ id: string; nome: string; corpo: string; status: string }[]>('/config/templates').catch(() => []));
   }
+
+  // Modelos de e-mail salvos — atalho para preencher assunto + corpo do passo.
+  const [modelosEmail, setModelosEmail] = useState<{ id: string; nome: string; assunto: string; corpo: string }[]>([]);
+  useEffect(() => {
+    if (step.canal !== 'EMAIL') return;
+    api<{ id: string; nome: string; assunto: string; corpo: string }[]>('/modelos-email').then(setModelosEmail).catch(() => setModelosEmail([]));
+  }, [step.canal]);
   // WhatsApp → só template (texto livre não é entregue). SMS/e-mail → só texto livre.
   const canalOficial = ehWhatsApp(step.canal);
   useEffect(() => { if (canalOficial) sincronizarTemplates(); }, [canalOficial]);
@@ -690,8 +698,37 @@ function StepCard({
       ) : (
         /* SMS/e-mail: texto livre — não têm template. */
         <>
+          {step.canal === 'EMAIL' && (
+            <div className="mt-2 space-y-2">
+              <div className="flex flex-wrap items-center gap-2 rounded border border-line bg-surface px-3 py-2">
+                <span className="text-xs text-muted">Começar de um modelo:</span>
+                <select
+                  value=""
+                  onChange={(e) => {
+                    const m = modelosEmail.find((x) => x.id === e.target.value);
+                    if (m) onChange({ emailAssunto: m.assunto, template: m.corpo });
+                  }}
+                  className="rounded border border-line px-2 py-1 text-sm outline-none focus:border-primary"
+                >
+                  <option value="">{modelosEmail.length ? 'Escolher modelo...' : 'Nenhum modelo salvo'}</option>
+                  {modelosEmail.map((m) => <option key={m.id} value={m.id}>{m.nome}</option>)}
+                </select>
+                <Link href="/modelos-email" className="text-xs font-medium text-primary hover:underline">Gerenciar modelos</Link>
+              </div>
+              <label className="block">
+                <span className="mb-1 block text-xs text-muted">Assunto do e-mail</span>
+                <input
+                  value={step.emailAssunto ?? ''}
+                  onChange={(e) => onChange({ emailAssunto: e.target.value })}
+                  placeholder="Ex.: {{nome}}, sua fatura vence em {{vencimento}}"
+                  className="w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"
+                />
+                <span className="mt-1 block text-xs text-muted">Sem assunto, o e-mail sai como &quot;Aviso de cobrança&quot;.</span>
+              </label>
+            </div>
+          )}
           <label className="mt-2 block">
-            <span className="mb-1 flex items-center gap-1.5 text-xs text-muted"><Icon size={14} /> Mensagem {step.abTest ? '(variante A)' : ''}<PreviewButton canal={step.canal} texto={step.template} /><AiMensagemBtn texto={step.template} onResult={(t) => onChange({ template: t })} /></span>
+            <span className="mb-1 flex items-center gap-1.5 text-xs text-muted"><Icon size={14} /> Mensagem {step.abTest ? '(variante A)' : ''}<PreviewButton canal={step.canal} texto={step.template} assunto={step.emailAssunto} /><AiMensagemBtn texto={step.template} onResult={(t) => onChange({ template: t })} /></span>
             <textarea
               value={step.template}
               onChange={(e) => onChange({ template: e.target.value })}

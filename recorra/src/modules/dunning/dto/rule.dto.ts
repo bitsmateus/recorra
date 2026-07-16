@@ -36,6 +36,11 @@ export class StepDto {
   @IsString()
   template!: string;
 
+  /** Assunto do e-mail deste passo (ignorado nos demais canais). */
+  @IsOptional()
+  @IsString()
+  emailAssunto?: string;
+
   @IsOptional()
   @IsString()
   templateB?: string;

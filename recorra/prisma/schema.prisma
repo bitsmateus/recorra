@@ -494,6 +494,7 @@ model DunningStep {
   channelAccountId String?
   canaisFallback ChannelType[] @default([])
   template       String
+  emailAssunto   String? // assunto do e-mail deste passo (aceita variáveis)
   templateB      String?
   abTest         Boolean       @default(false)
   templateName   String?       // nome do template aprovado (envio oficial via NX/Meta)

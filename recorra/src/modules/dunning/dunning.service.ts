@@ -97,6 +97,7 @@ export class DunningService {
         cadeiaCanais: cadeia,
         template,
         conteudo,
+        assunto: step.emailAssunto ? renderTemplate(step.emailAssunto, vars) : null,
         templateName: usaTemplate ? step.templateName : null,
         templateParams,
         variante,
