@@ -147,6 +147,9 @@ export class CampaignsService {
         ruleId: c.ruleId,
         mensagem: c.mensagem,
         canal: c.canal,
+        channelAccountId: c.channelAccountId,
+        templateNome: c.templateNome,
+        templateParams: c.templateParams,
         escopoFatura: c.escopoFatura,
         delaySegundos: c.delaySegundos,
         filtroTodos: c.filtroTodos,
@@ -273,6 +276,11 @@ export class CampaignsService {
   async executar(tenantId: string, id: string) {
     const camp = await this.prisma.campaign.findFirst({ where: { id, tenantId }, include: { rule: { include: { steps: { where: { ativo: true }, orderBy: { ordem: 'asc' } } } } } });
     if (!camp) throw new NotFoundException('Campanha não encontrada');
+    // Campanha "uma vez" dispara uma única vez. Para reenviar, o cliente duplica e dispara a cópia.
+    if (camp.agendamento === 'UMA_VEZ') {
+      const jaRodou = await this.prisma.campaignRun.findFirst({ where: { campaignId: camp.id, tenantId }, select: { id: true } });
+      if (jaRodou) throw new BadRequestException('Esta campanha é de envio único e já foi disparada. Duplique-a para enviar de novo.');
+    }
     const publico = await this.resolverPublico(tenantId, camp);
 
     const run = await this.prisma.campaignRun.create({ data: { campaignId: camp.id, tenantId, totalContatos: publico.length } });
@@ -401,9 +409,23 @@ export class CampaignsService {
     const dispatchIds = recipients.map((r) => r.dispatchId).filter(Boolean) as string[];
     const dispatches = dispatchIds.length ? await this.prisma.messageDispatch.findMany({ where: { id: { in: dispatchIds } } }) : [];
     const dmap = new Map(dispatches.map((d) => [d.id, d]));
+    // O destino não fica no disparo: buscamos o contato atual do cliente (telefone ou e-mail, conforme o canal).
+    const customerIds = [...new Set(recipients.map((r) => r.customerId))];
+    const customers = customerIds.length
+      ? await this.prisma.customer.findMany({ where: { tenantId, id: { in: customerIds } }, select: { id: true, telefone: true, email: true } })
+      : [];
+    const cmap = new Map(customers.map((c) => [c.id, c]));
     const destinatarios = recipients.map((r) => {
       const d = r.dispatchId ? dmap.get(r.dispatchId) : undefined;
-      return { nome: r.nome, doc: r.doc, canal: r.canal, status: d?.status ?? r.status, enviadoEm: d?.enviadoEm ?? r.enviadoEm, erro: d?.erro ?? r.erro };
+      const cli = cmap.get(r.customerId);
+      const canal = d?.canal ?? r.canal;
+      const destino = canal === 'EMAIL' ? cli?.email : cli?.telefone;
+      return {
+        nome: r.nome, doc: r.doc, canal, destino: destino ?? null,
+        status: d?.status ?? r.status,
+        enviadoEm: d?.enviadoEm ?? r.enviadoEm,
+        erro: d?.erro ?? r.erro,
+      };
     });
     const resumo = await this.resumoEntrega(run.id);
     return { campanha: camp.nome, run, resumo, destinatarios };

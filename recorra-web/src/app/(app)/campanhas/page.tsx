@@ -82,6 +82,9 @@ const statusColor: Record<string, string> = {
 };
 const statusLabel: Record<string, string> = { RASCUNHO: 'Rascunho', ATIVA: 'Ativa', PAUSADA: 'Pausada', CONCLUIDA: 'Disparada' };
 const agendaLabel = (c: Campaign) => c.agendamento === 'UMA_VEZ' ? 'Uma vez' : c.agendamento === 'MENSAL' ? `Todo mês (dia ${c.diaDoMes || 1})` : 'Sempre ativa';
+/** Campanha de envio único já disparada não dispara de novo — o caminho é duplicar e disparar a cópia. */
+const jaDisparada = (c: Campaign) => c.agendamento === 'UMA_VEZ' && !!c.entrega;
+const dataHora = (s?: string) => s ? new Date(s).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
 const publicoLabel = (c: Campaign) => {
   if (c.filtroTodos) return 'Todos os contatos';
   const p: string[] = [];
@@ -193,10 +196,10 @@ export default function CampanhasPage() {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-1">
-                      <button onClick={() => setConfirmarDisparo(c)} title="Disparar agora" className="rounded p-1.5 text-muted hover:bg-primary-tint hover:text-primary"><Play size={15} /></button>
+                      {!jaDisparada(c) && <button onClick={() => setConfirmarDisparo(c)} title="Disparar agora" className="rounded p-1.5 text-muted hover:bg-primary-tint hover:text-primary"><Play size={15} /></button>}
                       <button onClick={() => setRelatorio(c)} title="Relatório" className="rounded p-1.5 text-muted hover:bg-canvas hover:text-primary"><BarChart3 size={15} /></button>
                       {c.agendamento !== 'UMA_VEZ' && <button onClick={() => toggleStatus(c)} title={c.status === 'PAUSADA' ? 'Ativar' : 'Pausar'} className="rounded p-1.5 text-muted hover:bg-canvas hover:text-primary">{c.status === 'PAUSADA' ? <Play size={15} /> : <Pause size={15} />}</button>}
-                      <button onClick={() => duplicar(c)} title="Duplicar" className="rounded p-1.5 text-muted hover:bg-canvas hover:text-primary"><Copy size={15} /></button>
+                      <button onClick={() => duplicar(c)} title={jaDisparada(c) ? 'Envio único já disparado — duplique para enviar de novo' : 'Duplicar'} className={`rounded p-1.5 hover:bg-canvas hover:text-primary ${jaDisparada(c) ? 'text-primary' : 'text-muted'}`}><Copy size={15} /></button>
                       <button onClick={() => setModal({ open: true, edit: c })} title="Editar" className="rounded p-1.5 text-muted hover:bg-canvas hover:text-primary"><Pencil size={15} /></button>
                       <button onClick={() => excluir(c)} title="Excluir" className="rounded p-1.5 text-muted hover:bg-danger-tint hover:text-danger"><Trash2 size={15} /></button>
                     </div>
@@ -538,14 +541,14 @@ function ContatosModal({ contatos, total, onRemover, onAdicionar, onClose }: { c
 }
 
 function RelatorioModal({ campanha, onClose }: { campanha: Campaign; onClose: () => void }) {
-  const [dados, setDados] = useState<{ run: Run | null; resumo?: { total: number; enviados: number; fila: number; falha: number }; destinatarios: { nome: string; doc?: string; canal?: string; status: string; enviadoEm?: string; erro?: string }[] } | null>(null);
+  const [dados, setDados] = useState<{ run: Run | null; resumo?: { total: number; enviados: number; fila: number; falha: number }; destinatarios: { nome: string; doc?: string; canal?: string; destino?: string | null; status: string; enviadoEm?: string; erro?: string }[] } | null>(null);
   const [q, setQ] = useState('');
   useEffect(() => { api<typeof dados>(`/campanhas/${campanha.id}/relatorio`).then(setDados).catch(() => setDados({ run: null, destinatarios: [] })); }, [campanha.id]);
 
-  const filtrados = (dados?.destinatarios || []).filter((d) => !q || d.nome.toLowerCase().includes(q.toLowerCase()) || (d.doc || '').includes(q));
+  const filtrados = (dados?.destinatarios || []).filter((d) => !q || d.nome.toLowerCase().includes(q.toLowerCase()) || (d.doc || '').includes(q) || (d.destino || '').includes(q));
 
   function exportarCsv() {
-    const linhas = [['nome', 'documento', 'canal', 'status', 'enviadoEm', 'erro'], ...filtrados.map((d) => [d.nome, d.doc || '', d.canal || '', d.status, d.enviadoEm || '', (d.erro || '').replace(/[\n,;]/g, ' ')])];
+    const linhas = [['nome', 'documento', 'destino', 'canal', 'status', 'enviadoEm', 'erro'], ...filtrados.map((d) => [d.nome, d.doc || '', d.destino || '', d.canal || '', d.status, dataHora(d.enviadoEm), (d.erro || '').replace(/[\n,;]/g, ' ')])];
     const csv = linhas.map((l) => l.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
     const a = document.createElement('a');
     a.href = `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`;
@@ -555,7 +558,7 @@ function RelatorioModal({ campanha, onClose }: { campanha: Campaign; onClose: ()
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+      <div className="max-h-[90vh] w-full max-w-4xl overflow-auto rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-ink">Relatório · {campanha.nome}</h2>
           <button onClick={onClose} className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>
@@ -570,22 +573,24 @@ function RelatorioModal({ campanha, onClose }: { campanha: Campaign; onClose: ()
             </div>
             {(dados.resumo?.fila ?? 0) > 0 && <p className="mb-2 rounded bg-warning-tint px-3 py-2 text-xs text-[#854F0B]">Há mensagens na fila. Elas são enviadas pelo worker em segundo plano. Se ficarem paradas, verifique se o processo <b>worker</b> está rodando e se o canal está <b>conectado</b> na aba Canais.</p>}
             <div className="mb-2 flex items-center gap-2">
-              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar destinatário" className="flex-1 rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por nome, documento ou telefone" className="flex-1 rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
               <button onClick={exportarCsv} className="rounded border border-line px-3 py-2 text-sm hover:bg-canvas">Exportar CSV</button>
             </div>
             <div className="overflow-auto rounded-lg border border-line">
               <div className="w-full overflow-x-auto"><table className="w-full min-w-[640px] text-sm">
-                <thead className="bg-canvas text-left text-xs uppercase text-muted"><tr><th className="px-3 py-2 font-medium">Nome</th><th className="px-3 py-2 font-medium">Documento</th><th className="px-3 py-2 font-medium">Canal</th><th className="px-3 py-2 font-medium">Status</th></tr></thead>
+                <thead className="bg-canvas text-left text-xs uppercase text-muted"><tr><th className="px-3 py-2 font-medium">Nome</th><th className="px-3 py-2 font-medium">Documento</th><th className="px-3 py-2 font-medium">Telefone / e-mail</th><th className="px-3 py-2 font-medium">Canal</th><th className="px-3 py-2 font-medium">Enviado em</th><th className="px-3 py-2 font-medium">Status</th></tr></thead>
                 <tbody>
                   {filtrados.map((d, i) => (
                     <tr key={i} className="border-t border-line align-top">
                       <td className="px-3 py-2 text-ink">{d.nome}{d.erro && <div className="mt-0.5 max-w-xs break-words text-xs text-danger">{d.erro}</div>}</td>
                       <td className="tabular px-3 py-2 text-muted">{d.doc || '—'}</td>
+                      <td className="tabular px-3 py-2 text-muted">{d.destino || '—'}</td>
                       <td className="px-3 py-2 text-muted">{d.canal || '—'}</td>
+                      <td className="tabular px-3 py-2 text-muted">{dataHora(d.enviadoEm)}</td>
                       <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-xs ${d.status === 'FALHA' || d.status === 'IGNORADO' ? 'bg-danger-tint text-[#A32D2D]' : d.status === 'ENVIADO' || d.status === 'ENTREGUE' || d.status === 'LIDO' ? 'bg-success-tint text-[#0F6E56]' : 'bg-canvas text-muted'}`}>{d.status}</span></td>
                     </tr>
                   ))}
-                  {filtrados.length === 0 && <tr><td colSpan={4} className="px-3 py-4 text-center text-muted">Nenhum destinatário.</td></tr>}
+                  {filtrados.length === 0 && <tr><td colSpan={6} className="px-3 py-4 text-center text-muted">Nenhum destinatário.</td></tr>}
                 </tbody>
               </table></div>
             </div>
