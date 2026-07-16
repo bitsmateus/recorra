@@ -7,6 +7,9 @@ import { env } from '@/config/env';
 
 type Creds = {
   apiUrl?: string; apiKey?: string; instance?: string; token?: string; phoneId?: string; from?: string; provider?: string;
+  // E-mail: Resend (apiKey) ou SMTP próprio
+  emailProvider?: 'resend' | 'smtp';
+  smtpHost?: string; smtpPort?: number; smtpSecure?: boolean; smtpUser?: string; smtpPass?: string;
   // HTTP genérico (API aberta)
   httpUrl?: string; httpMethod?: string; httpHeaders?: Record<string, string>; httpBodyTemplate?: string; httpMsgIdPath?: string; httpToFormat?: string;
   // NX Systems (conexão-base + canais importados)

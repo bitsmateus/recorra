@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { RefreshCw, Plus, Trash2, X, Database } from 'lucide-react';
 import { api } from '@/lib/api';
 import { PageTitle } from '@/components/ui';
-import EnvioIntegracoes from './envio-integracoes';
 
 // ERPs com integração nativa (puxam clientes + cobranças automaticamente).
 type CampoCred = { key: string; label: string; placeholder?: string; extra?: boolean };
@@ -70,7 +69,7 @@ export default function IntegracoesPage() {
 
   return (
     <div>
-      <PageTitle title="Integrações" subtitle="Conecte seu ERP (clientes e cobranças) e as plataformas de envio de mensagens" />
+      <PageTitle title="Integrações" subtitle="Conecte seu ERP para trazer clientes e cobranças automaticamente. Canais de envio ficam em Canais." />
 
       <section>
         <div className="mb-3 flex items-center justify-between">
@@ -100,8 +99,6 @@ export default function IntegracoesPage() {
           {!loading && lista.length === 0 && <div className="col-span-full rounded-lg border border-dashed border-line py-10 text-center text-sm text-muted">Nenhum ERP conectado. Clique em "Adicionar integração" para começar a puxar seus clientes e cobranças.</div>}
         </div>
       </section>
-
-      <EnvioIntegracoes />
 
       {novo && <NovaIntegracaoModal onClose={() => setNovo(false)} onCreated={() => { setNovo(false); carregar(); }} />}
     </div>

@@ -4,16 +4,24 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Plus, X, RefreshCw, Trash2, Wifi, WifiOff, Loader2, MessageCircle, Mail, Smartphone, Plug } from 'lucide-react';
 import { api } from '@/lib/api';
 import { PageTitle } from '@/components/ui';
+import PlataformasEnvio from '@/components/PlataformasEnvio';
 
 interface Conexao { id: string; canal: string; apelido: string; ativo: boolean; status: string; instance?: string | null; origem?: string; oficial?: boolean; nxType?: string }
 
+// Opções para criar um novo canal. Evolution/uazapi saíram: WhatsApp é via Cloud (Meta) ou NX.
 const TIPOS = [
   { canal: 'WHATSAPP_CLOUD', label: 'WhatsApp API oficial', desc: 'Meta Cloud API — você informa as credenciais.', qr: false, icon: MessageCircle },
-  { canal: 'WHATSAPP_EVOLUTION', label: 'WhatsApp (Evolution)', desc: 'Conecte seu número lendo o QR code.', qr: true, icon: MessageCircle },
-  { canal: 'WHATSAPP_UAZAPI', label: 'WhatsApp (uazapi)', desc: 'Conecte seu número lendo o QR code.', qr: true, icon: MessageCircle },
-  { canal: 'EMAIL', label: 'E-mail', desc: 'Remetente para envio de e-mails.', qr: false, icon: Mail },
+  { canal: 'EMAIL', label: 'E-mail', desc: 'Envie por Resend (API) ou pelo seu servidor SMTP.', qr: false, icon: Mail },
   { canal: 'SMS', label: 'SMS', desc: 'Provedor de SMS.', qr: false, icon: Smartphone },
-  { canal: 'NX_SYSTEMS', label: 'NX Systems', desc: 'Central de atendimento NX.', qr: false, icon: MessageCircle },
+];
+
+// Canais legados/criados por outros fluxos — só para rótulo/ícone nos cards existentes.
+const TIPOS_LABEL = [
+  ...TIPOS,
+  { canal: 'WHATSAPP_EVOLUTION', label: 'WhatsApp (Evolution)', desc: '', qr: true, icon: MessageCircle },
+  { canal: 'WHATSAPP_UAZAPI', label: 'WhatsApp (uazapi)', desc: '', qr: true, icon: MessageCircle },
+  { canal: 'NX_SYSTEMS', label: 'NX Systems', desc: '', qr: false, icon: MessageCircle },
+  { canal: 'HTTP_GENERIC', label: 'API genérica (HTTP)', desc: '', qr: false, icon: MessageCircle },
 ];
 const statusInfo: Record<string, { label: string; cls: string; icon: typeof Wifi }> = {
   CONECTADO: { label: 'Conectado', cls: 'bg-success-tint text-[#0F6E56]', icon: Wifi },
@@ -61,7 +69,8 @@ export default function CanaisPage() {
 
   const importadosNx = lista.filter((c) => c.origem === 'nx');
   const basesNx = lista.filter((c) => c.canal === 'NX_SYSTEMS' && c.origem !== 'nx');
-  const outros = lista.filter((c) => c.canal !== 'NX_SYSTEMS');
+  // NX e HTTP genérico aparecem na seção "Plataformas de envio" (abaixo), não aqui.
+  const outros = lista.filter((c) => c.canal !== 'NX_SYSTEMS' && c.canal !== 'HTTP_GENERIC');
 
   return (
     <div>
@@ -107,6 +116,9 @@ export default function CanaisPage() {
       </div>
       {loading && <p className="mt-3 text-sm text-muted">Carregando...</p>}
 
+      {/* Plataformas de envio (NX Systems / API genérica) — antes ficavam em Integrações. */}
+      <PlataformasEnvio />
+
       {novo && <NovoCanalModal onClose={() => setNovo(false)} onCreated={(conn) => { setNovo(false); carregar(); const t = TIPOS.find((x) => x.canal === conn.canal); if (t?.qr) setQr(conn); }} />}
       {qr && <QrModal conn={qr} onClose={() => { setQr(null); carregar(); }} />}
     </div>
@@ -114,7 +126,7 @@ export default function CanaisPage() {
 }
 
 function CanalCard({ c, onExcluir, onQr }: { c: Conexao; onExcluir: (c: Conexao) => void; onQr: (c: Conexao) => void }) {
-  const tipo = TIPOS.find((t) => t.canal === c.canal);
+  const tipo = TIPOS_LABEL.find((t) => t.canal === c.canal);
   const si = statusInfo[c.status] || statusInfo.CONFIGURADO;
   const SIcon = si.icon;
   const TIcon = tipo?.icon || MessageCircle;
@@ -139,26 +151,43 @@ function CanalCard({ c, onExcluir, onQr }: { c: Conexao; onExcluir: (c: Conexao)
 }
 
 function NovoCanalModal({ onClose, onCreated }: { onClose: () => void; onCreated: (c: Conexao) => void }) {
-  const [canal, setCanal] = useState('WHATSAPP_EVOLUTION');
+  const [canal, setCanal] = useState('WHATSAPP_CLOUD');
   const [apelido, setApelido] = useState('');
   const [creds, setCreds] = useState<Record<string, string>>({});
+  const [emailProvider, setEmailProvider] = useState<'resend' | 'smtp'>('resend');
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
   const tipo = TIPOS.find((t) => t.canal === canal)!;
+  const isEmail = canal === 'EMAIL';
 
-  const camposCred: Record<string, { key: string; label: string }[]> = {
+  // E-mail tem UI própria (Resend x SMTP); os demais usam campos simples.
+  const camposCred: Record<string, { key: string; label: string; placeholder?: string }[]> = {
     WHATSAPP_CLOUD: [{ key: 'phoneId', label: 'Phone Number ID' }, { key: 'token', label: 'Token de acesso' }],
-    EMAIL: [{ key: 'from', label: 'Remetente (ex: cobranca@seudominio.com)' }],
     SMS: [{ key: 'provider', label: 'Provedor' }, { key: 'apiKey', label: 'API Key' }, { key: 'from', label: 'Remetente' }],
-    WHATSAPP_EVOLUTION: [],
-    WHATSAPP_UAZAPI: [],
+    EMAIL: [],
+  };
+  const camposEmail: Record<'resend' | 'smtp', { key: string; label: string; placeholder?: string }[]> = {
+    resend: [{ key: 'apiKey', label: 'API Key do Resend', placeholder: 're_...' }],
+    smtp: [
+      { key: 'smtpHost', label: 'Servidor SMTP', placeholder: 'smtp.seudominio.com' },
+      { key: 'smtpPort', label: 'Porta', placeholder: '587' },
+      { key: 'smtpUser', label: 'Usuário' },
+      { key: 'smtpPass', label: 'Senha' },
+    ],
   };
 
   async function criar() {
     if (!apelido.trim()) return setMsg('Dê um nome para a conexão.');
     setBusy(true); setMsg('');
+    let credentials: Record<string, unknown> = creds;
+    if (isEmail) {
+      const porta = Number(creds.smtpPort || 587);
+      credentials = emailProvider === 'smtp'
+        ? { emailProvider: 'smtp', from: creds.from, smtpHost: creds.smtpHost, smtpPort: porta, smtpSecure: porta === 465, smtpUser: creds.smtpUser, smtpPass: creds.smtpPass }
+        : { emailProvider: 'resend', from: creds.from, apiKey: creds.apiKey };
+    }
     try {
-      const conn = await api<Conexao>('/canais', { method: 'POST', body: { canal, apelido, credentials: creds } });
+      const conn = await api<Conexao>('/canais', { method: 'POST', body: { canal, apelido, credentials } });
       onCreated(conn);
     } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro'); setBusy(false); }
   }
@@ -179,11 +208,38 @@ function NovoCanalModal({ onClose, onCreated }: { onClose: () => void; onCreated
         <label className="mb-3 block text-sm"><span className="mb-1 block text-xs text-muted">Nome da conexão *</span>
           <input value={apelido} onChange={(e) => setApelido(e.target.value)} placeholder="Ex.: Comercial, Financeiro" className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary" />
         </label>
-        {camposCred[canal].map((f) => (
-          <label key={f.key} className="mb-3 block text-sm"><span className="mb-1 block text-xs text-muted">{f.label}</span>
-            <input value={creds[f.key] || ''} onChange={(e) => setCreds((s) => ({ ...s, [f.key]: e.target.value }))} className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary" />
-          </label>
-        ))}
+        {isEmail ? (
+          <>
+            <div className="mb-3 text-sm">
+              <span className="mb-1 block text-xs text-muted">Como enviar</span>
+              <div className="space-y-2 rounded-lg border border-line p-3">
+                <label className="flex cursor-pointer items-start gap-2">
+                  <input type="radio" name="emailprov" checked={emailProvider === 'resend'} onChange={() => setEmailProvider('resend')} className="mt-1" />
+                  <span><span className="font-medium text-ink">Resend (API)</span><span className="block text-xs text-muted">Mais simples: só a API key. Entrega alta, sem servidor próprio.</span></span>
+                </label>
+                <label className="flex cursor-pointer items-start gap-2">
+                  <input type="radio" name="emailprov" checked={emailProvider === 'smtp'} onChange={() => setEmailProvider('smtp')} className="mt-1" />
+                  <span><span className="font-medium text-ink">SMTP próprio</span><span className="block text-xs text-muted">Use o servidor de e-mail da sua empresa (host, porta, usuário e senha).</span></span>
+                </label>
+              </div>
+            </div>
+            <label className="mb-3 block text-sm"><span className="mb-1 block text-xs text-muted">Remetente (De)</span>
+              <input value={creds.from || ''} onChange={(e) => setCreds((s) => ({ ...s, from: e.target.value }))} placeholder="Cobrança <cobranca@seudominio.com>" className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary" />
+            </label>
+            {camposEmail[emailProvider].map((f) => (
+              <label key={f.key} className="mb-3 block text-sm"><span className="mb-1 block text-xs text-muted">{f.label}</span>
+                <input value={creds[f.key] || ''} onChange={(e) => setCreds((s) => ({ ...s, [f.key]: e.target.value }))} placeholder={f.placeholder} className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary" />
+              </label>
+            ))}
+            {emailProvider === 'smtp' && <p className="mb-3 rounded bg-canvas px-3 py-2 text-xs text-muted">Porta 587 usa STARTTLS; 465 usa SSL. A senha é cifrada antes de salvar.</p>}
+          </>
+        ) : (
+          camposCred[canal].map((f) => (
+            <label key={f.key} className="mb-3 block text-sm"><span className="mb-1 block text-xs text-muted">{f.label}</span>
+              <input value={creds[f.key] || ''} onChange={(e) => setCreds((s) => ({ ...s, [f.key]: e.target.value }))} placeholder={f.placeholder} className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary" />
+            </label>
+          ))
+        )}
         {tipo.qr && <p className="mb-3 rounded bg-canvas px-3 py-2 text-xs text-muted">Ao criar, vamos abrir o QR code para você conectar o número no WhatsApp do celular.</p>}
         {msg && <p className="mb-2 text-sm text-danger">{msg}</p>}
         <div className="flex justify-end gap-2">

@@ -28,8 +28,14 @@ export interface ChannelCredentials {
   //  - uazapi / genérico: token compartilhado enviado no header pelo provedor
   //  (Evolution valida pelo header `apikey` = apiKey da instância)
   webhookSecret?: string;
-  // E-mail
+  // E-mail: 'resend' (API) ou 'smtp' (servidor próprio)
   from?: string;
+  emailProvider?: 'resend' | 'smtp';
+  smtpHost?: string;
+  smtpPort?: number;
+  smtpSecure?: boolean; // true = SSL (465); false = STARTTLS (587)
+  smtpUser?: string;
+  smtpPass?: string;
   // HTTP genérico (API aberta) — ver HttpGenericChannel
   httpUrl?: string; // endpoint completo (ex.: https://api.nxdigital.com.br/v1/messages)
   httpMethod?: string; // POST (padrão) | PUT | GET
