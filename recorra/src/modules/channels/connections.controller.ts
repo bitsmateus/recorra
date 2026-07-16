@@ -28,6 +28,13 @@ export class ConnectionsController {
     return this.connections.testar(dto);
   }
 
+  /** Envia um e-mail de teste com as credenciais informadas (não salva nada). */
+  @Post('testar-email')
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
+  testarEmail(@Body() dto: { credentials?: Record<string, unknown>; para?: string }) {
+    return this.connections.testarEmail(dto);
+  }
+
   /** Importa/atualiza os canais do NX (oficiais e não oficiais) como conexões na Recorra. */
   @Post('sincronizar-nx')
   @Roles('OWNER', 'ADMIN', 'FINANCEIRO')

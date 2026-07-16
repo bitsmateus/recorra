@@ -4,6 +4,8 @@ import axios from 'axios';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { CryptoService } from '@/common/crypto/crypto.service';
 import { env } from '@/config/env';
+import { EmailChannel } from './providers/email.channel';
+import { ChannelCredentials } from './message-channel.interface';
 
 type Creds = {
   apiUrl?: string; apiKey?: string; instance?: string; token?: string; phoneId?: string; from?: string; provider?: string;
@@ -206,6 +208,29 @@ export class ConnectionsService {
     } catch (e) {
       return { ok: false, mensagem: `Não foi possível alcançar a URL: ${axios.isAxiosError(e) ? e.message : String(e)}` };
     }
+  }
+
+  /** Envia um e-mail de teste com as credenciais informadas (Resend ou SMTP), sem salvar nada. */
+  async testarEmail(dto: { credentials?: Record<string, unknown>; para?: string }) {
+    const para = (dto.para ?? '').trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(para)) return { ok: false, mensagem: 'Informe um e-mail de destino válido.' };
+
+    const c = (dto.credentials ?? {}) as Creds;
+    if (c.emailProvider === 'smtp') {
+      if (!c.smtpHost) return { ok: false, mensagem: 'Informe o servidor SMTP (host).' };
+    } else if (!c.apiKey) {
+      return { ok: false, mensagem: 'Informe a API key do Resend.' };
+    }
+
+    const canal = new EmailChannel(c as ChannelCredentials);
+    const r = await canal.send({
+      to: para,
+      text: 'Este é um e-mail de teste do Recorra. Se você recebeu, o canal está configurado corretamente.',
+      templateName: 'Teste de configuração — Recorra',
+    });
+    return r.status === 'ENVIADO'
+      ? { ok: true, mensagem: `E-mail de teste enviado para ${para}. Confira a caixa de entrada (e o spam).` }
+      : { ok: false, mensagem: `Falha ao enviar: ${r.erro ?? 'erro desconhecido'}` };
   }
 
   private slug(s: string) { return s.toLowerCase().normalize('NFD').replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 24); }

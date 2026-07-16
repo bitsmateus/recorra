@@ -1,25 +1,25 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Plus, X, RefreshCw, Trash2, Wifi, WifiOff, Loader2, MessageCircle, Mail, Smartphone, Plug } from 'lucide-react';
+import { Plus, X, RefreshCw, Trash2, Wifi, WifiOff, Loader2, MessageCircle, Mail, Smartphone, Plug, CheckCircle2, AlertCircle } from 'lucide-react';
 import { api } from '@/lib/api';
 import { PageTitle } from '@/components/ui';
 import PlataformasEnvio from '@/components/PlataformasEnvio';
 
 interface Conexao { id: string; canal: string; apelido: string; ativo: boolean; status: string; instance?: string | null; origem?: string; oficial?: boolean; nxType?: string }
 
-// Opções para criar um novo canal. Evolution/uazapi saíram: WhatsApp é via Cloud (Meta) ou NX.
+// Opções para criar um novo canal (Canais é o hub único de envio).
 const TIPOS = [
   { canal: 'WHATSAPP_CLOUD', label: 'WhatsApp API oficial', desc: 'Meta Cloud API — você informa as credenciais.', qr: false, icon: MessageCircle },
+  { canal: 'WHATSAPP_EVOLUTION', label: 'WhatsApp (Evolution)', desc: 'Conecte seu número lendo o QR code.', qr: true, icon: MessageCircle },
+  { canal: 'WHATSAPP_UAZAPI', label: 'WhatsApp (uazapi)', desc: 'Conecte seu número lendo o QR code.', qr: true, icon: MessageCircle },
   { canal: 'EMAIL', label: 'E-mail', desc: 'Envie por Resend (API) ou pelo seu servidor SMTP.', qr: false, icon: Mail },
   { canal: 'SMS', label: 'SMS', desc: 'Provedor de SMS.', qr: false, icon: Smartphone },
 ];
 
-// Canais legados/criados por outros fluxos — só para rótulo/ícone nos cards existentes.
+// NX e HTTP são criados na seção "Plataformas de envio"; aqui só para rótulo/ícone dos cards.
 const TIPOS_LABEL = [
   ...TIPOS,
-  { canal: 'WHATSAPP_EVOLUTION', label: 'WhatsApp (Evolution)', desc: '', qr: true, icon: MessageCircle },
-  { canal: 'WHATSAPP_UAZAPI', label: 'WhatsApp (uazapi)', desc: '', qr: true, icon: MessageCircle },
   { canal: 'NX_SYSTEMS', label: 'NX Systems', desc: '', qr: false, icon: MessageCircle },
   { canal: 'HTTP_GENERIC', label: 'API genérica (HTTP)', desc: '', qr: false, icon: MessageCircle },
 ];
@@ -155,6 +155,9 @@ function NovoCanalModal({ onClose, onCreated }: { onClose: () => void; onCreated
   const [apelido, setApelido] = useState('');
   const [creds, setCreds] = useState<Record<string, string>>({});
   const [emailProvider, setEmailProvider] = useState<'resend' | 'smtp'>('resend');
+  const [testePara, setTestePara] = useState('');
+  const [teste, setTeste] = useState<{ ok: boolean; mensagem: string } | null>(null);
+  const [testando, setTestando] = useState(false);
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
   const tipo = TIPOS.find((t) => t.canal === canal)!;
@@ -165,6 +168,8 @@ function NovoCanalModal({ onClose, onCreated }: { onClose: () => void; onCreated
     WHATSAPP_CLOUD: [{ key: 'phoneId', label: 'Phone Number ID' }, { key: 'token', label: 'Token de acesso' }],
     SMS: [{ key: 'provider', label: 'Provedor' }, { key: 'apiKey', label: 'API Key' }, { key: 'from', label: 'Remetente' }],
     EMAIL: [],
+    WHATSAPP_EVOLUTION: [], // conecta por QR code
+    WHATSAPP_UAZAPI: [], // conecta por QR code
   };
   const camposEmail: Record<'resend' | 'smtp', { key: string; label: string; placeholder?: string }[]> = {
     resend: [{ key: 'apiKey', label: 'API Key do Resend', placeholder: 're_...' }],
@@ -176,16 +181,27 @@ function NovoCanalModal({ onClose, onCreated }: { onClose: () => void; onCreated
     ],
   };
 
+  /** Monta as credenciais de e-mail conforme o provedor escolhido (Resend x SMTP). */
+  function credenciaisEmail(): Record<string, unknown> {
+    const porta = Number(creds.smtpPort || 587);
+    return emailProvider === 'smtp'
+      ? { emailProvider: 'smtp', from: creds.from, smtpHost: creds.smtpHost, smtpPort: porta, smtpSecure: porta === 465, smtpUser: creds.smtpUser, smtpPass: creds.smtpPass }
+      : { emailProvider: 'resend', from: creds.from, apiKey: creds.apiKey };
+  }
+
+  async function testarEmail() {
+    setTestando(true); setTeste(null);
+    try {
+      const r = await api<{ ok: boolean; mensagem: string }>('/canais/testar-email', { method: 'POST', body: { credentials: credenciaisEmail(), para: testePara } });
+      setTeste(r);
+    } catch (e) { setTeste({ ok: false, mensagem: e instanceof Error ? e.message : 'Erro ao testar' }); }
+    setTestando(false);
+  }
+
   async function criar() {
     if (!apelido.trim()) return setMsg('Dê um nome para a conexão.');
     setBusy(true); setMsg('');
-    let credentials: Record<string, unknown> = creds;
-    if (isEmail) {
-      const porta = Number(creds.smtpPort || 587);
-      credentials = emailProvider === 'smtp'
-        ? { emailProvider: 'smtp', from: creds.from, smtpHost: creds.smtpHost, smtpPort: porta, smtpSecure: porta === 465, smtpUser: creds.smtpUser, smtpPass: creds.smtpPass }
-        : { emailProvider: 'resend', from: creds.from, apiKey: creds.apiKey };
-    }
+    const credentials: Record<string, unknown> = isEmail ? credenciaisEmail() : creds;
     try {
       const conn = await api<Conexao>('/canais', { method: 'POST', body: { canal, apelido, credentials } });
       onCreated(conn);
@@ -232,6 +248,22 @@ function NovoCanalModal({ onClose, onCreated }: { onClose: () => void; onCreated
               </label>
             ))}
             {emailProvider === 'smtp' && <p className="mb-3 rounded bg-canvas px-3 py-2 text-xs text-muted">Porta 587 usa STARTTLS; 465 usa SSL. A senha é cifrada antes de salvar.</p>}
+
+            {/* Teste real: envia um e-mail com estas credenciais antes de salvar. */}
+            <div className="mb-3 rounded-lg border border-line p-3">
+              <span className="mb-1 block text-xs text-muted">Testar envio (opcional)</span>
+              <div className="flex gap-2">
+                <input value={testePara} onChange={(e) => { setTestePara(e.target.value); setTeste(null); }} placeholder="seu@email.com" className="flex-1 rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+                <button type="button" onClick={testarEmail} disabled={testando || !testePara.trim()} className="flex items-center gap-1.5 rounded border border-line px-3 py-2 text-sm hover:bg-canvas disabled:opacity-60">
+                  {testando ? <Loader2 size={14} className="animate-spin" /> : <Mail size={14} />} {testando ? 'Enviando...' : 'Enviar teste'}
+                </button>
+              </div>
+              {teste && (
+                <p className={`mt-2 flex items-start gap-1.5 text-xs ${teste.ok ? 'text-success' : 'text-danger'}`}>
+                  {teste.ok ? <CheckCircle2 size={14} className="mt-px shrink-0" /> : <AlertCircle size={14} className="mt-px shrink-0" />} {teste.mensagem}
+                </p>
+              )}
+            </div>
           </>
         ) : (
           camposCred[canal].map((f) => (
