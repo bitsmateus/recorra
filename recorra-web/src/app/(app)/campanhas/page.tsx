@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Plus, Play, Pause, BarChart3, Pencil, Trash2, X, Megaphone, ExternalLink, Copy, Filter } from 'lucide-react';
+import { Plus, Play, Pause, BarChart3, Pencil, Trash2, X, Megaphone, ExternalLink, Copy, Filter, Loader2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { PageTitle } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -109,14 +109,24 @@ export default function CampanhasPage() {
   const canaisFiltro = canaisConfigurados(canais);
   const setF = (k: string, v: string) => setFiltros((s) => ({ ...s, [k]: v }));
 
-  const carregar = useCallback(async () => {
-    setLoading(true);
+  const carregar = useCallback(async (silencioso = false) => {
+    if (!silencioso) setLoading(true);
     const params = new URLSearchParams();
     Object.entries(filtros).forEach(([k, v]) => v && params.set(k, v));
-    setLista(await api<Campaign[]>(`/campanhas?${params.toString()}`).catch(() => []));
-    setLoading(false);
+    const r = await api<Campaign[]>(`/campanhas?${params.toString()}`).catch(() => null);
+    if (r) setLista(r);
+    if (!silencioso) setLoading(false);
   }, [filtros]);
   useEffect(() => { carregar(); }, [carregar]);
+
+  // Enquanto houver mensagem na fila, o worker ainda está enviando: recarrega sozinho
+  // até zerar, para o usuário ver o progresso sem apertar F5.
+  const temFila = lista.some((c) => (c.entrega?.fila ?? 0) > 0);
+  useEffect(() => {
+    if (!temFila) return;
+    const t = setInterval(() => carregar(true), 4000);
+    return () => clearInterval(t);
+  }, [temFila, carregar]);
   useEffect(() => { api<{ id: string; nome: string }[]>('/reguas').then(setReguas).catch(() => setReguas([])); api<{ nome: string }[]>('/clientes/etiquetas').then(setEtiquetas).catch(() => setEtiquetas([])); api<ContaCanal[]>('/canais').then(setCanais).catch(() => setCanais([])); }, []);
   const filtrosAtivos = Object.values(filtros).filter(Boolean).length;
 
@@ -155,6 +165,7 @@ export default function CampanhasPage() {
       </div>
 
       {msg && <p className="mb-3 text-sm text-primary">{msg}</p>}
+      {temFila && <p className="mb-3 flex items-center gap-2 text-xs text-muted"><Loader2 size={13} className="animate-spin text-primary" /> Enviando... esta tela atualiza sozinha conforme as mensagens saem.</p>}
 
       <div className="mb-4 rounded-lg border border-line bg-surface p-3">
         <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted"><Filter size={14} /> Filtros {filtrosAtivos > 0 && <span className="rounded-full bg-primary-tint px-2 py-0.5 text-primary">{filtrosAtivos}</span>}{filtrosAtivos > 0 && <button onClick={() => setFiltros(emptyFiltros)} className="ml-auto flex items-center gap-1 rounded-md border border-danger/40 bg-danger-tint px-3 py-1 text-xs font-medium text-danger hover:bg-danger hover:text-white"><X size={13} /> Limpar filtros</button>}</div>
@@ -543,7 +554,21 @@ function ContatosModal({ contatos, total, onRemover, onAdicionar, onClose }: { c
 function RelatorioModal({ campanha, onClose }: { campanha: Campaign; onClose: () => void }) {
   const [dados, setDados] = useState<{ run: Run | null; resumo?: { total: number; enviados: number; fila: number; falha: number }; destinatarios: { nome: string; doc?: string; canal?: string; destino?: string | null; status: string; enviadoEm?: string; erro?: string }[] } | null>(null);
   const [q, setQ] = useState('');
-  useEffect(() => { api<typeof dados>(`/campanhas/${campanha.id}/relatorio`).then(setDados).catch(() => setDados({ run: null, destinatarios: [] })); }, [campanha.id]);
+
+  const buscar = useCallback(async () => {
+    const r = await api<{ run: Run | null; resumo?: { total: number; enviados: number; fila: number; falha: number }; destinatarios: { nome: string; doc?: string; canal?: string; destino?: string | null; status: string; enviadoEm?: string; erro?: string }[] }>(`/campanhas/${campanha.id}/relatorio`).catch(() => null);
+    setDados(r ?? { run: null, destinatarios: [] });
+  }, [campanha.id]);
+  useEffect(() => { buscar(); }, [buscar]);
+
+  // Acompanha o envio em tempo real: enquanto o worker tem disparos na fila,
+  // recarrega a cada 3s e para sozinho quando a fila zera.
+  const naFila = dados?.resumo?.fila ?? 0;
+  useEffect(() => {
+    if (naFila <= 0) return;
+    const t = setInterval(buscar, 3000);
+    return () => clearInterval(t);
+  }, [naFila, buscar]);
 
   const filtrados = (dados?.destinatarios || []).filter((d) => !q || d.nome.toLowerCase().includes(q.toLowerCase()) || (d.doc || '').includes(q) || (d.destino || '').includes(q));
 
@@ -571,7 +596,9 @@ function RelatorioModal({ campanha, onClose }: { campanha: Campaign; onClose: ()
               <div className="rounded-lg border border-line p-3"><div className="text-xl font-semibold text-[#854F0B]">{dados.resumo?.fila ?? 0}</div><div className="text-xs text-muted">Na fila</div></div>
               <div className="rounded-lg border border-line p-3"><div className="text-xl font-semibold text-danger">{dados.resumo?.falha ?? 0}</div><div className="text-xs text-muted">Falhas</div></div>
             </div>
-            {(dados.resumo?.fila ?? 0) > 0 && <p className="mb-2 rounded bg-warning-tint px-3 py-2 text-xs text-[#854F0B]">Há mensagens na fila. Elas são enviadas pelo worker em segundo plano. Se ficarem paradas, verifique se o processo <b>worker</b> está rodando e se o canal está <b>conectado</b> na aba Canais.</p>}
+            {naFila > 0
+              ? <p className="mb-2 flex items-center gap-2 rounded bg-warning-tint px-3 py-2 text-xs text-[#854F0B]"><Loader2 size={13} className="shrink-0 animate-spin" /> Enviando: <b>{dados.resumo?.enviados ?? 0} de {dados.resumo?.total ?? 0}</b> concluídos, {naFila} na fila. Atualiza sozinho a cada 3s — pode deixar aberto. Se travar, confira se o <b>worker</b> está rodando e o canal está <b>conectado</b> em Canais.</p>
+              : <p className="mb-2 rounded bg-success-tint px-3 py-2 text-xs text-[#0F6E56]">✓ Envio finalizado — {dados.resumo?.enviados ?? 0} de {dados.resumo?.total ?? 0} enviados{(dados.resumo?.falha ?? 0) > 0 ? `, ${dados.resumo?.falha} com falha` : ''}.</p>}
             <div className="mb-2 flex items-center gap-2">
               <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por nome, documento ou telefone" className="flex-1 rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
               <button onClick={exportarCsv} className="rounded border border-line px-3 py-2 text-sm hover:bg-canvas">Exportar CSV</button>
