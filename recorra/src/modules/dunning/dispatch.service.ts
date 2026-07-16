@@ -60,6 +60,7 @@ export class DispatchService {
       const res = await channel.send({
         to: destino,
         text: d.conteudo ?? '',
+        assunto: (d as { assunto?: string | null }).assunto ?? undefined,
         templateName: d.templateName ?? undefined,
         templateParams: d.templateParams?.length ? d.templateParams : undefined,
         templateLanguage,

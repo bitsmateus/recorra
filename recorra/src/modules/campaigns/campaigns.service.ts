@@ -14,6 +14,7 @@ export interface CampaignInput {
   tipoEnvio: 'REGUA' | 'MENSAGEM' | 'LEMBRETE';
   ruleId?: string | null;
   mensagem?: string | null;
+  emailAssunto?: string | null;
   canal?: ChannelType | null;
   channelAccountId?: string | null;
   templateNome?: string | null;
@@ -103,6 +104,8 @@ export class CampaignsService {
       tipoEnvio: input.tipoEnvio,
       ruleId: input.tipoEnvio === 'REGUA' ? input.ruleId || null : null,
       mensagem: !comTemplate && (input.tipoEnvio === 'MENSAGEM' || input.tipoEnvio === 'LEMBRETE') ? input.mensagem || null : null,
+      // Assunto só existe no e-mail; WhatsApp/SMS não têm.
+      emailAssunto: input.canal === 'EMAIL' ? input.emailAssunto?.trim() || null : null,
       canal: input.canal || null,
       channelAccountId: input.channelAccountId || null,
       templateNome: comTemplate ? input.templateNome || null : null,
@@ -140,6 +143,7 @@ export class CampaignsService {
       return;
     }
     if (!input.mensagem?.trim()) throw new BadRequestException('Escreva a mensagem');
+    if (input.canal === 'EMAIL' && !input.emailAssunto?.trim()) throw new BadRequestException('Escreva o assunto do e-mail');
   }
 
   async update(tenantId: string, id: string, input: CampaignInput) {
@@ -158,6 +162,7 @@ export class CampaignsService {
         tipoEnvio: c.tipoEnvio,
         ruleId: c.ruleId,
         mensagem: c.mensagem,
+        emailAssunto: c.emailAssunto,
         canal: c.canal,
         channelAccountId: c.channelAccountId,
         templateNome: c.templateNome,
@@ -328,6 +333,7 @@ export class CampaignsService {
                 channelAccountId: camp.channelAccountId ?? undefined,
                 templateName: usaTpl ? camp.templateNome : undefined,
                 templateParams: paramsLembrete,
+                assunto: this.render(camp.emailAssunto, cliente, inv) || null,
                 conteudo: usaTpl
                   ? `[template: ${camp.templateNome}] ${paramsLembrete.join(' | ')}`
                   : this.render(camp.mensagem, cliente, inv),
@@ -347,7 +353,11 @@ export class CampaignsService {
         if (camp.tipoEnvio === 'MENSAGEM') {
           // Num template, as variáveis (valor/vencimento/link) estão em templateParams,
           // não em `mensagem`. Consideramos ambos ao decidir se puxa a fatura do cliente.
-          const textoVars = camp.templateNome ? (camp.templateParams ?? []).join(' ') : (camp.mensagem ?? '');
+          // O assunto entra na conta: se só ele usar {{valor}}, ainda precisamos da fatura.
+          const textoVars = [
+            camp.templateNome ? (camp.templateParams ?? []).join(' ') : (camp.mensagem ?? ''),
+            camp.emailAssunto ?? '',
+          ].join(' ');
           let inv = this.temVariavelFatura(textoVars)
             ? await this.prisma.invoice.findFirst({ where: { tenantId, customerId: cliente.id, status: { in: ['PENDENTE', 'VENCIDA'] } }, orderBy: { vencimento: 'asc' } })
             : null;
@@ -364,6 +374,7 @@ export class CampaignsService {
               channelAccountId: camp.channelAccountId ?? undefined,
               templateName: usaTemplate ? camp.templateNome : undefined,
               templateParams,
+              assunto: this.render(camp.emailAssunto, cliente, inv) || null,
               conteudo: usaTemplate
                 ? `[template: ${camp.templateNome}] ${templateParams.join(' | ')}`
                 : this.render(camp.mensagem, cliente, inv),

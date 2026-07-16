@@ -6,15 +6,17 @@ import { Plus, Play, Pause, BarChart3, Pencil, Trash2, X, Megaphone, ExternalLin
 import { api } from '@/lib/api';
 import { PageTitle } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { PreviewButton } from '@/components/MessagePreview';
 
 interface Regua { id: string; nome: string }
+interface ModeloEmail { id: string; nome: string; assunto: string; corpo: string }
 interface Etiqueta { nome: string }
 interface Run { id: string; totalContatos: number; enviados: number; falhas: number; executadoEm: string }
 interface Campaign {
   id: string; nome: string;
   tipoEnvio: 'REGUA' | 'MENSAGEM' | 'LEMBRETE';
   ruleId?: string; rule?: { id: string; nome: string };
-  mensagem?: string; canal?: string; channelAccountId?: string; templateNome?: string; templateParams?: string[]; escopoFatura?: 'TODAS' | 'PROXIMA'; delaySegundos?: number;
+  mensagem?: string; emailAssunto?: string; canal?: string; channelAccountId?: string; templateNome?: string; templateParams?: string[]; escopoFatura?: 'TODAS' | 'PROXIMA'; delaySegundos?: number;
   filtroTodos: boolean; filtroEtiqueta?: string; filtroValorMin?: number; filtroValorMax?: number; filtroFaixa?: string;
   incluirIds?: string[]; excluirIds?: string[];
   publicoDinamico: boolean;
@@ -285,12 +287,61 @@ function BlocoTemplate({ templates, valor, onChange, params, setParam }: {
   );
 }
 
+/**
+ * Bloco de e-mail: assunto + corpo, com atalho para carregar um modelo salvo.
+ * Escolher um modelo COPIA o texto para a campanha — mexer no modelo depois não
+ * altera campanhas já criadas, e editar aqui não altera o modelo.
+ */
+function BlocoEmail({ assunto, corpo, onAssunto, onCorpo }: {
+  assunto: string; corpo: string; onAssunto: (v: string) => void; onCorpo: (v: string) => void;
+}) {
+  const [modelos, setModelos] = useState<ModeloEmail[]>([]);
+  useEffect(() => { api<ModeloEmail[]>('/modelos-email').then(setModelos).catch(() => setModelos([])); }, []);
+
+  function usarModelo(id: string) {
+    const m = modelos.find((x) => x.id === id);
+    if (!m) return;
+    onAssunto(m.assunto);
+    onCorpo(m.corpo);
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2 rounded border border-line bg-canvas px-3 py-2">
+        <span className="text-xs text-muted">Começar de um modelo:</span>
+        <select value="" onChange={(e) => usarModelo(e.target.value)} className="rounded border border-line bg-surface px-2 py-1 text-sm outline-none focus:border-primary">
+          <option value="">{modelos.length ? 'Escolher modelo...' : 'Nenhum modelo salvo'}</option>
+          {modelos.map((m) => <option key={m.id} value={m.id}>{m.nome}</option>)}
+        </select>
+        <Link href="/modelos-email" className="flex items-center gap-1 text-xs font-medium text-primary hover:underline"><ExternalLink size={12} /> Gerenciar modelos</Link>
+      </div>
+
+      <label className="block text-sm"><span className="mb-1 block text-xs text-muted">Assunto *</span>
+        <input value={assunto} onChange={(e) => onAssunto(e.target.value)} placeholder="Ex.: {{nome}}, sua fatura vence em {{vencimento}}" className="w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+      </label>
+
+      <label className="block text-sm"><span className="mb-1 flex items-center gap-2 text-xs text-muted">Mensagem <PreviewButton canal="EMAIL" texto={corpo} assunto={assunto} /></span>
+        <textarea value={corpo} onChange={(e) => onCorpo(e.target.value)} rows={7} placeholder={'Olá {{nome}},\n\nSua fatura de {{valor}} vence em {{vencimento}}.\n\n{{link}}'} className="w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+      </label>
+
+      <div className="rounded bg-canvas p-2 text-xs text-muted">
+        <b className="text-ink">Variáveis:</b>{' '}
+        {['{{nome}}', '{{valor}}', '{{vencimento}}', '{{link}}', '{{boleto}}', '{{pix}}'].map((v) => (
+          <button key={v} type="button" onClick={() => onCorpo(`${corpo}${corpo && !corpo.endsWith('\n') ? ' ' : ''}${v}`)} className="mr-1 rounded bg-surface px-1.5 py-0.5 font-mono text-primary hover:bg-primary-tint">{v}</button>
+        ))}
+        <span className="mt-1 block">Valem no assunto também. O layout (logo, cores, botão, rodapé) é aplicado no envio — configure em Modelos de e-mail.</span>
+      </div>
+    </div>
+  );
+}
+
 function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onClose: () => void; onSaved: () => void }) {
   const [f, setF] = useState({
     nome: edit?.nome || '',
     tipoEnvio: edit?.tipoEnvio || 'MENSAGEM',
     ruleId: edit?.ruleId || '',
     mensagem: edit?.mensagem || '',
+    emailAssunto: edit?.emailAssunto || '',
     canal: edit?.canal || '',
     channelAccountId: edit?.channelAccountId || '',
     templateNome: edit?.templateNome || '',
@@ -311,6 +362,7 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
   const conexoes = conexoesDisponiveis(canais);
   const conexaoSel = conexoes.find((c) => c.id === f.channelAccountId);
   const isWhats = !!conexaoSel?.whats;
+  const isEmail = conexaoSel?.canal === 'EMAIL';
   const [templates, setTemplates] = useState<Template[]>([]);
   const templateSel = templates.find((t) => t.nome === f.templateNome);
   const varsTemplate = templateSel ? templateVars(templateSel.corpo) : [];
@@ -363,11 +415,13 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
 
   async function salvar() {
     if (comTemplate && !f.templateNome) return setMsg('Escolha um template aprovado — o WhatsApp não entrega texto livre.');
+    if (isEmail && f.tipoEnvio !== 'REGUA' && !f.emailAssunto.trim()) return setMsg('Escreva o assunto do e-mail.');
     setSaving(true); setMsg('');
     const body = {
       nome: f.nome, tipoEnvio: f.tipoEnvio,
       ruleId: f.tipoEnvio === 'REGUA' ? f.ruleId : null,
       mensagem: !isWhats && (f.tipoEnvio === 'MENSAGEM' || f.tipoEnvio === 'LEMBRETE') ? f.mensagem : null,
+      emailAssunto: isEmail ? f.emailAssunto : null,
       canal: f.canal,
       channelAccountId: f.channelAccountId || null,
       // WhatsApp vai por template; SMS/e-mail vão por texto livre.
@@ -418,6 +472,8 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
               </div>
               {isWhats ? (
                 <BlocoTemplate templates={templates} valor={f.templateNome} onChange={(v) => set('templateNome', v)} params={templateParams} setParam={setParam} />
+              ) : isEmail ? (
+                <BlocoEmail assunto={f.emailAssunto} corpo={f.mensagem} onAssunto={(v) => set('emailAssunto', v)} onCorpo={(v) => set('mensagem', v)} />
               ) : (
                 <>
                   <textarea value={f.mensagem} onChange={(e) => set('mensagem', e.target.value)} rows={4} placeholder={"Olá {{nome}}, sua fatura de {{valor}} vence em {{vencimento}}.\nPix copia e cola:\n{{pix}}\n\nOu acesse: {{link}}"} className="w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
@@ -446,6 +502,8 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
 
               {isWhats ? (
                 <BlocoTemplate templates={templates} valor={f.templateNome} onChange={(v) => set('templateNome', v)} params={templateParams} setParam={setParam} />
+              ) : isEmail ? (
+                <BlocoEmail assunto={f.emailAssunto} corpo={f.mensagem} onAssunto={(v) => set('emailAssunto', v)} onCorpo={(v) => set('mensagem', v)} />
               ) : (
                 <>
                   <textarea value={f.mensagem} onChange={(e) => set('mensagem', e.target.value)} rows={4} placeholder="Olá {{nome}}, tudo bem?" className="w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />

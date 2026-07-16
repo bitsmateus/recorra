@@ -6,6 +6,7 @@ import {
   SendMessageResult,
   ChannelCredentials,
 } from '../message-channel.interface';
+import { renderEmail, primeiraUrl } from '../email-layout';
 
 /**
  * E-mail transacional. Dois modos, definidos por `emailProvider`:
@@ -34,11 +35,19 @@ export class EmailChannel implements MessageChannel {
   }
 
   private assunto(input: SendMessageInput): string {
-    return input.templateName ?? 'Aviso de cobrança';
+    return input.assunto?.trim() || 'Aviso de cobrança';
   }
 
-  private html(text: string): string {
-    return `<p>${text.replace(/\n/g, '<br>')}</p>`;
+  /** Mesmo layout que o painel mostra na prévia — ver email-layout.ts. */
+  private html(input: SendMessageInput): string {
+    return renderEmail(
+      {
+        assunto: this.assunto(input),
+        texto: input.text,
+        botaoUrl: primeiraUrl(input.text) ?? undefined,
+      },
+      this.creds.emailMarca ?? {},
+    );
   }
 
   async send(input: SendMessageInput): Promise<SendMessageResult> {
@@ -54,7 +63,7 @@ export class EmailChannel implements MessageChannel {
       from: this.from,
       to: input.to,
       subject: this.assunto(input),
-      html: this.html(input.text),
+      html: this.html(input),
     });
     return { providerMsgId: data?.id, status: 'ENVIADO' };
   }
@@ -76,7 +85,7 @@ export class EmailChannel implements MessageChannel {
       from: this.from,
       to: input.to,
       subject: this.assunto(input),
-      html: this.html(input.text),
+      html: this.html(input),
     });
     return { providerMsgId: info.messageId, status: 'ENVIADO' };
   }

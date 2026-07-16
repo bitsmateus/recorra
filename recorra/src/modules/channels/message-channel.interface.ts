@@ -1,7 +1,10 @@
+import { EmailMarca } from './email-layout';
+
 /** Mensagem a ser enviada por um canal. */
 export interface SendMessageInput {
   to: string; // telefone E.164 sem '+' (WhatsApp/SMS) ou e-mail
   text: string;
+  assunto?: string; // assunto do e-mail (ignorado por WhatsApp/SMS)
   templateName?: string; // nome do template aprovado (WhatsApp Cloud utility)
   templateParams?: string[];
   templateLanguage?: string; // idioma do template aprovado (ex.: 'en', 'pt_BR'); default pt_BR
@@ -36,6 +39,9 @@ export interface ChannelCredentials {
   smtpSecure?: boolean; // true = SSL (465); false = STARTTLS (587)
   smtpUser?: string;
   smtpPass?: string;
+  // Marca aplicada ao layout do e-mail. Vem de Tenant.config.emailMarca, injetada
+  // pela factory no momento do envio — não fica salva junto das credenciais.
+  emailMarca?: EmailMarca;
   // HTTP genérico (API aberta) — ver HttpGenericChannel
   httpUrl?: string; // endpoint completo (ex.: https://api.nxdigital.com.br/v1/messages)
   httpMethod?: string; // POST (padrão) | PUT | GET

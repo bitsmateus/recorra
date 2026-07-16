@@ -171,6 +171,7 @@ model Tenant {
   syncLogs           SyncLog[]
   apiKeys            ApiKey[]
   agreements         Agreement[]
+  emailTemplates     EmailTemplate[]
   whatsappTemplates  WhatsAppTemplate[]
   conversations      Conversation[]
 
@@ -517,6 +518,7 @@ model MessageDispatch {
   cadeiaCanais      ChannelType[]  @default([])
   template          String?
   conteudo          String?
+  assunto           String?        // assunto do e-mail já resolvido para este cliente
   templateName      String?        // template aprovado a enviar (canal oficial)
   templateParams    String[]       @default([]) // parâmetros já resolvidos p/ este cliente
   variante          String?
@@ -776,6 +778,7 @@ model Campaign {
   tipoEnvio CampaignTipoEnvio @default(MENSAGEM)
   ruleId    String?
   mensagem  String?
+  emailAssunto String? // assunto do e-mail (aceita variáveis, ex.: "{{nome}}, sua fatura vence")
   canal     ChannelType?
   channelAccountId String? // conexão específica (ex.: qual WhatsApp oficial)
   templateNome     String? // nome do template WABA aprovado (canal oficial)
@@ -807,6 +810,24 @@ model Campaign {
 
   @@index([tenantId])
   @@map("campaigns")
+}
+
+/// Modelo de e-mail reutilizável do tenant (assunto + corpo com variáveis {{...}}).
+/// O layout (cabeçalho/botão/rodapé) NÃO fica aqui — é montado no envio a partir
+/// da marca do tenant, para o modelo não engessar a identidade visual.
+model EmailTemplate {
+  id        String   @id @default(cuid())
+  tenantId  String
+  nome      String
+  assunto   String
+  corpo     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("email_templates")
 }
 
 model CampaignRun {
