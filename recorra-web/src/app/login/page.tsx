@@ -18,12 +18,12 @@ export default function LoginPage() {
     setErro('');
     setLoading(true);
     try {
-      const { accessToken } = await api<{ accessToken: string }>('/auth/login', {
+      const { accessToken, refreshToken } = await api<{ accessToken: string; refreshToken: string }>('/auth/login', {
         method: 'POST',
         body: { email, senha },
         auth: false,
       });
-      setToken(accessToken);
+      setToken(accessToken, refreshToken);
       router.push('/dashboard');
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Falha no login');

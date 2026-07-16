@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { LayoutDashboard, Users, Plug, LogOut, CreditCard, Settings, GitBranch, UserCog, Send, BarChart3, Gauge, HelpCircle, ChevronDown, Megaphone, Wallet, SlidersHorizontal, Radio, Menu, X } from 'lucide-react';
 import { Logo, LogoMark } from '@/components/Logo';
-import { getToken, clearToken } from '@/lib/api';
+import { getToken, logout } from '@/lib/api';
 
 type Item = { href: string; label: string; icon: React.ComponentType<{ size?: number }> };
 type Grupo = { label: string; icon: React.ComponentType<{ size?: number }>; items: Item[] };
@@ -66,8 +66,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   if (!ready) return null;
 
-  function sair() {
-    clearToken();
+  async function sair() {
+    await logout(); // revoga o refresh no servidor, não só no navegador
     router.replace('/login');
   }
 
