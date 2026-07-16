@@ -80,12 +80,12 @@ function SerieChart({ serie }: { serie: SerieMes[] }) {
       </div>
       <div className="w-full overflow-x-auto">
         <svg viewBox={`0 0 ${w} ${h}`} className="h-52 w-full min-w-[420px]">
-          <path d={area} fill="#0E7C7B" opacity={0.08} />
+          <path d={area} fill="#14857C" opacity={0.08} />
           <path d={linha('previsto')} fill="none" stroke="#7C3AED" strokeWidth={2} strokeDasharray="4 4" />
-          <path d={linha('recebido')} fill="none" stroke="#0E7C7B" strokeWidth={2.5} />
+          <path d={linha('recebido')} fill="none" stroke="#14857C" strokeWidth={2.5} />
           {serie.map((s, i) => (
             <g key={s.mes}>
-              <circle cx={x(i)} cy={y(s.recebido)} r={3.5} fill="#0E7C7B" />
+              <circle cx={x(i)} cy={y(s.recebido)} r={3.5} fill="#14857C" />
               <text x={x(i)} y={h - pad + 16} textAnchor="middle" className="fill-muted text-[10px]">{s.label}</text>
             </g>
           ))}
@@ -145,7 +145,7 @@ export default function DashboardPage() {
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
             <Metric label="Inadimplência" value={brl(data.inadimplencia.valor)} accent="#EF4444" />
             <Metric label="Recuperado no mês" value={brl(data.recuperadoMes.valor)} accent="#0F6E56" />
-            <Metric label="Taxa de recuperação" value={`${data.taxaRecuperacao}%`} accent="#0E7C7B" />
+            <Metric label="Taxa de recuperação" value={`${data.taxaRecuperacao}%`} accent="#14857C" />
             <Metric label="Disparos no mês" value={data.disparosMes.toLocaleString('pt-BR')} />
           </div>
           <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -155,7 +155,7 @@ export default function DashboardPage() {
           </div>
 
           <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <AgingCard titulo="Contas a receber em aberto" grupo={aging?.emAberto} cor="#0E7C7B" />
+            <AgingCard titulo="Contas a receber em aberto" grupo={aging?.emAberto} cor="#14857C" />
             <AgingCard titulo="Contas a receber vencidas" grupo={aging?.vencidas} cor="#EF4444" />
           </div>
 

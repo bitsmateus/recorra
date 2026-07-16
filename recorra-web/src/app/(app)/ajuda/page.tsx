@@ -47,7 +47,7 @@ export default function AjudaPage() {
 
   return (
     <div>
-      <PageTitle title="Central de Ajuda" subtitle="Vídeos e passo a passo para configurar e usar o Recorra" />
+      <PageTitle title="Central de Ajuda" subtitle="Vídeos e passo a passo para configurar e usar o Recorrai" />
 
       {tutoriais.length === 0 && <p className="text-sm text-muted">Nenhum tutorial cadastrado ainda.</p>}
 

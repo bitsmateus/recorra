@@ -3,6 +3,16 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Títulos e logo (kit de marca). Servida do /public, sem depender do Google Fonts.
+   swap: o texto aparece na hora com Inter e troca quando a fonte carrega. */
+@font-face {
+  font-family: 'Unbounded';
+  src: url('/Unbounded-SemiBold.ttf') format('truetype');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   color-scheme: light;
 }
@@ -14,8 +24,8 @@ body {
 }
 
 body {
-  background: #f8fafc;
-  color: #0f172a;
+  background: #eef4f3; /* nuvem */
+  color: #16233a; /* grafite */
   font-feature-settings: 'tnum' on; /* números tabulares em valores */
   -webkit-text-size-adjust: 100%;
 }

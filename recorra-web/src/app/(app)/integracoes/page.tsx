@@ -75,7 +75,7 @@ export default function IntegracoesPage() {
         <div className="mb-3 flex items-center justify-between">
           <div>
             <h2 className="text-sm font-semibold text-ink">Sistemas de origem (ERP)</h2>
-            <p className="text-sm text-muted">Ao conectar, o Recorra puxa clientes e cobranças do seu ERP automaticamente.</p>
+            <p className="text-sm text-muted">Ao conectar, o Recorrai puxa clientes e cobranças do seu ERP automaticamente.</p>
           </div>
           <button onClick={() => setNovo(true)} className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover"><Plus size={16} /> Adicionar integração</button>
         </div>

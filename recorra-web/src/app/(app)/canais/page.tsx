@@ -8,7 +8,7 @@ import PlataformasEnvio from '@/components/PlataformasEnvio';
 
 interface Conexao { id: string; canal: string; apelido: string; ativo: boolean; status: string; instance?: string | null; origem?: string; oficial?: boolean; nxType?: string }
 
-// Opções para criar um novo canal. A Recorra envia só por API oficial: WhatsApp
+// Opções para criar um novo canal. A Recorrai envia só por API oficial: WhatsApp
 // não oficial (Evolution/uazapi) foi removido — sem QR code, sem texto livre no WhatsApp.
 const TIPOS = [
   { canal: 'WHATSAPP_CLOUD', label: 'WhatsApp API oficial', desc: 'Meta Cloud API — você informa as credenciais.', qr: false, icon: MessageCircle },
@@ -63,9 +63,9 @@ export default function CanaisPage() {
   async function excluir(c: Conexao) {
     const base = c.canal === 'NX_SYSTEMS' && c.origem !== 'nx';
     const msg = base
-      ? `Remover a integração NX "${c.apelido}"? Isso desliga a sincronização de canais (a URL e o token serão apagados da Recorra). Os canais já importados continuam, mas não dá para sincronizar de novo sem reconfigurar.`
+      ? `Remover a integração NX "${c.apelido}"? Isso desliga a sincronização de canais (a URL e o token serão apagados da Recorrai). Os canais já importados continuam, mas não dá para sincronizar de novo sem reconfigurar.`
       : c.origem === 'nx'
-        ? `Remover "${c.apelido}" da Recorra? No NX ele permanece — você pode trazer de volta clicando em "Sincronizar canais".`
+        ? `Remover "${c.apelido}" da Recorrai? No NX ele permanece — você pode trazer de volta clicando em "Sincronizar canais".`
         : `Remover a conexão "${c.apelido}"?`;
     if (!confirm(msg)) return;
     await api(`/canais/${c.id}`, { method: 'DELETE' }).catch(() => {});
@@ -139,7 +139,7 @@ function CanalCard({ c, onExcluir, onQr }: { c: Conexao; onExcluir: (c: Conexao)
     <div className="rounded-lg border border-line bg-surface p-4">
       <div className="mb-2 flex items-start justify-between">
         <div className="flex min-w-0 items-center gap-2"><TIcon size={18} className="shrink-0 text-muted" /><span className="truncate font-medium text-ink">{c.apelido}</span></div>
-        <button onClick={() => onExcluir(c)} title={c.origem === 'nx' ? 'Remover da Recorra (mantém no NX)' : 'Remover'} className="shrink-0 rounded p-1 text-muted hover:bg-danger-tint hover:text-danger"><Trash2 size={14} /></button>
+        <button onClick={() => onExcluir(c)} title={c.origem === 'nx' ? 'Remover da Recorrai (mantém no NX)' : 'Remover'} className="shrink-0 rounded p-1 text-muted hover:bg-danger-tint hover:text-danger"><Trash2 size={14} /></button>
       </div>
       <div className="mb-3 flex flex-wrap items-center gap-1.5 text-xs text-muted">
         <span>{tipo?.label || c.canal}</span>

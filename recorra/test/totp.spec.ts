@@ -20,9 +20,9 @@ describe('TOTP (2FA)', () => {
 
   it('monta otpauth URL com issuer e conta', () => {
     const secret = generateTotpSecret();
-    const url = totpAuthUrl('user@demo.com', secret, 'Recorra');
+    const url = totpAuthUrl('user@demo.com', secret, 'Recorrai');
     expect(url).toContain('otpauth://totp/');
-    expect(url).toContain('Recorra');
+    expect(url).toContain('Recorrai');
     expect(url).toContain('secret=');
   });
 });

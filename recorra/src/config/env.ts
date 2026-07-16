@@ -39,7 +39,7 @@ const envSchema = z.object({
 
   // E-mail transacional da plataforma (verificação/convite)
   RESEND_API_KEY: z.string().optional(),
-  MAIL_FROM: z.string().default('Recorra <no-reply@recorra.com.br>'),
+  MAIL_FROM: z.string().default('Recorrai <no-reply@recorra.com.br>'),
 
   // Google SSO (opcional)
   GOOGLE_CLIENT_ID: z.string().optional(),

@@ -24,7 +24,7 @@ const featLabel: Record<string, string> = {
 
 function Bar({ label, atual, limite }: { label: string; atual: number; limite: number }) {
   const pct = limite > 0 ? Math.min(100, Math.round((atual / limite) * 100)) : 0;
-  const cor = pct >= 100 ? '#EF4444' : pct >= 80 ? '#F59E0B' : '#0E7C7B';
+  const cor = pct >= 100 ? '#EF4444' : pct >= 80 ? '#F0A93B' : '#14857C';
   return (
     <div>
       <div className="mb-1 flex justify-between text-xs text-muted"><span>{label}</span><span className="tabular">{atual}{limite > 0 ? ` / ${limite}` : ''}</span></div>
@@ -53,8 +53,8 @@ export default function PlanoPage() {
 
       <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
         <Metric label="Mensalidade base" value={brl(info.fatura.base)} />
-        <Metric label="Excedente de disparos" value={brl(info.fatura.valorExcedente)} accent={info.fatura.valorExcedente > 0 ? '#F59E0B' : undefined} />
-        <Metric label="Fatura estimada do mês" value={brl(info.fatura.total)} accent="#0E7C7B" />
+        <Metric label="Excedente de disparos" value={brl(info.fatura.valorExcedente)} accent={info.fatura.valorExcedente > 0 ? '#F0A93B' : undefined} />
+        <Metric label="Fatura estimada do mês" value={brl(info.fatura.total)} accent="#14857C" />
       </div>
 
       <div className="mb-6 grid grid-cols-1 gap-6 md:grid-cols-2">

@@ -86,7 +86,7 @@ export function MessagePreview({ canal, texto, empresa = 'Sua Empresa', onClose 
               )}
             </div>
             <div className="border-t border-line bg-canvas px-4 py-3 text-[11px] text-muted">
-              Você recebeu este e-mail porque possui uma cobrança em aberto. Recorra.
+              Você recebeu este e-mail porque possui uma cobrança em aberto. Recorrai.
             </div>
           </div>
         )}

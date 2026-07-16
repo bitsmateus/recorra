@@ -308,7 +308,7 @@ function TemplatesSection() {
 
   const catColor: Record<string, string> = { UTILITY: '#0F6E56', MARKETING: '#A32D2D', AUTHENTICATION: '#854F0B' };
   const statusColor: Record<string, { bg: string; fg: string }> = {
-    APROVADO: { bg: '#E1F5EE', fg: '#0F6E56' }, PENDENTE: { bg: '#FAEEDA', fg: '#854F0B' },
+    APROVADO: { bg: '#E4F4EA', fg: '#0F6E56' }, PENDENTE: { bg: '#FCF0DE', fg: '#854F0B' },
     REJEITADO: { bg: '#FCEBEB', fg: '#A32D2D' }, RASCUNHO: { bg: '#F1F5F9', fg: '#64748B' },
   };
 
@@ -347,7 +347,7 @@ function TemplatesSection() {
             <span className="min-w-0 flex-1 truncate">{String(r.nome)}</span>
             <div className="flex shrink-0 items-center gap-1.5">
               {r.status ? <span className="rounded-full px-2 py-0.5 text-xs font-medium" style={{ background: (statusColor[String(r.status)] || statusColor.RASCUNHO).bg, color: (statusColor[String(r.status)] || statusColor.RASCUNHO).fg }}>{String(r.status)}</span> : null}
-              <span className="rounded-full px-2 py-0.5 text-xs font-medium" style={{ background: '#E1F5EE', color: catColor[String(r.categoria)] || '#0E7C7B' }}>{String(r.categoria)}</span>
+              <span className="rounded-full px-2 py-0.5 text-xs font-medium" style={{ background: '#E1F0EE', color: catColor[String(r.categoria)] || '#14857C' }}>{String(r.categoria)}</span>
             </div>
           </div>
         ))}

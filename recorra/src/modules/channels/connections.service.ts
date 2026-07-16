@@ -66,10 +66,10 @@ export class ConnectionsService {
   }
 
   /**
-   * Importa os canais OFICIAIS (WABA) do NX como conexões na Recorra.
-   * Canais não oficiais (uazapi/Evolution) são ignorados: a Recorra só envia pela API oficial.
+   * Importa os canais OFICIAIS (WABA) do NX como conexões na Recorrai.
+   * Canais não oficiais (uazapi/Evolution) são ignorados: a Recorrai só envia pela API oficial.
    * Usa a(s) conexão(ões)-base NX (URL + token) para chamar /listChannels e faz
-   * upsert por nxChannelId. Remover na Recorra só apaga localmente; re-sincronizar traz de volta.
+   * upsert por nxChannelId. Remover na Recorrai só apaga localmente; re-sincronizar traz de volta.
    */
   async sincronizarNx(tenantId: string) {
     const contas = await this.prisma.channelAccount.findMany({ where: { tenantId, canal: 'NX_SYSTEMS' } });
@@ -271,8 +271,8 @@ export class ConnectionsService {
     const canal = new EmailChannel(c as ChannelCredentials);
     const r = await canal.send({
       to: para,
-      text: 'Este é um e-mail de teste do Recorra. Se você recebeu, o canal está configurado corretamente.',
-      templateName: 'Teste de configuração — Recorra',
+      text: 'Este é um e-mail de teste do Recorrai. Se você recebeu, o canal está configurado corretamente.',
+      templateName: 'Teste de configuração — Recorrai',
     });
     return r.status === 'ENVIADO'
       ? { ok: true, mensagem: `E-mail de teste enviado para ${para}. Confira a caixa de entrada (e o spam).` }

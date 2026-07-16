@@ -29,7 +29,7 @@ const UFS = ['', 'AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT
 type Etiqueta = { nome: string; cor?: string | null };
 type Aba = 'geral' | 'aberto' | 'incompleto';
 
-const CORES_ETIQUETA = ['#0E7C7B', '#7C3AED', '#F59E0B', '#EF4444', '#10B981', '#3B82F6', '#EC4899', '#64748B'];
+const CORES_ETIQUETA = ['#14857C', '#7C3AED', '#F0A93B', '#EF4444', '#22A45D', '#3B82F6', '#EC4899', '#64748B'];
 
 // Situação derivada das cobranças do cliente (total x pagas).
 function situacaoDe(c: Customer): { key: string; label: string; bg: string; fg: string } {
@@ -37,7 +37,7 @@ function situacaoDe(c: Customer): { key: string; label: string; bg: string; fg: 
   const pagas = c.cobrancasPagas ?? 0;
   if (total === 0) return { key: 'novo', label: 'Novo', bg: '#EDE9FE', fg: '#6D28D9' };
   if (pagas < total) return { key: 'aberto', label: 'Em aberto', bg: '#FCEBEB', fg: '#A32D2D' };
-  return { key: 'dia', label: 'Em dia', bg: '#E1F5EE', fg: '#0F6E56' };
+  return { key: 'dia', label: 'Em dia', bg: '#E4F4EA', fg: '#0F6E56' };
 }
 
 function cadastroIncompleto(c: Customer): boolean {
@@ -50,8 +50,8 @@ function SituacaoBadge({ c }: { c: Customer }) {
 }
 
 function TagChip({ nome, cor }: { nome: string; cor?: string | null }) {
-  const bg = cor || '#E1F5EE';
-  return <span className="rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ background: bg, color: cor ? '#fff' : '#0E7C7B' }}>{nome}</span>;
+  const bg = cor || '#E1F0EE';
+  return <span className="rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ background: bg, color: cor ? '#fff' : '#14857C' }}>{nome}</span>;
 }
 
 export default function ClientesPage() {
@@ -219,7 +219,7 @@ function ImportGatewayModal({ gateways, onClose, onDone }: { gateways: Gateway[]
           <h2 className="text-lg font-semibold text-ink">Importar de gateway</h2>
           <button onClick={onClose} className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>
         </div>
-        <p className="mb-3 text-sm text-muted">Puxa clientes e cobranças existentes do gateway escolhido para o Recorra (deduplica por CPF/CNPJ).</p>
+        <p className="mb-3 text-sm text-muted">Puxa clientes e cobranças existentes do gateway escolhido para o Recorrai (deduplica por CPF/CNPJ).</p>
         <label className="block text-sm"><span className="mb-1 block text-xs text-muted">Gateway de origem</span>
           <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary">
             {gateways.map((g) => <option key={g.id} value={g.id}>{g.apelido || g.provider}{g.ambiente ? ` · ${g.ambiente}` : ''}</option>)}
@@ -297,7 +297,7 @@ function CustomerModal({ edit, etiquetas, onEtiquetasChange, onClose, onSaved }:
                     type="button"
                     onClick={() => toggleTag(e.nome)}
                     className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition ${sel ? 'text-white' : 'border border-line text-muted hover:bg-canvas'}`}
-                    style={sel ? { background: e.cor || '#0E7C7B' } : undefined}
+                    style={sel ? { background: e.cor || '#14857C' } : undefined}
                   >
                     {sel && <Check size={12} />}{e.nome}
                   </button>

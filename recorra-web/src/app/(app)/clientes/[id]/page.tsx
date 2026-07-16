@@ -75,7 +75,7 @@ export default function ClienteDetalhePage() {
       <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-3">
         <Metric label="Em aberto" value={brl(d.totais.emAberto)} accent={d.totais.emAberto > 0 ? '#EF4444' : undefined} />
         <Metric label="Total pago" value={brl(d.totais.pago)} accent="#0F6E56" />
-        <Metric label="Faturas vencidas" value={String(d.totais.vencidas)} accent={d.totais.vencidas > 0 ? '#F59E0B' : undefined} />
+        <Metric label="Faturas vencidas" value={String(d.totais.vencidas)} accent={d.totais.vencidas > 0 ? '#F0A93B' : undefined} />
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">

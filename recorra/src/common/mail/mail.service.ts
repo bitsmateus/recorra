@@ -33,8 +33,8 @@ export class MailService {
     const link = `${env.FRONTEND_URL}/verificar-email?token=${token}`;
     await this.send(
       to,
-      'Confirme seu e-mail — Recorra',
-      `<p>Bem-vindo ao Recorra!</p><p>Confirme seu e-mail: <a href="${link}">${link}</a></p>`,
+      'Confirme seu e-mail — Recorrai',
+      `<p>Bem-vindo ao Recorrai!</p><p>Confirme seu e-mail: <a href="${link}">${link}</a></p>`,
     );
   }
 
@@ -42,8 +42,8 @@ export class MailService {
     const link = `${env.FRONTEND_URL}/redefinir-senha?token=${token}`;
     await this.send(
       to,
-      'Redefinir senha — Recorra',
-      `<p>Recebemos um pedido para redefinir sua senha do Recorra.</p><p>Clique para criar uma nova senha (válido por 1 hora): <a href="${link}">${link}</a></p><p>Se não foi você, ignore este e-mail.</p>`,
+      'Redefinir senha — Recorrai',
+      `<p>Recebemos um pedido para redefinir sua senha do Recorrai.</p><p>Clique para criar uma nova senha (válido por 1 hora): <a href="${link}">${link}</a></p><p>Se não foi você, ignore este e-mail.</p>`,
     );
   }
 
@@ -51,8 +51,8 @@ export class MailService {
     const link = `${env.FRONTEND_URL}/aceitar-convite?token=${token}`;
     await this.send(
       to,
-      `Convite para ${empresa} — Recorra`,
-      `<p>Você foi convidado para acessar o Recorra da empresa <b>${empresa}</b>.</p><p>Defina sua senha: <a href="${link}">${link}</a></p>`,
+      `Convite para ${empresa} — Recorrai`,
+      `<p>Você foi convidado para acessar o Recorrai da empresa <b>${empresa}</b>.</p><p>Defina sua senha: <a href="${link}">${link}</a></p>`,
     );
   }
 }

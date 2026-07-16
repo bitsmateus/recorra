@@ -4,7 +4,7 @@ import { PrismaService } from '@/common/prisma/prisma.service';
 import { ConnectorFactory } from './connector.factory';
 
 /**
- * Orquestra a sincronização de um sistema de origem para o Recorra.
+ * Orquestra a sincronização de um sistema de origem para o Recorrai.
  * Idempotente: dedupe de cliente por (tenant, doc) e fatura por
  * (tenant, sourceSystem, sourceExternalId). Nunca duplica.
  */

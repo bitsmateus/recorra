@@ -90,7 +90,7 @@ export default function CobrancasPage() {
   async function importarGateway() {
     if (!accountId) return setMsg('Selecione um gateway primeiro.');
     const g = gateways.find((x) => x.id === accountId);
-    if (!confirm(`Importar clientes e cobranças de ${g?.apelido || g?.provider || 'gateway'} para o Recorra?`)) return;
+    if (!confirm(`Importar clientes e cobranças de ${g?.apelido || g?.provider || 'gateway'} para o Recorrai?`)) return;
     setBusy(true); setMsg('Importando do gateway...');
     try {
       const r = await api<{ clientes: number; clientesAtualizados: number; faturas: number; faturasAtualizadas: number }>('/cobrancas/importar-gateway', { method: 'POST', body: { accountId } });
@@ -332,15 +332,15 @@ function ExcluirModal({ inv, onClose, onEscolha }: { inv: Invoice; onClose: () =
           <button onClick={onClose} className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>
         </div>
         <p className="mb-4 text-sm text-muted">{inv.customer?.nome || '—'} · {brl(Number(inv.valor))} · venc. {new Date(inv.vencimento).toLocaleDateString('pt-BR')}</p>
-        {!gerada && <p className="mb-3 rounded bg-canvas px-3 py-2 text-xs text-muted">Esta cobrança ainda não foi gerada no gateway, então só existe no Recorra.</p>}
+        {!gerada && <p className="mb-3 rounded bg-canvas px-3 py-2 text-xs text-muted">Esta cobrança ainda não foi gerada no gateway, então só existe no Recorrai.</p>}
         <div className="space-y-2">
           <button onClick={() => onEscolha('recorra')} className="w-full rounded border border-line p-3 text-left hover:border-primary hover:bg-canvas">
-            <div className="text-sm font-medium text-ink">Excluir só no Recorra</div>
+            <div className="text-sm font-medium text-ink">Excluir só no Recorrai</div>
             <div className="text-xs text-muted">Remove o registro daqui. {gerada ? 'A cobrança continua ativa no gateway.' : ''}</div>
           </button>
           {gerada && (
             <button onClick={() => onEscolha('ambos')} className="w-full rounded border border-line p-3 text-left hover:border-danger hover:bg-danger-tint">
-              <div className="text-sm font-medium text-ink">Excluir em ambas (Recorra e gateway)</div>
+              <div className="text-sm font-medium text-ink">Excluir em ambas (Recorrai e gateway)</div>
               <div className="text-xs text-muted">Cancela a cobrança no gateway e apaga o registro daqui.</div>
             </button>
           )}
@@ -435,7 +435,7 @@ function EditarModal({ inv, onClose, onSaved }: { inv: Invoice; onClose: () => v
             </select>
           </label>
         </div>
-        {inv.externalId && <p className="mt-3 text-xs text-warning">Esta cobrança já foi emitida no gateway. Alterar valor/vencimento aqui não altera a cobrança no gateway — só o registro no Recorra.</p>}
+        {inv.externalId && <p className="mt-3 text-xs text-warning">Esta cobrança já foi emitida no gateway. Alterar valor/vencimento aqui não altera a cobrança no gateway — só o registro no Recorrai.</p>}
         {msg && <p className="mt-2 text-sm text-danger">{msg}</p>}
         <div className="mt-5 flex justify-end gap-2">
           <button onClick={onClose} className="rounded border border-line px-4 py-2 text-sm hover:bg-canvas">Cancelar</button>

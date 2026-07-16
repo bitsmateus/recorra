@@ -1,19 +1,21 @@
+/* eslint-disable @next/next/no-img-element */
+// Artes oficiais do kit de marca (public/README.txt). São SVG com o texto já em
+// contornos, então não dependem da fonte Unbounded estar carregada.
+
+/** Proporção da logo horizontal (viewBox 696.2 x 119.5). */
+const RATIO = 696.2 / 119.5;
+
+/** Símbolo sozinho: quadrado teal com o sino. Bom para avatar e espaço curto. */
 export function LogoMark({ size = 32 }: { size?: number }) {
-  return (
-    <svg viewBox="0 0 120 120" width={size} height={size} aria-hidden="true">
-      <rect width="120" height="120" rx="28" fill="#0E7C7B" />
-      <path d="M 54 27 A 34 34 0 1 1 70 28" fill="none" stroke="#fff" strokeWidth="9" strokeLinecap="round" />
-      <path d="M 66 20 L 84 14 L 78 32 Z" fill="#fff" />
-      <circle cx="60" cy="60" r="8" fill="#3AA8A6" />
-    </svg>
-  );
+  return <img src="/recorrai-icon.svg" alt="" aria-hidden="true" width={size} height={size} className="shrink-0" />;
 }
 
-export function Logo({ size = 32 }: { size?: number }) {
-  return (
-    <div className="flex items-center gap-2.5">
-      <LogoMark size={size} />
-      <span className="text-xl font-semibold tracking-tight text-ink">Recorra</span>
-    </div>
-  );
+/**
+ * Logo completa (símbolo + "Recorrai").
+ * `size` é a ALTURA; a largura acompanha a proporção (~5.8x).
+ * Use `variant="white"` sobre fundo escuro.
+ */
+export function Logo({ size = 32, variant = 'color' }: { size?: number; variant?: 'color' | 'white' }) {
+  const src = variant === 'white' ? '/recorrai-logo-horizontal-white.svg' : '/recorrai-logo-horizontal.svg';
+  return <img src={src} alt="Recorrai" width={Math.round(size * RATIO)} height={size} className="shrink-0" />;
 }

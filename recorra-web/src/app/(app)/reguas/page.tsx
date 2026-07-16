@@ -20,7 +20,7 @@ interface Step {
   templateB?: string;
   abTest?: boolean;
   templateName?: string; // nome do template aprovado (canal oficial)
-  templateParams?: string[]; // variáveis Recorra que preenchem {{1}}, {{2}}...
+  templateParams?: string[]; // variáveis Recorrai que preenchem {{1}}, {{2}}...
 }
 interface Rule {
   id?: string;
@@ -53,7 +53,7 @@ const ehWhatsApp = (canal?: string) => !!canal && CANAIS_WHATSAPP.includes(canal
 
 const faixaLabel: Record<string, string> = { '': 'Todas as faixas', BOM: 'Bom pagador', ATENCAO: 'Atenção', RISCO: 'Risco' };
 
-// Variáveis da Recorra que podem preencher as posições {{1}}, {{2}}... de um template aprovado.
+// Variáveis da Recorrai que podem preencher as posições {{1}}, {{2}}... de um template aprovado.
 const RECORRA_VARS: { token: string; label: string }[] = [
   { token: '{{nome}}', label: 'Nome do cliente' },
   { token: '{{valor}}', label: 'Valor da fatura' },
@@ -72,7 +72,7 @@ function maxVarPos(corpo: string): number {
   return n;
 }
 
-/** Troca cada {{k}} do corpo pela variável Recorra mapeada (mantém {{k}} se ainda não mapeada). */
+/** Troca cada {{k}} do corpo pela variável Recorrai mapeada (mantém {{k}} se ainda não mapeada). */
 function aplicarMapa(corpo: string, mapa: string[]): string {
   return corpo.replace(/\{\{\s*(\d+)\s*\}\}/g, (_m, n) => mapa[Number(n) - 1] || `{{${n}}}`);
 }
@@ -94,8 +94,8 @@ const pad2 = (n: number) => String(n).padStart(2, '0');
 
 function faseInfo(offset: number): { key: string; header: string; cor: string } {
   if (offset < 0) return { key: 'antes', header: 'Antes do vencimento', cor: '#7C3AED' };
-  if (offset === 0) return { key: 'dia', header: 'No dia do vencimento', cor: '#0E7C7B' };
-  return { key: 'depois', header: 'Depois do vencimento', cor: '#F59E0B' };
+  if (offset === 0) return { key: 'dia', header: 'No dia do vencimento', cor: '#14857C' };
+  return { key: 'depois', header: 'Depois do vencimento', cor: '#F0A93B' };
 }
 
 type TLCol = { key: string; header: string; cor: string; day: string; canais: Canal[] };
@@ -124,8 +124,8 @@ function montarColunas(steps: Step[]): TLCol[] {
 
 const LEGENDA: { label: string; cor: string }[] = [
   { label: 'Antes do vencimento', cor: '#7C3AED' },
-  { label: 'No dia', cor: '#0E7C7B' },
-  { label: 'Depois', cor: '#F59E0B' },
+  { label: 'No dia', cor: '#14857C' },
+  { label: 'Depois', cor: '#F0A93B' },
   { label: 'Extrajudicial', cor: COR_EXTRAJUDICIAL },
 ];
 
@@ -648,7 +648,7 @@ function StepCard({
           </select>
           {templates.length === 0 && <p className="mt-1 text-xs text-muted">Nenhum template ainda. Sincronize em <Link href="/configuracoes" className="text-primary underline">Configurações</Link>.</p>}
 
-          {/* Mapeamento: variável posicional do template -> variável da Recorra */}
+          {/* Mapeamento: variável posicional do template -> variável da Recorrai */}
           {temTemplate && (
             <div className="mt-3 rounded-lg border border-line bg-surface p-3">
               <div className="mb-2 flex items-center justify-between">
@@ -659,7 +659,7 @@ function StepCard({
                 <p className="text-xs text-muted">Este template não tem variáveis.</p>
               ) : (
                 <>
-                  <p className="mb-2 text-xs text-muted">Escolha qual dado da Recorra entra em cada variável do template:</p>
+                  <p className="mb-2 text-xs text-muted">Escolha qual dado da Recorrai entra em cada variável do template:</p>
                   <div className="space-y-2">
                     {Array.from({ length: nVars }).map((_, i) => (
                       <div key={i} className="flex items-center gap-2">

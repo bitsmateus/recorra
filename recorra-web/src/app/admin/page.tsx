@@ -75,17 +75,17 @@ function DashboardTab() {
           <Metric label="Ativos" value={String(m.tenantsAtivos)} accent="#0F6E56" />
           <Metric label="Clientes" value={Number(m.clientes).toLocaleString('pt-BR')} />
           <Metric label="Disparos" value={Number(m.disparos).toLocaleString('pt-BR')} />
-          <Metric label="Recuperado (tenants)" value={brl(m.recuperadoTotal)} accent="#0E7C7B" />
+          <Metric label="Recuperado (tenants)" value={brl(m.recuperadoTotal)} accent="#14857C" />
         </div>
       )}
       {f && (
         <>
           <h2 className="text-sm font-semibold text-ink">Financeiro do SaaS</h2>
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-            <Metric label="MRR estimado" value={brl(f.mrr)} accent="#0E7C7B" />
+            <Metric label="MRR estimado" value={brl(f.mrr)} accent="#14857C" />
             <Metric label="Faturado" value={brl(f.faturado)} />
             <Metric label="Recebido" value={brl(f.recebido)} accent="#0F6E56" />
-            <Metric label="Em aberto" value={brl(f.aberto)} accent="#F59E0B" />
+            <Metric label="Em aberto" value={brl(f.aberto)} accent="#F0A93B" />
           </div>
           <div className="rounded-lg border border-line bg-surface p-4">
             <div className="mb-2 text-sm font-medium text-ink">Tenants por plano</div>

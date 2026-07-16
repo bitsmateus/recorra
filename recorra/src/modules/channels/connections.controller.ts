@@ -42,7 +42,7 @@ export class ConnectionsController {
     return this.connections.testarEmail(dto);
   }
 
-  /** Importa/atualiza os canais do NX (oficiais e não oficiais) como conexões na Recorra. */
+  /** Importa/atualiza os canais do NX (oficiais e não oficiais) como conexões na Recorrai. */
   @Post('sincronizar-nx')
   @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
   sincronizarNx(@TenantId() tenantId: string) {

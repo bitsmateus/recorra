@@ -11,7 +11,7 @@ export function generateTotpSecret(): string {
 }
 
 /** URL otpauth:// para gerar o QR Code no app autenticador. */
-export function totpAuthUrl(email: string, secret: string, issuer = 'Recorra'): string {
+export function totpAuthUrl(email: string, secret: string, issuer = 'Recorrai'): string {
   return authenticator.keyuri(email, issuer, secret);
 }
 

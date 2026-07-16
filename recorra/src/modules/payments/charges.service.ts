@@ -145,7 +145,7 @@ export class ChargesService {
     return this.prisma.invoice.update({ where: { id: invoiceId }, data: { contestada } });
   }
 
-  /** Importa clientes e cobrancas existentes de um gateway (ex.: Asaas) para o Recorra. */
+  /** Importa clientes e cobrancas existentes de um gateway (ex.: Asaas) para o Recorrai. */
   async importarDoGateway(tenantId: string, accountId: string) {
     const account = await this.prisma.paymentProviderAccount.findFirst({ where: { id: accountId, tenantId } });
     if (!account) throw new NotFoundException("Conta de gateway nao encontrada");
@@ -285,7 +285,7 @@ export class ChargesService {
       const valor = Number(dto.valor);
       if (!(valor > 0)) throw new BadRequestException('Valor invalido');
       // Não permite alterar o valor depois que a cobrança já foi emitida no gateway
-      // (evita divergência Recorra × gateway).
+      // (evita divergência Recorrai × gateway).
       if (inv.externalId) throw new BadRequestException('Fatura ja emitida no gateway: valor nao pode ser alterado. Cancele e gere uma nova.');
       data.valor = valor;
     }
@@ -341,7 +341,7 @@ export class ChargesService {
     if (podeCancelarGateway) {
       if (!inv.externalId || !inv.providerAccountId) {
         if (escopo === 'gateway') throw new BadRequestException('Esta fatura ainda nao foi gerada no gateway.');
-        gatewayMsg = 'Fatura nao estava gerada no gateway; removida apenas no Recorra.';
+        gatewayMsg = 'Fatura nao estava gerada no gateway; removida apenas no Recorrai.';
       } else {
         try {
           const provider = await this.factory.forAccount(inv.providerAccountId);

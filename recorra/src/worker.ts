@@ -7,7 +7,7 @@ async function bootstrap() {
   initSentry();
   const app = await NestFactory.createApplicationContext(WorkerModule);
   app.enableShutdownHooks();
-  new Logger('Worker').log('Recorra worker iniciado (regua + fila)');
+  new Logger('Worker').log('Recorrai worker iniciado (regua + fila)');
 }
 
 bootstrap();

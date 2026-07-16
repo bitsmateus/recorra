@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { LayoutDashboard, Users, Plug, LogOut, CreditCard, Settings, GitBranch, UserCog, Send, BarChart3, Gauge, HelpCircle, ChevronDown, Megaphone, Wallet, SlidersHorizontal, Radio, Menu, X } from 'lucide-react';
-import { Logo, LogoMark } from '@/components/Logo';
+import { Logo } from '@/components/Logo';
 import { getToken, logout } from '@/lib/api';
 
 type Item = { href: string; label: string; icon: React.ComponentType<{ size?: number }> };
@@ -156,10 +156,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <button onClick={() => setMenuAberto(true)} className="rounded p-1.5 text-ink hover:bg-canvas" aria-label="Abrir menu">
             <Menu size={22} />
           </button>
-          <div className="flex items-center gap-2">
-            <LogoMark size={24} />
-            <span className="text-base font-semibold tracking-tight text-ink">Recorra</span>
-          </div>
+          <Logo size={24} />
         </header>
         <main className="min-w-0 flex-1 overflow-auto p-4 sm:p-6 md:p-8">{children}</main>
       </div>

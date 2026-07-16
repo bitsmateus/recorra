@@ -40,8 +40,8 @@ export default function RelatoriosPage() {
         <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
           <Metric label="Custo de comunicação (mês)" value={brl(roi.custo)} accent="#EF4444" />
           <Metric label="Recuperado (mês)" value={brl(roi.recuperado)} accent="#0F6E56" />
-          <Metric label="Lucro" value={brl(roi.lucro)} accent="#0E7C7B" />
-          <Metric label="Retorno por R$1" value={`${roi.retornoPorReal}x`} accent="#0E7C7B" />
+          <Metric label="Lucro" value={brl(roi.lucro)} accent="#14857C" />
+          <Metric label="Retorno por R$1" value={`${roi.retornoPorReal}x`} accent="#14857C" />
         </div>
       )}
 

@@ -1,25 +1,26 @@
 import type { Config } from 'tailwindcss';
 
-// Paleta Recorra Teal (ver ../design/tokens.css)
+// Paleta Recorrai — kit de marca v1.0 (public/README.txt e recorrai-brand-book.html).
 const config: Config = {
   content: ['./src/**/*.{ts,tsx}'],
   theme: {
     extend: {
       colors: {
         primary: {
-          DEFAULT: '#0E7C7B',
-          hover: '#0B6564',
+          DEFAULT: '#14857C', // teal da marca
+          hover: '#0C6B63', // teal escuro
           soft: '#3AA8A6',
-          tint: '#E1F5EE',
+          tint: '#E1F0EE',
         },
-        success: { DEFAULT: '#10B981', tint: '#E1F5EE' },
-        warning: { DEFAULT: '#F59E0B', tint: '#FAEEDA' },
+        // Verde da marca (o "ai" da logo) — também o positivo da interface.
+        success: { DEFAULT: '#22A45D', tint: '#E4F4EA' },
+        warning: { DEFAULT: '#F0A93B', tint: '#FCF0DE' }, // âmbar (pendência)
         danger: { DEFAULT: '#EF4444', tint: '#FCEBEB' },
-        ink: '#0F172A',
+        ink: '#16233A', // grafite (texto)
         muted: '#64748B',
         line: '#E2E8F0',
         surface: '#FFFFFF',
-        canvas: '#F8FAFC',
+        canvas: '#EEF4F3', // nuvem (fundo)
       },
       borderRadius: {
         DEFAULT: '10px',
@@ -27,6 +28,8 @@ const config: Config = {
       },
       fontFamily: {
         sans: ['Inter', 'Segoe UI', 'system-ui', 'sans-serif'],
+        // Títulos e logo (Unbounded SemiBold, carregada localmente em globals.css).
+        display: ['Unbounded', 'Inter', 'system-ui', 'sans-serif'],
       },
     },
   },

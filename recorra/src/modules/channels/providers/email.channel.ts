@@ -21,7 +21,7 @@ export class EmailChannel implements MessageChannel {
 
   constructor(creds: ChannelCredentials) {
     this.creds = creds;
-    this.from = creds.from ?? 'Recorra <no-reply@recorra.com.br>';
+    this.from = creds.from ?? 'Recorrai <no-reply@recorra.com.br>';
     this.usaSmtp = creds.emailProvider === 'smtp';
 
     if (!this.usaSmtp) {

@@ -33,7 +33,7 @@ async function bootstrap() {
   app.enableShutdownHooks();
 
   await app.listen(env.PORT, '0.0.0.0');
-  new Logger('Bootstrap').log(`Recorra API on :${env.PORT}`);
+  new Logger('Bootstrap').log(`Recorrai API on :${env.PORT}`);
 }
 
 bootstrap();

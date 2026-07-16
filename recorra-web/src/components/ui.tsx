@@ -1,7 +1,7 @@
 export function PageTitle({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
     <div className="mb-6">
-      <h1 className="text-2xl font-semibold text-ink">{title}</h1>
+      <h1 className="font-display text-2xl font-semibold tracking-tight text-ink">{title}</h1>
       {subtitle && <p className="mt-1 text-sm text-muted">{subtitle}</p>}
     </div>
   );
@@ -11,7 +11,7 @@ export function Metric({ label, value, accent }: { label: string; value: string;
   return (
     <div className="rounded-lg bg-surface p-4 shadow-sm ring-1 ring-line">
       <div className="text-xs text-muted">{label}</div>
-      <div className="tabular mt-1 text-2xl font-semibold" style={{ color: accent || '#0F172A' }}>
+      <div className="tabular mt-1 text-2xl font-semibold" style={{ color: accent || '#16233A' }}>
         {value}
       </div>
     </div>
@@ -19,8 +19,8 @@ export function Metric({ label, value, accent }: { label: string; value: string;
 }
 
 const bandMap: Record<string, { label: string; bg: string; fg: string; dot: string }> = {
-  BOM: { label: 'Bom pagador', bg: '#E1F5EE', fg: '#0F6E56', dot: '#10B981' },
-  ATENCAO: { label: 'Atenção', bg: '#FAEEDA', fg: '#854F0B', dot: '#F59E0B' },
+  BOM: { label: 'Bom pagador', bg: '#E4F4EA', fg: '#0F6E56', dot: '#22A45D' },
+  ATENCAO: { label: 'Atenção', bg: '#FCF0DE', fg: '#854F0B', dot: '#F0A93B' },
   RISCO: { label: 'Risco', bg: '#FCEBEB', fg: '#A32D2D', dot: '#EF4444' },
 };
 

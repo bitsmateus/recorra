@@ -22,7 +22,7 @@ export class SmsChannel implements MessageChannel {
       headers: { 'X-API-TOKEN': creds.apiKey ?? creds.token ?? '', 'Content-Type': 'application/json' },
       timeout: 15000,
     });
-    this.from = creds.from ?? 'Recorra';
+    this.from = creds.from ?? 'Recorrai';
   }
 
   async send(input: SendMessageInput): Promise<SendMessageResult> {

@@ -2,15 +2,24 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Recorra — Cobrança e notificação inteligente',
+  title: 'Recorrai — Cobrança e notificação inteligente',
   description: 'Régua de cobrança e recuperação de recebíveis multi-nicho.',
+  applicationName: 'Recorrai',
+  icons: {
+    icon: [
+      { url: '/recorrai-favicon.svg', type: 'image/svg+xml' },
+      { url: '/favicon-32.png', sizes: '32x32', type: 'image/png' },
+      { url: '/favicon-16.png', sizes: '16x16', type: 'image/png' },
+    ],
+    apple: [{ url: '/apple-touch-icon-180.png', sizes: '180x180' }],
+  },
 };
 
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   maximumScale: 5,
-  themeColor: '#0E7C7B',
+  themeColor: '#14857C',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

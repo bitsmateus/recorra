@@ -1,4 +1,4 @@
-/** Catálogo de planos do SaaS Recorra — puro e testável. */
+/** Catálogo de planos do SaaS Recorrai — puro e testável. */
 
 export type PlanTier = 'TRIAL' | 'NOTIFICADOR' | 'ESSENCIAL' | 'PROFISSIONAL' | 'ESCALA' | 'ENTERPRISE';
 

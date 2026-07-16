@@ -95,7 +95,7 @@ export default function DisparosPage() {
           <Metric label="Enviados (mês)" value={String(resumo.enviados)} accent="#0F6E56" />
           <Metric label="Entregues" value={String(resumo.entregues)} />
           <Metric label="Falhas" value={String(resumo.falhas)} accent={resumo.falhas > 0 ? '#EF4444' : undefined} />
-          <Metric label="Na fila" value={String(resumo.fila)} accent="#F59E0B" />
+          <Metric label="Na fila" value={String(resumo.fila)} accent="#F0A93B" />
         </div>
       )}
 
