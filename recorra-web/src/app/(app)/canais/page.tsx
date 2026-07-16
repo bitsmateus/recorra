@@ -8,18 +8,20 @@ import PlataformasEnvio from '@/components/PlataformasEnvio';
 
 interface Conexao { id: string; canal: string; apelido: string; ativo: boolean; status: string; instance?: string | null; origem?: string; oficial?: boolean; nxType?: string }
 
-// Opções para criar um novo canal (Canais é o hub único de envio).
+// Opções para criar um novo canal. A Recorra envia só por API oficial: WhatsApp
+// não oficial (Evolution/uazapi) foi removido — sem QR code, sem texto livre no WhatsApp.
 const TIPOS = [
   { canal: 'WHATSAPP_CLOUD', label: 'WhatsApp API oficial', desc: 'Meta Cloud API — você informa as credenciais.', qr: false, icon: MessageCircle },
-  { canal: 'WHATSAPP_EVOLUTION', label: 'WhatsApp (Evolution)', desc: 'Conecte seu número lendo o QR code.', qr: true, icon: MessageCircle },
-  { canal: 'WHATSAPP_UAZAPI', label: 'WhatsApp (uazapi)', desc: 'Conecte seu número lendo o QR code.', qr: true, icon: MessageCircle },
   { canal: 'EMAIL', label: 'E-mail', desc: 'Envie por Resend (API) ou pelo seu servidor SMTP.', qr: false, icon: Mail },
   { canal: 'SMS', label: 'SMS', desc: 'Provedor de SMS.', qr: false, icon: Smartphone },
 ];
 
-// NX e HTTP são criados na seção "Plataformas de envio"; aqui só para rótulo/ícone dos cards.
+// NX e HTTP são criados na seção "Plataformas de envio". Evolution/uazapi não são mais
+// criáveis, mas o rótulo fica para exibir canais legados que ainda existam no banco.
 const TIPOS_LABEL = [
   ...TIPOS,
+  { canal: 'WHATSAPP_EVOLUTION', label: 'WhatsApp (Evolution)', desc: '', qr: false, icon: MessageCircle },
+  { canal: 'WHATSAPP_UAZAPI', label: 'WhatsApp (uazapi)', desc: '', qr: false, icon: MessageCircle },
   { canal: 'NX_SYSTEMS', label: 'NX Systems', desc: '', qr: false, icon: MessageCircle },
   { canal: 'HTTP_GENERIC', label: 'API genérica (HTTP)', desc: '', qr: false, icon: MessageCircle },
 ];
@@ -48,8 +50,11 @@ export default function CanaisPage() {
   async function sincronizarNx() {
     setSincronizando(true); setSyncMsg('Buscando canais no NX...');
     try {
-      const r = await api<{ importados: number; atualizados: number; erros: string[] }>('/canais/sincronizar-nx', { method: 'POST' });
-      setSyncMsg(`✓ ${r.importados} novo(s) · ${r.atualizados} atualizado(s)${r.erros?.length ? ` — ${r.erros[0]}` : ''}`);
+      const r = await api<{ importados: number; atualizados: number; ignorados?: number; removidos?: number; erros: string[] }>('/canais/sincronizar-nx', { method: 'POST' });
+      const partes = [`${r.importados} novo(s)`, `${r.atualizados} atualizado(s)`];
+      if (r.removidos) partes.push(`${r.removidos} não oficial(is) removido(s)`);
+      if (r.ignorados) partes.push(`${r.ignorados} não oficial(is) ignorado(s)`);
+      setSyncMsg(`✓ ${partes.join(' · ')}${r.erros?.length ? ` — ${r.erros[0]}` : ''}`);
       carregar();
     } catch (e) { setSyncMsg(e instanceof Error ? e.message : 'Erro ao sincronizar'); }
     finally { setSincronizando(false); }

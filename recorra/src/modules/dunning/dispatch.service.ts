@@ -4,6 +4,13 @@ import { PrismaService } from '@/common/prisma/prisma.service';
 import { ChannelFactory } from '@/modules/channels/channel.factory';
 import { nextChannel } from './fallback';
 
+/**
+ * Canais de WhatsApp: só enviam por template aprovado. Texto livre não é entregue
+ * fora da janela de 24h, e cobrança é sempre fora dela. (Responder no Inbox, dentro
+ * da janela, continua livre — aquele caminho não passa por aqui.)
+ */
+const WHATSAPP: ChannelType[] = ['WHATSAPP_CLOUD', 'NX_SYSTEMS', 'WHATSAPP_EVOLUTION', 'WHATSAPP_UAZAPI'];
+
 @Injectable()
 export class DispatchService {
   private readonly logger = new Logger(DispatchService.name);
@@ -22,6 +29,13 @@ export class DispatchService {
       if (await this.tentarFallback(d, ['sem destino'])) throw new Error('fallback: sem destino, tentando proximo canal');
       await this.marcar(d.id, 'IGNORADO', 'Sem destino para o canal');
       return 'IGNORADO';
+    }
+
+    // WhatsApp sem template: a Meta não entrega. Falha aqui com motivo claro em vez de
+    // gastar a chamada e receber um erro genérico do provedor.
+    if (WHATSAPP.includes(d.canal) && !d.templateName) {
+      await this.marcar(d.id, 'FALHA', 'WhatsApp exige um template aprovado — texto livre não é entregue. Edite a campanha/régua e escolha um template.');
+      return 'FALHA';
     }
 
     // O WhatsApp recusa template com parâmetro vazio (retorna ERR_SEND_TEMPLATE).

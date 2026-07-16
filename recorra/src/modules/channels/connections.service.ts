@@ -66,7 +66,8 @@ export class ConnectionsService {
   }
 
   /**
-   * Importa os canais do NX (oficiais e não oficiais) como conexões na Recorra.
+   * Importa os canais OFICIAIS (WABA) do NX como conexões na Recorra.
+   * Canais não oficiais (uazapi/Evolution) são ignorados: a Recorra só envia pela API oficial.
    * Usa a(s) conexão(ões)-base NX (URL + token) para chamar /listChannels e faz
    * upsert por nxChannelId. Remover na Recorra só apaga localmente; re-sincronizar traz de volta.
    */
@@ -78,6 +79,7 @@ export class ConnectionsService {
 
     let importados = 0;
     let atualizados = 0;
+    let ignorados = 0;
     const erros: string[] = [];
 
     for (const base of bases) {
@@ -99,6 +101,8 @@ export class ConnectionsService {
       for (const canal of lista) {
         const nxChannelId = String(canal.id);
         const oficial = (canal.type || '').toLowerCase() === 'waba';
+        // Só a API oficial entra: um canal não oficial na NX continua lá, apenas não é importado.
+        if (!oficial) { ignorados++; continue; }
         const creds: Creds = {
           nxBaseUrl: base.creds.nxBaseUrl,
           nxToken: base.creds.nxToken,
@@ -123,7 +127,15 @@ export class ConnectionsService {
       }
     }
 
-    return { importados, atualizados, erros };
+    // Limpa canais não oficiais importados por versões anteriores (na NX continuam intactos).
+    const obsoletos = decifradas.filter((c) => c.creds.nxChannelId && c.creds.nxOficial !== true).map((c) => c.conta.id);
+    let removidos = 0;
+    if (obsoletos.length) {
+      const r = await this.prisma.channelAccount.deleteMany({ where: { id: { in: obsoletos }, tenantId } });
+      removidos = r.count;
+    }
+
+    return { importados, atualizados, ignorados, removidos, erros };
   }
 
   private axErr(e: unknown): string {
@@ -135,8 +147,9 @@ export class ConnectionsService {
   async criar(tenantId: string, dto: { canal: ChannelType; apelido: string; credentials?: Record<string, unknown> }) {
     if (!dto.apelido?.trim()) throw new BadRequestException('Dê um nome para a conexão');
     switch (dto.canal) {
-      case 'WHATSAPP_EVOLUTION': return this.criarEvolution(tenantId, dto.apelido);
-      case 'WHATSAPP_UAZAPI': return this.criarUazapi(tenantId, dto.apelido);
+      case 'WHATSAPP_EVOLUTION':
+      case 'WHATSAPP_UAZAPI':
+        throw new BadRequestException('WhatsApp não oficial foi descontinuado. Use o WhatsApp API oficial (Meta Cloud API).');
       case 'WHATSAPP_CLOUD':
       case 'EMAIL':
       case 'SMS':
@@ -268,35 +281,9 @@ export class ConnectionsService {
 
   private slug(s: string) { return s.toLowerCase().normalize('NFD').replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 24); }
 
-  private async criarEvolution(tenantId: string, apelido: string) {
-    const instance = `recorra-${this.slug(apelido)}-${Math.random().toString(36).slice(2, 7)}`;
-    try {
-      await this.evo().post('/instance/create', { instanceName: instance, qrcode: true, integration: 'WHATSAPP-BAILEYS' });
-    } catch (e) {
-      throw new BadRequestException(`Falha ao criar instância na Evolution: ${axios.isAxiosError(e) ? JSON.stringify(e.response?.data ?? e.message) : String(e)}`);
-    }
-    const created = await this.prisma.channelAccount.create({
-      data: { tenantId, canal: 'WHATSAPP_EVOLUTION', apelido, ativo: true, credentials: this.crypto.encryptJson({ apiUrl: env.EVOLUTION_API_URL, apiKey: env.EVOLUTION_API_KEY, instance }) },
-    });
-    return { id: created.id, canal: 'WHATSAPP_EVOLUTION', apelido, instance, status: 'CONECTANDO' };
-  }
-
-  private async criarUazapi(tenantId: string, apelido: string) {
-    const instance = `recorra-${this.slug(apelido)}-${Math.random().toString(36).slice(2, 7)}`;
-    let token = env.UAZAPI_API_KEY;
-    try {
-      const { data } = await this.uaz().post('/instance/init', { name: instance });
-      token = data?.token ?? data?.instance?.token ?? token;
-    } catch (e) {
-      throw new BadRequestException(`Falha ao criar instância na uazapi: ${axios.isAxiosError(e) ? JSON.stringify(e.response?.data ?? e.message) : String(e)}`);
-    }
-    const created = await this.prisma.channelAccount.create({
-      data: { tenantId, canal: 'WHATSAPP_UAZAPI', apelido, ativo: true, credentials: this.crypto.encryptJson({ apiUrl: env.UAZAPI_API_URL, apiKey: env.UAZAPI_API_KEY, instance, token }) },
-    });
-    return { id: created.id, canal: 'WHATSAPP_UAZAPI', apelido, instance, status: 'CONECTANDO' };
-  }
-
   // ---------- QR / status ----------
+  // Evolution/uazapi não são mais criáveis. O que resta abaixo serve só para exibir
+  // e desconectar canais legados que ainda existam no banco.
 
   async qrcode(tenantId: string, id: string) {
     const acc = await this.getOrThrow(tenantId, id);

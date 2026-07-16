@@ -24,14 +24,18 @@ interface Campaign {
 }
 
 const CANAL_LABEL: Record<string, string> = {
-  WHATSAPP_EVOLUTION: 'WhatsApp (Evolution)',
   WHATSAPP_CLOUD: 'WhatsApp (Cloud oficial)',
-  WHATSAPP_UAZAPI: 'WhatsApp (uazapi)',
   EMAIL: 'E-mail',
   SMS: 'SMS',
   HTTP_GENERIC: 'API genérica (HTTP)',
   NX_SYSTEMS: 'NX Systems',
+  // Legados: não é mais possível criar, mas ainda podem existir no banco.
+  WHATSAPP_EVOLUTION: 'WhatsApp (Evolution)',
+  WHATSAPP_UAZAPI: 'WhatsApp (uazapi)',
 };
+/** WhatsApp só envia por template aprovado; texto livre sobra para SMS e e-mail. */
+const CANAIS_WHATSAPP = ['WHATSAPP_CLOUD', 'NX_SYSTEMS', 'WHATSAPP_EVOLUTION', 'WHATSAPP_UAZAPI'];
+const ehWhatsApp = (canal?: string) => !!canal && CANAIS_WHATSAPP.includes(canal);
 interface ContaCanal { id: string; canal: string; apelido?: string; status: string; oficial?: boolean; nxType?: string }
 /** Tipos de canal distintos entre as contas configuradas (não desconectadas). */
 function canaisConfigurados(contas: ContaCanal[]): { v: string; l: string }[] {
@@ -45,16 +49,16 @@ function canaisConfigurados(contas: ContaCanal[]): { v: string; l: string }[] {
   return out;
 }
 
-/** Conexões (por conta) disponíveis para envio, com detecção de canal oficial. */
-interface Conexao { id: string; canal: string; oficial: boolean; label: string }
+/** Conexões (por conta) disponíveis para envio. */
+interface Conexao { id: string; canal: string; whats: boolean; label: string }
 function conexoesDisponiveis(contas: ContaCanal[]): Conexao[] {
   return contas
     .filter((c) => c.status !== 'DESCONECTADO')
     .map((c) => ({
       id: c.id,
       canal: c.canal,
-      oficial: c.oficial === true || c.canal === 'WHATSAPP_CLOUD',
-      label: (c.apelido?.trim() || CANAL_LABEL[c.canal] || c.canal) + (c.oficial === true || c.canal === 'WHATSAPP_CLOUD' ? ' (oficial)' : ''),
+      whats: ehWhatsApp(c.canal),
+      label: (c.apelido?.trim() || CANAL_LABEL[c.canal] || c.canal) + (ehWhatsApp(c.canal) ? ' (WhatsApp oficial)' : ''),
     }));
 }
 
@@ -239,6 +243,48 @@ export default function CampanhasPage() {
   );
 }
 
+/** Escolha do template aprovado + mapeamento das variáveis. Usado por Mensagem única e Lembrete. */
+function BlocoTemplate({ templates, valor, onChange, params, setParam }: {
+  templates: Template[]; valor: string; onChange: (v: string) => void;
+  params: string[]; setParam: (i: number, v: string) => void;
+}) {
+  const aprovados = templates.filter((t) => t.status === 'APROVADO');
+  const sel = templates.find((t) => t.nome === valor);
+  const vars = sel ? templateVars(sel.corpo) : [];
+  return (
+    <div className="space-y-2">
+      <div className="rounded bg-primary-tint px-3 py-2 text-xs text-primary">O WhatsApp entrega cobrança <b>só por template aprovado</b>. Escolha um e ligue cada variável a um dado do cliente.</div>
+      <label className="block text-sm">
+        <span className="mb-1 block text-xs text-muted">Template aprovado *</span>
+        <select value={valor} onChange={(e) => onChange(e.target.value)} className="w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
+          <option value="">Selecione um template...</option>
+          {aprovados.map((t) => <option key={t.id} value={t.nome}>{t.nome}</option>)}
+        </select>
+      </label>
+      {aprovados.length === 0 && <div className="text-xs text-muted">Nenhum template aprovado. Cadastre/sincronize em <Link href="/canais" className="text-primary hover:underline">Canais</Link>.</div>}
+      {sel && <div className="rounded bg-canvas p-2 text-xs text-muted"><b className="text-ink">Prévia:</b> {sel.corpo}</div>}
+      {sel && vars.length > 0 && (
+        <div className="space-y-2 rounded border border-line p-2">
+          <span className="block text-xs font-semibold text-muted">Preencher as variáveis do template</span>
+          {vars.map((vName, i) => {
+            const val = params[i] ?? '';
+            const isFixo = !val.startsWith('{{');
+            return (
+              <div key={i} className="flex items-center gap-2 text-sm">
+                <span className="w-10 shrink-0 font-mono text-xs text-muted">{`{{${vName}}}`}</span>
+                <select value={isFixo ? '__FIXO__' : val} onChange={(e) => setParam(i, e.target.value === '__FIXO__' ? '' : e.target.value)} className="rounded border border-line px-2 py-1 text-sm outline-none focus:border-primary">
+                  {MAP_OPCOES.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
+                </select>
+                {isFixo && <input value={val} onChange={(e) => setParam(i, e.target.value)} placeholder="texto fixo" className="flex-1 rounded border border-line px-2 py-1 text-sm outline-none focus:border-primary" />}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onClose: () => void; onSaved: () => void }) {
   const [f, setF] = useState({
     nome: edit?.nome || '',
@@ -264,9 +310,8 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
   const [canais, setCanais] = useState<ContaCanal[]>([]);
   const conexoes = conexoesDisponiveis(canais);
   const conexaoSel = conexoes.find((c) => c.id === f.channelAccountId);
-  const isOficial = !!conexaoSel?.oficial;
+  const isWhats = !!conexaoSel?.whats;
   const [templates, setTemplates] = useState<Template[]>([]);
-  const templatesAprovados = templates.filter((t) => t.status === 'APROVADO');
   const templateSel = templates.find((t) => t.nome === f.templateNome);
   const varsTemplate = templateSel ? templateVars(templateSel.corpo) : [];
   const [templateParams, setTemplateParams] = useState<string[]>(edit?.templateParams || []);
@@ -314,17 +359,20 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
     return () => clearTimeout(t);
   }, [f.filtroTodos, f.filtroEtiqueta, f.filtroValorMin, f.filtroValorMax, f.filtroFaixa, incluir, excluir]);
 
+  const comTemplate = (f.tipoEnvio === 'MENSAGEM' || f.tipoEnvio === 'LEMBRETE') && isWhats;
+
   async function salvar() {
+    if (comTemplate && !f.templateNome) return setMsg('Escolha um template aprovado — o WhatsApp não entrega texto livre.');
     setSaving(true); setMsg('');
     const body = {
       nome: f.nome, tipoEnvio: f.tipoEnvio,
       ruleId: f.tipoEnvio === 'REGUA' ? f.ruleId : null,
-      mensagem: (f.tipoEnvio === 'MENSAGEM' || f.tipoEnvio === 'LEMBRETE') ? f.mensagem : null,
+      mensagem: !isWhats && (f.tipoEnvio === 'MENSAGEM' || f.tipoEnvio === 'LEMBRETE') ? f.mensagem : null,
       canal: f.canal,
       channelAccountId: f.channelAccountId || null,
-      // Só envia template quando é Mensagem única em canal oficial.
-      templateNome: f.tipoEnvio === 'MENSAGEM' && isOficial ? (f.templateNome || null) : null,
-      templateParams: f.tipoEnvio === 'MENSAGEM' && isOficial && f.templateNome ? templateParams : [],
+      // WhatsApp vai por template; SMS/e-mail vão por texto livre.
+      templateNome: comTemplate ? (f.templateNome || null) : null,
+      templateParams: comTemplate && f.templateNome ? templateParams : [],
       escopoFatura: f.escopoFatura,
       delaySegundos: Number(f.delaySegundos) || 0,
       filtroTodos: f.filtroTodos,
@@ -364,16 +412,24 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
           </div>
           {f.tipoEnvio === 'LEMBRETE' ? (
             <div className="space-y-2">
-              <textarea value={f.mensagem} onChange={(e) => set('mensagem', e.target.value)} rows={4} placeholder={"Olá {{nome}}, sua fatura de {{valor}} vence em {{vencimento}}.\nPix copia e cola:\n{{pix}}\n\nOu acesse: {{link}}"} className="w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
-              <div className="rounded bg-canvas p-2 text-xs text-muted">
-                <b className="text-ink">Variáveis disponíveis:</b>{' '}
-                {['{{nome}}', '{{valor}}', '{{vencimento}}', '{{pix}}', '{{boleto}}', '{{link}}', '{{documento}}'].map((v) => (
-                  <button key={v} type="button" onClick={() => set('mensagem', (f.mensagem || '') + ' ' + v)} className="mr-1 rounded bg-surface px-1.5 py-0.5 font-mono text-primary hover:bg-primary-tint">{v}</button>
-                ))}
-              </div>
-              <div className="flex flex-wrap items-center gap-2 text-sm">
+              <div className="flex items-center gap-2 text-sm">
                 <span className="text-xs text-muted">Canal:</span>
                 <select value={f.channelAccountId} onChange={(e) => { const c = conexoes.find((x) => x.id === e.target.value); setF((s) => ({ ...s, channelAccountId: e.target.value, canal: c?.canal || '' })); }} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">{conexoes.length === 0 && <option value="">Nenhum canal conectado</option>}{conexoes.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}</select>
+              </div>
+              {isWhats ? (
+                <BlocoTemplate templates={templates} valor={f.templateNome} onChange={(v) => set('templateNome', v)} params={templateParams} setParam={setParam} />
+              ) : (
+                <>
+                  <textarea value={f.mensagem} onChange={(e) => set('mensagem', e.target.value)} rows={4} placeholder={"Olá {{nome}}, sua fatura de {{valor}} vence em {{vencimento}}.\nPix copia e cola:\n{{pix}}\n\nOu acesse: {{link}}"} className="w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+                  <div className="rounded bg-canvas p-2 text-xs text-muted">
+                    <b className="text-ink">Variáveis disponíveis:</b>{' '}
+                    {['{{nome}}', '{{valor}}', '{{vencimento}}', '{{pix}}', '{{boleto}}', '{{link}}', '{{documento}}'].map((v) => (
+                      <button key={v} type="button" onClick={() => set('mensagem', (f.mensagem || '') + ' ' + v)} className="mr-1 rounded bg-surface px-1.5 py-0.5 font-mono text-primary hover:bg-primary-tint">{v}</button>
+                    ))}
+                  </div>
+                </>
+              )}
+              <div className="flex flex-wrap items-center gap-2 text-sm">
                 <span className="text-xs text-muted">Quando o cliente tem várias faturas em aberto:</span>
                 <select value={f.escopoFatura} onChange={(e) => set('escopoFatura', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
                   <option value="TODAS">Uma mensagem por fatura</option>
@@ -388,37 +444,8 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
                 <select value={f.channelAccountId} onChange={(e) => { const c = conexoes.find((x) => x.id === e.target.value); setF((s) => ({ ...s, channelAccountId: e.target.value, canal: c?.canal || '' })); }} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">{conexoes.length === 0 && <option value="">Nenhum canal conectado</option>}{conexoes.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}</select>
               </div>
 
-              {isOficial ? (
-                <div className="space-y-2">
-                  <div className="rounded bg-warning-tint px-3 py-2 text-xs text-[#854F0B]">Canal oficial (WhatsApp/WABA): o envio exige um <b>template aprovado</b> — texto livre não é entregue.</div>
-                  <label className="block text-sm">
-                    <span className="mb-1 block text-xs text-muted">Template aprovado</span>
-                    <select value={f.templateNome} onChange={(e) => set('templateNome', e.target.value)} className="w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
-                      <option value="">Selecione um template...</option>
-                      {templatesAprovados.map((t) => <option key={t.id} value={t.nome}>{t.nome}</option>)}
-                    </select>
-                  </label>
-                  {templatesAprovados.length === 0 && <div className="text-xs text-muted">Nenhum template aprovado. Cadastre/sincronize em <Link href="/canais" className="text-primary hover:underline">Canais</Link>.</div>}
-                  {templateSel && <div className="rounded bg-canvas p-2 text-xs text-muted"><b className="text-ink">Prévia:</b> {templateSel.corpo}</div>}
-                  {templateSel && varsTemplate.length > 0 && (
-                    <div className="space-y-2 rounded border border-line p-2">
-                      <span className="block text-xs font-semibold text-muted">Preencher as variáveis do template</span>
-                      {varsTemplate.map((vName, i) => {
-                        const val = templateParams[i] ?? '';
-                        const isFixo = !val.startsWith('{{');
-                        return (
-                          <div key={i} className="flex items-center gap-2 text-sm">
-                            <span className="w-10 shrink-0 font-mono text-xs text-muted">{`{{${vName}}}`}</span>
-                            <select value={isFixo ? '__FIXO__' : val} onChange={(e) => setParam(i, e.target.value === '__FIXO__' ? '' : e.target.value)} className="rounded border border-line px-2 py-1 text-sm outline-none focus:border-primary">
-                              {MAP_OPCOES.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
-                            </select>
-                            {isFixo && <input value={val} onChange={(e) => setParam(i, e.target.value)} placeholder="texto fixo" className="flex-1 rounded border border-line px-2 py-1 text-sm outline-none focus:border-primary" />}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
+              {isWhats ? (
+                <BlocoTemplate templates={templates} valor={f.templateNome} onChange={(v) => set('templateNome', v)} params={templateParams} setParam={setParam} />
               ) : (
                 <>
                   <textarea value={f.mensagem} onChange={(e) => set('mensagem', e.target.value)} rows={4} placeholder="Olá {{nome}}, tudo bem?" className="w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
@@ -475,7 +502,7 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
             <input type="number" min={0} max={600} value={f.delaySegundos} onChange={(e) => set('delaySegundos', e.target.value)} className="w-24 rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
             <span className="text-sm text-muted">segundos entre cada envio</span>
           </div>
-          <p className="mt-1 text-xs text-warning">Recomendado para números não-oficiais (Evolution/uazapi) — evita disparos em rajada e reduz risco de banimento. Ex.: 5 a 15 segundos.</p>
+          <p className="mt-1 text-xs text-muted">Espaça os envios em vez de disparar tudo de uma vez. Deixe 0 para enviar o mais rápido possível.</p>
         </div>
 
         {verContatos && <ContatosModal contatos={previaContatos} total={previa ?? 0} onRemover={(id) => { setExcluir((p) => [...new Set([...p, id])]); setIncluir((p) => p.filter((x) => x !== id)); }} onAdicionar={(id) => { setIncluir((p) => [...new Set([...p, id])]); setExcluir((p) => p.filter((x) => x !== id)); }} onClose={() => setVerContatos(false)} />}

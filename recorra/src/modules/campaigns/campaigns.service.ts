@@ -5,6 +5,10 @@ import { DispatchService } from '@/modules/dunning/dispatch.service';
 import { PaymentProviderFactory } from '@/modules/payments/payment-provider.factory';
 import { DispatchQueue } from '@/queue/dispatch-queue';
 
+/** WhatsApp só envia por template aprovado; texto livre sobra para SMS e e-mail. */
+const WHATSAPP: ChannelType[] = ['WHATSAPP_CLOUD', 'NX_SYSTEMS', 'WHATSAPP_EVOLUTION', 'WHATSAPP_UAZAPI'];
+export const exigeTemplate = (canal?: ChannelType | null) => !!canal && WHATSAPP.includes(canal);
+
 export interface CampaignInput {
   nome: string;
   tipoEnvio: 'REGUA' | 'MENSAGEM' | 'LEMBRETE';
@@ -92,16 +96,17 @@ export class CampaignsService {
   }
 
   private dados(input: CampaignInput) {
+    // Template no WhatsApp (Mensagem única e Lembrete); texto livre em SMS/e-mail.
+    const comTemplate = (input.tipoEnvio === 'MENSAGEM' || input.tipoEnvio === 'LEMBRETE') && exigeTemplate(input.canal);
     return {
       nome: input.nome?.trim(),
       tipoEnvio: input.tipoEnvio,
       ruleId: input.tipoEnvio === 'REGUA' ? input.ruleId || null : null,
-      mensagem: (input.tipoEnvio === 'MENSAGEM' || input.tipoEnvio === 'LEMBRETE') ? input.mensagem || null : null,
+      mensagem: !comTemplate && (input.tipoEnvio === 'MENSAGEM' || input.tipoEnvio === 'LEMBRETE') ? input.mensagem || null : null,
       canal: input.canal || null,
       channelAccountId: input.channelAccountId || null,
-      // Template WABA só faz sentido em Mensagem única com canal oficial.
-      templateNome: input.tipoEnvio === 'MENSAGEM' ? input.templateNome || null : null,
-      templateParams: input.tipoEnvio === 'MENSAGEM' && input.templateNome ? (input.templateParams ?? []) : [],
+      templateNome: comTemplate ? input.templateNome || null : null,
+      templateParams: comTemplate && input.templateNome ? (input.templateParams ?? []) : [],
       escopoFatura: input.escopoFatura || 'TODAS',
       delaySegundos: input.delaySegundos != null ? Math.max(0, Math.min(600, Math.floor(input.delaySegundos))) : 5,
       filtroTodos: !!input.filtroTodos,
@@ -120,19 +125,26 @@ export class CampaignsService {
   async create(tenantId: string, input: CampaignInput) {
     if (!input.nome?.trim()) throw new BadRequestException('Nome é obrigatório');
     if (input.tipoEnvio === 'REGUA' && !input.ruleId) throw new BadRequestException('Selecione uma régua');
-    // Mensagem única: aceita texto livre OU um template (canal oficial usa template).
-    if (input.tipoEnvio === 'MENSAGEM' && !input.mensagem?.trim() && !input.templateNome?.trim()) {
-      throw new BadRequestException('Escreva a mensagem ou escolha um template');
-    }
-    if (input.tipoEnvio === 'LEMBRETE' && !input.mensagem?.trim()) throw new BadRequestException('Escreva a mensagem');
+    this.validarConteudo(input);
     const proxima = this.calcularProxima(input.agendamento || 'UMA_VEZ', input.diaDoMes ?? null);
     return this.prisma.campaign.create({
       data: { tenantId, ...this.dados(input), proximaExecucao: proxima, status: 'RASCUNHO' },
     });
   }
 
+  /** No WhatsApp exige template aprovado; nos demais canais, o texto da mensagem. */
+  private validarConteudo(input: CampaignInput) {
+    if (input.tipoEnvio !== 'MENSAGEM' && input.tipoEnvio !== 'LEMBRETE') return;
+    if (exigeTemplate(input.canal)) {
+      if (!input.templateNome?.trim()) throw new BadRequestException('No WhatsApp o envio exige um template aprovado — texto livre não é entregue. Escolha um template.');
+      return;
+    }
+    if (!input.mensagem?.trim()) throw new BadRequestException('Escreva a mensagem');
+  }
+
   async update(tenantId: string, id: string, input: CampaignInput) {
     await this.get(tenantId, id);
+    this.validarConteudo(input);
     const proxima = this.calcularProxima(input.agendamento || 'UMA_VEZ', input.diaDoMes ?? null);
     return this.prisma.campaign.update({ where: { id }, data: { ...this.dados(input), proximaExecucao: proxima } });
   }
@@ -289,7 +301,7 @@ export class CampaignsService {
     const imediatos: string[] = [];
 
     let ignorados = 0;
-    const canalCampanha = camp.canal ?? 'WHATSAPP_EVOLUTION';
+    const canalCampanha = camp.canal ?? 'WHATSAPP_CLOUD';
     for (const cliente of publico) {
       try {
         // Respeita opt-out (LGPD): não envia para quem revogou o consentimento no canal.
@@ -302,14 +314,23 @@ export class CampaignsService {
           });
           const alvo = camp.escopoFatura === 'PROXIMA' ? abertas.slice(0, 1) : abertas;
           if (alvo.length === 0) { ignorados++; continue; }
-          const precisaPix = /\{\{\s*pix\s*\}\}/i.test(camp.mensagem || '');
+          // No WhatsApp o conteúdo vem do template; nos demais, do texto livre.
+          const usaTpl = !!camp.templateNome;
+          const textoLembrete = usaTpl ? (camp.templateParams ?? []).join(' ') : (camp.mensagem ?? '');
+          const precisaPix = /\{\{\s*pix\s*\}\}/i.test(textoLembrete);
           for (let inv of alvo) {
             if (precisaPix) inv = (await this.garantirPix(inv)) ?? inv;
+            const paramsLembrete = usaTpl ? (camp.templateParams ?? []).map((tok) => this.render(tok, cliente, inv)) : [];
             const d = await this.prisma.messageDispatch.create({
               data: {
                 tenantId, customerId: cliente.id, invoiceId: inv.id, campaignId: camp.id,
-                canal: camp.canal ?? 'WHATSAPP_EVOLUTION',
-                conteudo: this.render(camp.mensagem, cliente, inv),
+                canal: canalCampanha,
+                channelAccountId: camp.channelAccountId ?? undefined,
+                templateName: usaTpl ? camp.templateNome : undefined,
+                templateParams: paramsLembrete,
+                conteudo: usaTpl
+                  ? `[template: ${camp.templateNome}] ${paramsLembrete.join(' | ')}`
+                  : this.render(camp.mensagem, cliente, inv),
                 status: 'FILA', agendadoPara: new Date(),
               },
             });
@@ -339,7 +360,7 @@ export class CampaignsService {
           const d = await this.prisma.messageDispatch.create({
             data: {
               tenantId, customerId: cliente.id, invoiceId: inv?.id, campaignId: camp.id,
-              canal: camp.canal ?? 'WHATSAPP_EVOLUTION',
+              canal: canalCampanha,
               channelAccountId: camp.channelAccountId ?? undefined,
               templateName: usaTemplate ? camp.templateNome : undefined,
               templateParams,
@@ -353,12 +374,27 @@ export class CampaignsService {
           imediatos.push(d.id);
         } else if (camp.rule) {
           const now = Date.now();
+          // A régua pode ter passos com template aprovado (WhatsApp) ou texto livre (SMS/e-mail).
+          // Só busca a fatura quando algum passo precisa de dado de cobrança.
+          const textoPassos = camp.rule.steps.map((s) => `${s.template} ${(s.templateParams ?? []).join(' ')}`).join(' ');
+          let invRegua = this.temVariavelFatura(textoPassos)
+            ? await this.prisma.invoice.findFirst({ where: { tenantId, customerId: cliente.id, status: { in: ['PENDENTE', 'VENCIDA'] } }, orderBy: { vencimento: 'asc' } })
+            : null;
+          if (invRegua && /\{\{\s*pix\s*\}\}/i.test(textoPassos)) invRegua = await this.garantirPix(invRegua);
+
           for (const step of camp.rule.steps) {
+            const usaTpl = !!step.templateName;
+            const paramsStep = usaTpl ? (step.templateParams ?? []).map((tok) => this.render(tok, cliente, invRegua)) : [];
             const d = await this.prisma.messageDispatch.create({
               data: {
-                tenantId, customerId: cliente.id, campaignId: camp.id,
+                tenantId, customerId: cliente.id, invoiceId: invRegua?.id, campaignId: camp.id,
                 canal: step.canal, channelAccountId: step.channelAccountId ?? undefined, cadeiaCanais: step.canaisFallback,
-                template: step.template, conteudo: this.render(step.template, cliente),
+                template: step.template,
+                templateName: usaTpl ? step.templateName : undefined,
+                templateParams: paramsStep,
+                conteudo: usaTpl
+                  ? `[template: ${step.templateName}] ${paramsStep.join(' | ')}`
+                  : this.render(step.template, cliente, invRegua),
                 status: 'FILA', agendadoPara: new Date(now + step.offsetDias * 86400000),
               },
             });

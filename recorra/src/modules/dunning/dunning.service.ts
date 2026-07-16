@@ -79,7 +79,8 @@ export class DunningService {
 
     // Canal oficial: envia como template aprovado (nome + parâmetros na ordem {{1}}, {{2}}...).
     // Cada templateParams do passo é uma variável Recorra (ex.: "{{nome}}") resolvida aqui por cliente.
-    const usaTemplate = !!step.templateName && (step.templateParams?.length ?? 0) > 0;
+    // Um template aprovado sem variáveis também é válido — não exigir templateParams aqui.
+    const usaTemplate = !!step.templateName;
     const templateParams = usaTemplate ? step.templateParams.map((tok) => renderTemplate(tok, vars)) : [];
     const conteudo = usaTemplate ? renderPositional(template, templateParams) : renderTemplate(template, vars);
 

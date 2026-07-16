@@ -38,13 +38,18 @@ interface Rule {
 
 const canalLabel: Record<Canal, { label: string; icon: typeof MessageCircle }> = {
   WHATSAPP_CLOUD: { label: 'WhatsApp (oficial)', icon: MessageCircle },
-  WHATSAPP_EVOLUTION: { label: 'WhatsApp (Evolution)', icon: MessageCircle },
-  WHATSAPP_UAZAPI: { label: 'WhatsApp (uazapi)', icon: MessageCircle },
   EMAIL: { label: 'E-mail', icon: Mail },
   SMS: { label: 'SMS', icon: Smartphone },
   HTTP_GENERIC: { label: 'API genérica (HTTP)', icon: Webhook },
   NX_SYSTEMS: { label: 'NX Systems', icon: MessageSquare },
+  // Legados: não é mais possível criar, mas ainda podem existir no banco.
+  WHATSAPP_EVOLUTION: { label: 'WhatsApp (Evolution)', icon: MessageCircle },
+  WHATSAPP_UAZAPI: { label: 'WhatsApp (uazapi)', icon: MessageCircle },
 };
+
+/** WhatsApp só envia por template aprovado; texto livre sobra para SMS e e-mail. */
+const CANAIS_WHATSAPP: string[] = ['WHATSAPP_CLOUD', 'NX_SYSTEMS', 'WHATSAPP_EVOLUTION', 'WHATSAPP_UAZAPI'];
+const ehWhatsApp = (canal?: string) => !!canal && CANAIS_WHATSAPP.includes(canal);
 
 const faixaLabel: Record<string, string> = { '': 'Todas as faixas', BOM: 'Bom pagador', ATENCAO: 'Atenção', RISCO: 'Risco' };
 
@@ -301,7 +306,7 @@ export default function ReguasPage() {
 function AiReguaModal({ onClose, onGerado }: { onClose: () => void; onGerado: (r: Partial<Rule>) => void }) {
   const [f, setF] = useState({ negocio: '', objetivo: 'recuperar inadimplência', tom: 'amigável', inicioDias: '3', fimDias: '15', toques: '4', desconto: '', acaoFinal: '', empresa: '' });
   const set = (k: string, v: string) => setF((s) => ({ ...s, [k]: v }));
-  const [canais, setCanais] = useState<string[]>(['WHATSAPP_EVOLUTION']);
+  const [canais, setCanais] = useState<string[]>(['WHATSAPP_CLOUD']);
   const toggleCanal = (v: string) => setCanais((s) => (s.includes(v) ? s.filter((x) => x !== v) : [...s, v]));
   const [busy, setBusy] = useState(false);
   const [erro, setErro] = useState('');
@@ -329,7 +334,7 @@ function AiReguaModal({ onClose, onGerado }: { onClose: () => void; onGerado: (r
             <label className="block text-sm"><span className="mb-1 block text-xs text-muted">Nº de mensagens</span><input type="number" value={f.toques} onChange={(e) => set('toques', e.target.value)} className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary" /></label>
           </div>
           <p className="-mt-1 text-xs text-muted">Nº de mensagens = quantas vezes falar com o cliente na sequência (mais mensagens = mais insistência).</p>
-          <div><span className="mb-1 block text-xs text-muted">Canais que a IA pode usar</span><div className="flex flex-wrap gap-2">{([['WHATSAPP_EVOLUTION', 'WhatsApp'], ['SMS', 'SMS'], ['EMAIL', 'E-mail']] as [string, string][]).map(([v, l]) => (<button key={v} type="button" onClick={() => toggleCanal(v)} className={`rounded border px-4 py-1.5 text-sm ${canais.includes(v) ? 'border-primary bg-primary-tint text-primary' : 'border-line hover:bg-canvas'}`}>{l}</button>))}</div></div>
+          <div><span className="mb-1 block text-xs text-muted">Canais que a IA pode usar</span><div className="flex flex-wrap gap-2">{([['WHATSAPP_CLOUD', 'WhatsApp'], ['SMS', 'SMS'], ['EMAIL', 'E-mail']] as [string, string][]).map(([v, l]) => (<button key={v} type="button" onClick={() => toggleCanal(v)} className={`rounded border px-4 py-1.5 text-sm ${canais.includes(v) ? 'border-primary bg-primary-tint text-primary' : 'border-line hover:bg-canvas'}`}>{l}</button>))}</div></div>
           <label className="block text-sm"><span className="mb-1 block text-xs text-muted">Oferece desconto/acordo? (opcional)</span><input value={f.desconto} onChange={(e) => set('desconto', e.target.value)} placeholder="Ex.: 10% de desconto após 10 dias" className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary" /></label>
           <label className="block text-sm"><span className="mb-1 block text-xs text-muted">Ação final (opcional)</span><input value={f.acaoFinal} onChange={(e) => set('acaoFinal', e.target.value)} placeholder="Ex.: aviso de bloqueio/suspensão" className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary" /></label>
           <label className="block text-sm"><span className="mb-1 block text-xs text-muted">Nome da empresa (assinatura)</span><input value={f.empresa} onChange={(e) => set('empresa', e.target.value)} className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary" /></label>
@@ -536,9 +541,8 @@ function StepCard({
   async function sincronizarTemplates() {
     setTemplates(await api<{ id: string; nome: string; corpo: string; status: string }[]>('/config/templates').catch(() => []));
   }
-  // Canal oficial (Meta): WhatsApp Cloud ou canal NX marcado como WABA.
-  // Oficial → só template (sem texto livre). Não oficial → só texto livre (sem template).
-  const canalOficial = step.canal === 'WHATSAPP_CLOUD' || conn?.oficial === true;
+  // WhatsApp → só template (texto livre não é entregue). SMS/e-mail → só texto livre.
+  const canalOficial = ehWhatsApp(step.canal);
   useEffect(() => { if (canalOficial) sincronizarTemplates(); }, [canalOficial]);
 
   // Template selecionado + mapa de variáveis (fonte única = o próprio passo).
@@ -684,7 +688,7 @@ function StepCard({
             : <div className="rounded border border-dashed border-line p-3 text-sm text-muted">Selecione um template aprovado acima. Canais oficiais só enviam via template pré-aprovado pela Meta.</div>}
         </div>
       ) : (
-        /* Canal não oficial: texto livre — sem opção de template. */
+        /* SMS/e-mail: texto livre — não têm template. */
         <>
           <label className="mt-2 block">
             <span className="mb-1 flex items-center gap-1.5 text-xs text-muted"><Icon size={14} /> Mensagem {step.abTest ? '(variante A)' : ''}<PreviewButton canal={step.canal} texto={step.template} /><AiMensagemBtn texto={step.template} onResult={(t) => onChange({ template: t })} /></span>
