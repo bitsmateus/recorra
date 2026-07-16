@@ -20,7 +20,7 @@
     "prisma:seed": "tsx prisma/seed.ts",
     "rotate:key": "tsx prisma/rotate-encryption-key.ts",
     "prisma:studio": "prisma studio",
-    "test:e2e": "vitest run --dir test/integration"
+    "test:e2e": "vitest run --config vitest.integration.config.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
