@@ -162,6 +162,7 @@ function NovoCanalModal({ onClose, onCreated }: { onClose: () => void; onCreated
   const [busy, setBusy] = useState(false);
   const tipo = TIPOS.find((t) => t.canal === canal)!;
   const isEmail = canal === 'EMAIL';
+  const isCloud = canal === 'WHATSAPP_CLOUD';
 
   // E-mail tem UI própria (Resend x SMTP); os demais usam campos simples.
   const camposCred: Record<string, { key: string; label: string; placeholder?: string }[]> = {
@@ -198,6 +199,16 @@ function NovoCanalModal({ onClose, onCreated }: { onClose: () => void; onCreated
     setTestando(false);
   }
 
+  /** Valida phoneId + token na Meta (não envia mensagem). */
+  async function testarWhatsApp() {
+    setTestando(true); setTeste(null);
+    try {
+      const r = await api<{ ok: boolean; mensagem: string }>('/canais/testar-whatsapp', { method: 'POST', body: { credentials: creds } });
+      setTeste(r);
+    } catch (e) { setTeste({ ok: false, mensagem: e instanceof Error ? e.message : 'Erro ao testar' }); }
+    setTestando(false);
+  }
+
   async function criar() {
     if (!apelido.trim()) return setMsg('Dê um nome para a conexão.');
     setBusy(true); setMsg('');
@@ -216,7 +227,7 @@ function NovoCanalModal({ onClose, onCreated }: { onClose: () => void; onCreated
           <button onClick={onClose} className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>
         </div>
         <label className="mb-3 block text-sm"><span className="mb-1 block text-xs text-muted">Tipo de canal</span>
-          <select value={canal} onChange={(e) => { setCanal(e.target.value); setCreds({}); }} className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary">
+          <select value={canal} onChange={(e) => { setCanal(e.target.value); setCreds({}); setTeste(null); }} className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary">
             {TIPOS.map((t) => <option key={t.canal} value={t.canal}>{t.label}</option>)}
           </select>
           <span className="mt-1 block text-xs text-muted">{tipo.desc}</span>
@@ -266,11 +277,29 @@ function NovoCanalModal({ onClose, onCreated }: { onClose: () => void; onCreated
             </div>
           </>
         ) : (
-          camposCred[canal].map((f) => (
-            <label key={f.key} className="mb-3 block text-sm"><span className="mb-1 block text-xs text-muted">{f.label}</span>
-              <input value={creds[f.key] || ''} onChange={(e) => setCreds((s) => ({ ...s, [f.key]: e.target.value }))} placeholder={f.placeholder} className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary" />
-            </label>
-          ))
+          <>
+            {camposCred[canal].map((f) => (
+              <label key={f.key} className="mb-3 block text-sm"><span className="mb-1 block text-xs text-muted">{f.label}</span>
+                <input value={creds[f.key] || ''} onChange={(e) => { setCreds((s) => ({ ...s, [f.key]: e.target.value })); setTeste(null); }} placeholder={f.placeholder} className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary" />
+              </label>
+            ))}
+            {/* Valida as credenciais na Meta antes de salvar (não envia mensagem). */}
+            {isCloud && (
+              <div className="mb-3 rounded-lg border border-line p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-muted">Confira o número e o token na Meta antes de salvar.</span>
+                  <button type="button" onClick={testarWhatsApp} disabled={testando || !creds.phoneId || !creds.token} className="flex shrink-0 items-center gap-1.5 rounded border border-line px-3 py-1.5 text-sm hover:bg-canvas disabled:opacity-60">
+                    {testando ? <Loader2 size={14} className="animate-spin" /> : <Wifi size={14} />} {testando ? 'Testando...' : 'Testar conexão'}
+                  </button>
+                </div>
+                {teste && (
+                  <p className={`mt-2 flex items-start gap-1.5 text-xs ${teste.ok ? 'text-success' : 'text-danger'}`}>
+                    {teste.ok ? <CheckCircle2 size={14} className="mt-px shrink-0" /> : <AlertCircle size={14} className="mt-px shrink-0" />} {teste.mensagem}
+                  </p>
+                )}
+              </div>
+            )}
+          </>
         )}
         {tipo.qr && <p className="mb-3 rounded bg-canvas px-3 py-2 text-xs text-muted">Ao criar, vamos abrir o QR code para você conectar o número no WhatsApp do celular.</p>}
         {msg && <p className="mb-2 text-sm text-danger">{msg}</p>}

@@ -210,6 +210,39 @@ export class ConnectionsService {
     }
   }
 
+  /**
+   * Valida as credenciais do WhatsApp Cloud direto na Meta (somente leitura, não envia mensagem).
+   * Consulta o número pelo Phone Number ID; 200 = token e ID válidos.
+   */
+  async testarWhatsAppCloud(dto: { credentials?: Record<string, unknown> }) {
+    const c = (dto.credentials ?? {}) as Creds;
+    const phoneId = (c.phoneId ?? '').trim();
+    const token = (c.token ?? '').trim();
+    if (!phoneId) return { ok: false, mensagem: 'Informe o Phone Number ID.' };
+    if (!token) return { ok: false, mensagem: 'Informe o token de acesso.' };
+
+    try {
+      const { status, data } = await axios.get(`https://graph.facebook.com/v21.0/${encodeURIComponent(phoneId)}`, {
+        params: { fields: 'verified_name,display_phone_number,quality_rating' },
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: 15000,
+        validateStatus: () => true,
+      });
+      if (status === 200) {
+        const nome = data?.verified_name ? ` — ${data.verified_name}` : '';
+        const numero = data?.display_phone_number ? ` (${data.display_phone_number})` : '';
+        const qualidade = data?.quality_rating ? ` · qualidade: ${data.quality_rating}` : '';
+        return { ok: true, mensagem: `Conexão OK${nome}${numero}${qualidade}` };
+      }
+      if (status === 401 || status === 403) return { ok: false, mensagem: 'Token inválido ou sem permissão para este número (HTTP ' + status + ').' };
+      if (status === 404) return { ok: false, mensagem: 'Phone Number ID não encontrado — confira o ID no WhatsApp Manager.' };
+      const erro = data?.error?.message ?? JSON.stringify(data);
+      return { ok: false, mensagem: `A Meta recusou (HTTP ${status}): ${erro}` };
+    } catch (e) {
+      return { ok: false, mensagem: `Não foi possível falar com a Meta: ${axios.isAxiosError(e) ? e.message : String(e)}` };
+    }
+  }
+
   /** Envia um e-mail de teste com as credenciais informadas (Resend ou SMTP), sem salvar nada. */
   async testarEmail(dto: { credentials?: Record<string, unknown>; para?: string }) {
     const para = (dto.para ?? '').trim();

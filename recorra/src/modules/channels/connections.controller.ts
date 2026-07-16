@@ -28,6 +28,13 @@ export class ConnectionsController {
     return this.connections.testar(dto);
   }
 
+  /** Valida as credenciais do WhatsApp Cloud na Meta (não salva nada, não envia mensagem). */
+  @Post('testar-whatsapp')
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
+  testarWhatsApp(@Body() dto: { credentials?: Record<string, unknown> }) {
+    return this.connections.testarWhatsAppCloud(dto);
+  }
+
   /** Envia um e-mail de teste com as credenciais informadas (não salva nada). */
   @Post('testar-email')
   @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
