@@ -6,6 +6,7 @@ import { CryptoService } from '@/common/crypto/crypto.service';
 import { env } from '@/config/env';
 import { EmailChannel } from './providers/email.channel';
 import { ChannelCredentials } from './message-channel.interface';
+import { wabaDoPhoneId } from './meta-graph';
 
 type Creds = {
   apiUrl?: string; apiKey?: string; instance?: string; token?: string; phoneId?: string; from?: string; provider?: string;
@@ -18,7 +19,10 @@ type Creds = {
   nxBaseUrl?: string; nxToken?: string; nxOficial?: boolean;
   nxChannelId?: string; // id do canal no NX (marca conexões importadas)
   nxType?: string | null; // "waba" (oficial) | "uazapi" | ...
-  nxName?: string | null; nxStatus?: string | null; tokenAPI?: string | null; wabaId?: string | null;
+  nxName?: string | null; nxStatus?: string | null; tokenAPI?: string | null;
+  // WABA ID — vem do NX na sincronização, ou do usuário no canal WhatsApp Cloud.
+  // Só é usado para gerenciar templates no Graph; o envio não precisa dele.
+  wabaId?: string | null;
 };
 
 // Canal retornado pelo endpoint /listChannels do NX.
@@ -151,6 +155,7 @@ export class ConnectionsService {
       case 'WHATSAPP_UAZAPI':
         throw new BadRequestException('WhatsApp não oficial foi descontinuado. Use o WhatsApp API oficial (Meta Cloud API).');
       case 'WHATSAPP_CLOUD':
+        return this.criarCloud(tenantId, dto.apelido, (dto.credentials ?? {}) as Creds);
       case 'EMAIL':
       case 'SMS':
         return this.criarComCredenciais(tenantId, dto.canal, dto.apelido, (dto.credentials ?? {}) as Creds);
@@ -160,6 +165,22 @@ export class ConnectionsService {
         return this.criarNx(tenantId, dto.apelido, (dto.credentials ?? {}) as Creds);
       default: throw new BadRequestException('Canal inválido');
     }
+  }
+
+  /**
+   * WhatsApp Cloud: o envio precisa só de phoneId + token, mas gerenciar templates
+   * exige o WABA ID. Descobrimos pelo próprio phoneId para não pedir ao usuário;
+   * se a Meta não devolver, aceita o valor informado à mão (ou fica sem — o canal
+   * envia normalmente, só não gerencia templates).
+   */
+  private async criarCloud(tenantId: string, apelido: string, credentials: Creds) {
+    const phoneId = (credentials.phoneId ?? '').trim();
+    const token = (credentials.token ?? '').trim();
+    let wabaId = (credentials.wabaId ?? '').trim();
+    if (!wabaId && phoneId && token) {
+      wabaId = (await wabaDoPhoneId(phoneId, token)) ?? '';
+    }
+    return this.criarComCredenciais(tenantId, 'WHATSAPP_CLOUD', apelido, { ...credentials, phoneId, token, wabaId: wabaId || undefined });
   }
 
   private async criarComCredenciais(tenantId: string, canal: ChannelType, apelido: string, credentials: Creds) {

@@ -11,6 +11,8 @@ interface TemplateBody {
   corpo: string;
   idioma?: string;
   categoria?: TemplateCategory;
+  exemplos?: string[]; // valor de exemplo de cada {{n}} (a Meta exige quando há variáveis)
+  wabaId?: string; // em qual conta criar, quando há mais de uma
 }
 
 @Controller('config/templates')
@@ -27,6 +29,12 @@ export class TemplatesController {
   @Post('categorizar')
   categorizar(@Body('corpo') corpo: string) {
     return this.templates.categorizar(corpo ?? '');
+  }
+
+  /** Contas WABA que o tenant pode gerenciar (para escolher onde criar). */
+  @Get('contas')
+  contas(@TenantId() tenantId: string) {
+    return this.templates.contas(tenantId);
   }
 
   /** Sincroniza os templates aprovados direto do Graph da Meta (via canal NX). */

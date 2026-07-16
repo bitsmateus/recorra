@@ -171,7 +171,9 @@ function NovoCanalModal({ onClose, onCreated }: { onClose: () => void; onCreated
 
   // E-mail tem UI própria (Resend x SMTP); os demais usam campos simples.
   const camposCred: Record<string, { key: string; label: string; placeholder?: string }[]> = {
-    WHATSAPP_CLOUD: [{ key: 'phoneId', label: 'Phone Number ID' }, { key: 'token', label: 'Token de acesso' }],
+    // wabaId é opcional: só serve para gerenciar templates, e tentamos descobrir
+    // sozinhos pelo phoneId ao salvar. O envio nunca precisa dele.
+    WHATSAPP_CLOUD: [{ key: 'phoneId', label: 'Phone Number ID' }, { key: 'token', label: 'Token de acesso' }, { key: 'wabaId', label: 'WABA ID (opcional — para gerenciar templates)' }],
     SMS: [{ key: 'provider', label: 'Provedor' }, { key: 'apiKey', label: 'API Key' }, { key: 'from', label: 'Remetente' }],
     EMAIL: [],
     WHATSAPP_EVOLUTION: [], // conecta por QR code

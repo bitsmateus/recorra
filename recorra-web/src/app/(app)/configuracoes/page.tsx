@@ -16,7 +16,6 @@ export default function ConfiguracoesPage() {
       <div className="space-y-6">
         <GatewaySection />
         <ChannelSection />
-        <TemplatesSection />
         <IntegrationSection />
       </div>
     </div>
@@ -259,96 +258,6 @@ function IntegrationSection() {
           <div key={r.id} className="flex items-center justify-between rounded border border-line px-3 py-2 text-sm">
             <span>{String(r.sistema)} · <span className="text-muted">{String(r.status)}</span></span>
             <button onClick={() => testar(r.id)} className="rounded border border-line px-3 py-1 text-xs hover:bg-canvas">Testar conexão</button>
-          </div>
-        ))}
-      </div>
-    </Section>
-  );
-}
-
-/* ---------- Templates HSM ---------- */
-function TemplatesSection() {
-  const [rows, setRows] = useState<Row[]>([]);
-  const [nome, setNome] = useState('');
-  const [corpo, setCorpo] = useState('');
-  const [sugestao, setSugestao] = useState<{ categoria: string; alertaCusto: boolean } | null>(null);
-  const [msg, setMsg] = useState('');
-  const [syncing, setSyncing] = useState(false);
-  const [syncMsg, setSyncMsg] = useState('');
-
-  const load = useCallback(() => {
-    api<Row[]>('/config/templates').then(setRows).catch(() => {});
-  }, []);
-  useEffect(load, [load]);
-
-  async function sincronizar() {
-    setSyncing(true); setSyncMsg('Buscando templates na Meta via NX...');
-    try {
-      const r = await api<{ canais: number; importados: number; atualizados: number; erros: string[] }>('/config/templates/sincronizar', { method: 'POST' });
-      const partes = [`${r.importados} novo(s)`, `${r.atualizados} atualizado(s)`, `${r.canais} WABA(s)`];
-      setSyncMsg(`✓ ${partes.join(' · ')}${r.erros?.length ? ` — ${r.erros.length} aviso(s): ${r.erros[0]}` : ''}`);
-      load();
-    } catch (e) { setSyncMsg(e instanceof Error ? e.message : 'Erro na sincronização'); }
-    finally { setSyncing(false); }
-  }
-
-  async function categorizar(texto: string) {
-    setCorpo(texto);
-    if (texto.length > 8) setSugestao(await api('/config/templates/categorizar', { method: 'POST', body: { corpo: texto } }).catch(() => null));
-  }
-  async function salvar() {
-    setMsg('Salvando...');
-    try {
-      await api('/config/templates', { method: 'POST', body: { nome, corpo } });
-      setMsg('✓ Template salvo');
-      setNome(''); setCorpo(''); setSugestao(null);
-      load();
-    } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro'); }
-  }
-
-  const catColor: Record<string, string> = { UTILITY: '#0F6E56', MARKETING: '#A32D2D', AUTHENTICATION: '#854F0B' };
-  const statusColor: Record<string, { bg: string; fg: string }> = {
-    APROVADO: { bg: '#E4F4EA', fg: '#0F6E56' }, PENDENTE: { bg: '#FCF0DE', fg: '#854F0B' },
-    REJEITADO: { bg: '#FCEBEB', fg: '#A32D2D' }, RASCUNHO: { bg: '#F1F5F9', fg: '#64748B' },
-  };
-
-  return (
-    <Section title="Templates do WhatsApp (HSM)">
-      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-primary/30 bg-primary-tint/40 p-3">
-        <div className="flex-1 text-sm text-ink">
-          <div className="font-medium">Puxar templates aprovados da Meta</div>
-          <div className="text-xs text-muted">Sincroniza os templates da sua WABA (via canal NX) — nome, corpo, categoria e status de aprovação.</div>
-        </div>
-        <button onClick={sincronizar} disabled={syncing} className="rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-60">
-          {syncing ? 'Sincronizando...' : 'Sincronizar do WhatsApp (NX)'}
-        </button>
-      </div>
-      {syncMsg && <p className="mb-3 text-sm text-primary">{syncMsg}</p>}
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-        <Field label="Nome do template" value={nome} onChange={setNome} />
-        <label className="block md:col-span-2">
-          <span className="mb-1 block text-xs text-muted">Corpo (use {'{{nome}}'}, {'{{valor}}'}...)</span>
-          <textarea value={corpo} onChange={(e) => categorizar(e.target.value)} rows={2} className="w-full rounded border border-line p-3 text-sm outline-none focus:border-primary" />
-        </label>
-      </div>
-      {sugestao && (
-        <p className="mt-2 text-sm">
-          Categoria sugerida: <b style={{ color: catColor[sugestao.categoria] }}>{sugestao.categoria}</b>
-          {sugestao.alertaCusto && <span className="ml-2 text-danger">⚠ parece cobrança mas caiu em marketing (mais caro) — ajuste o texto</span>}
-        </p>
-      )}
-      <div className="mt-3 flex items-center gap-3">
-        <button onClick={salvar} className="rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover">Salvar template</button>
-        {msg && <span className="text-sm text-primary">{msg}</span>}
-      </div>
-      <div className="mt-4 space-y-2">
-        {rows.map((r) => (
-          <div key={r.id} className="flex items-center justify-between gap-2 rounded border border-line px-3 py-2 text-sm">
-            <span className="min-w-0 flex-1 truncate">{String(r.nome)}</span>
-            <div className="flex shrink-0 items-center gap-1.5">
-              {r.status ? <span className="rounded-full px-2 py-0.5 text-xs font-medium" style={{ background: (statusColor[String(r.status)] || statusColor.RASCUNHO).bg, color: (statusColor[String(r.status)] || statusColor.RASCUNHO).fg }}>{String(r.status)}</span> : null}
-              <span className="rounded-full px-2 py-0.5 text-xs font-medium" style={{ background: '#E1F0EE', color: catColor[String(r.categoria)] || '#14857C' }}>{String(r.categoria)}</span>
-            </div>
           </div>
         ))}
       </div>

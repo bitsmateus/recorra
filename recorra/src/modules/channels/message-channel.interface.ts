@@ -22,6 +22,8 @@ export interface ChannelCredentials {
   // WhatsApp Cloud
   token?: string;
   phoneId?: string;
+  /** WABA ID — só para gerenciar templates no Graph; o envio não precisa dele. */
+  wabaId?: string;
   // Evolution / uazapi
   apiUrl?: string;
   apiKey?: string;

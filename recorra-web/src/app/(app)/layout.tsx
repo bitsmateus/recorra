@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, Users, Plug, LogOut, CreditCard, Settings, GitBranch, UserCog, Send, BarChart3, Gauge, HelpCircle, ChevronDown, Megaphone, Wallet, SlidersHorizontal, Radio, Menu, X, Mail } from 'lucide-react';
+import { LayoutDashboard, Users, Plug, LogOut, CreditCard, Settings, GitBranch, UserCog, Send, BarChart3, Gauge, HelpCircle, ChevronDown, Megaphone, Wallet, SlidersHorizontal, Radio, Menu, X, Mail, MessageSquare } from 'lucide-react';
 import { Logo } from '@/components/Logo';
 import { getToken, logout } from '@/lib/api';
 
@@ -22,6 +22,7 @@ const grupos: Grupo[] = [
     { href: '/campanhas', label: 'Campanhas', icon: Megaphone },
     { href: '/disparos', label: 'Disparos', icon: Send },
     { href: '/reguas', label: 'Réguas', icon: GitBranch },
+    { href: '/templates', label: 'Templates WhatsApp', icon: MessageSquare },
     { href: '/modelos-email', label: 'Modelos de e-mail', icon: Mail },
     { href: '/canais', label: 'Canais', icon: Radio },
   ] },
