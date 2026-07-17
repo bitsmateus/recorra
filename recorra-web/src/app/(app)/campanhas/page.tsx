@@ -106,6 +106,7 @@ export default function CampanhasPage() {
   const [modal, setModal] = useState<{ open: boolean; edit?: Campaign | null }>({ open: false });
   const [relatorio, setRelatorio] = useState<Campaign | null>(null);
   const [confirmarDisparo, setConfirmarDisparo] = useState<Campaign | null>(null);
+  const [confirmarExclusao, setConfirmarExclusao] = useState<Campaign | null>(null);
   const [msg, setMsg] = useState('');
   const emptyFiltros = { q: '', status: '', tipoEnvio: '', ruleId: '', agendamento: '', etiqueta: '', canal: '', de: '', ate: '' };
   const [filtros, setFiltros] = useState(emptyFiltros);
@@ -153,7 +154,6 @@ export default function CampanhasPage() {
   }
 
   async function excluir(c: Campaign) {
-    if (!confirm(`Excluir a campanha "${c.nome}"? O histórico de envios dela também é removido.`)) return;
     await api(`/campanhas/${c.id}`, { method: 'DELETE' }).catch(() => {});
     carregar();
   }
@@ -218,7 +218,7 @@ export default function CampanhasPage() {
                       {c.agendamento !== 'UMA_VEZ' && <button onClick={() => toggleStatus(c)} title={c.status === 'PAUSADA' ? 'Ativar' : 'Pausar'} className="rounded p-1.5 text-muted hover:bg-canvas hover:text-primary">{c.status === 'PAUSADA' ? <Play size={15} /> : <Pause size={15} />}</button>}
                       <button onClick={() => duplicar(c)} title={jaDisparada(c) ? 'Envio único já disparado — duplique para enviar de novo' : 'Duplicar'} className={`rounded p-1.5 hover:bg-canvas hover:text-primary ${jaDisparada(c) ? 'text-primary' : 'text-muted'}`}><Copy size={15} /></button>
                       <button onClick={() => setModal({ open: true, edit: c })} title="Editar" className="rounded p-1.5 text-muted hover:bg-canvas hover:text-primary"><Pencil size={15} /></button>
-                      <button onClick={() => excluir(c)} title="Excluir" className="rounded p-1.5 text-muted hover:bg-danger-tint hover:text-danger"><Trash2 size={15} /></button>
+                      <button onClick={() => setConfirmarExclusao(c)} title="Excluir" className="rounded p-1.5 text-muted hover:bg-danger-tint hover:text-danger"><Trash2 size={15} /></button>
                     </div>
                   </td>
                 </tr>
@@ -239,6 +239,16 @@ export default function CampanhasPage() {
           confirmLabel="Disparar agora"
           onConfirm={() => { const c = confirmarDisparo; setConfirmarDisparo(null); executar(c); }}
           onClose={() => setConfirmarDisparo(null)}
+        />
+      )}
+      {confirmarExclusao && (
+        <ConfirmDialog
+          titulo="Excluir campanha"
+          mensagem={<>Excluir a campanha <b className="text-ink">{confirmarExclusao.nome}</b>? O histórico de envios dela também é removido.</>}
+          confirmLabel="Excluir"
+          danger
+          onConfirm={() => { const c = confirmarExclusao; setConfirmarExclusao(null); excluir(c); }}
+          onClose={() => setConfirmarExclusao(null)}
         />
       )}
     </div>

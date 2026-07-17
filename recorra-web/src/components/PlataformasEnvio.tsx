@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Plus, X, Trash2, Loader2, CheckCircle2, AlertCircle, Webhook, MessageSquare } from 'lucide-react';
 import { api } from '@/lib/api';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 
 interface Integ { id: string; canal: string; apelido: string; ativo: boolean; status: string }
 type TesteResult = { ok: boolean; mensagem: string };
@@ -19,6 +20,7 @@ export default function EnvioIntegracoes() {
   const [loading, setLoading] = useState(true);
   const [escolher, setEscolher] = useState(false);
   const [novo, setNovo] = useState<'NX_SYSTEMS' | 'HTTP_GENERIC' | null>(null);
+  const [confirmarExclusao, setConfirmarExclusao] = useState<Integ | null>(null);
 
   const carregar = useCallback(async () => {
     setLoading(true);
@@ -29,7 +31,6 @@ export default function EnvioIntegracoes() {
   useEffect(() => { carregar(); }, [carregar]);
 
   async function excluir(c: Integ) {
-    if (!confirm(`Remover a integração "${c.apelido}"?`)) return;
     await api(`/canais/${c.id}`, { method: 'DELETE' }).catch(() => {});
     carregar();
   }
@@ -52,7 +53,7 @@ export default function EnvioIntegracoes() {
             <div key={c.id} className="rounded-lg border border-line bg-surface p-4">
               <div className="mb-2 flex items-start justify-between">
                 <div className="flex items-center gap-2"><Icon size={18} className="text-muted" /><span className="font-medium text-ink">{c.apelido}</span></div>
-                <button onClick={() => excluir(c)} className="rounded p-1 text-muted hover:bg-danger-tint hover:text-danger"><Trash2 size={14} /></button>
+                <button onClick={() => setConfirmarExclusao(c)} className="rounded p-1 text-muted hover:bg-danger-tint hover:text-danger"><Trash2 size={14} /></button>
               </div>
               <div className="text-xs text-muted">{L.label}</div>
             </div>
@@ -64,6 +65,16 @@ export default function EnvioIntegracoes() {
       {escolher && <EscolherProvedor onClose={() => setEscolher(false)} onPick={(p) => { setEscolher(false); setNovo(p); }} />}
       {novo === 'NX_SYSTEMS' && <NxModal onClose={() => setNovo(null)} onCreated={() => { setNovo(null); carregar(); }} />}
       {novo === 'HTTP_GENERIC' && <GenericoModal onClose={() => setNovo(null)} onCreated={() => { setNovo(null); carregar(); }} />}
+      {confirmarExclusao && (
+        <ConfirmDialog
+          titulo="Remover plataforma"
+          mensagem={<>Remover a integração <b className="text-ink">{confirmarExclusao.apelido}</b>?</>}
+          confirmLabel="Remover"
+          danger
+          onConfirm={() => { const c = confirmarExclusao; setConfirmarExclusao(null); excluir(c); }}
+          onClose={() => setConfirmarExclusao(null)}
+        />
+      )}
     </section>
   );
 }

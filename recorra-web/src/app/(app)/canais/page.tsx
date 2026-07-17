@@ -5,6 +5,7 @@ import { Plus, X, RefreshCw, Trash2, Wifi, WifiOff, Loader2, MessageCircle, Mail
 import { api } from '@/lib/api';
 import { PageTitle } from '@/components/ui';
 import PlataformasEnvio from '@/components/PlataformasEnvio';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 
 interface Conexao { id: string; canal: string; apelido: string; ativo: boolean; status: string; instance?: string | null; origem?: string; oficial?: boolean; nxType?: string }
 
@@ -39,6 +40,7 @@ export default function CanaisPage() {
   const [qr, setQr] = useState<Conexao | null>(null);
   const [sincronizando, setSincronizando] = useState(false);
   const [syncMsg, setSyncMsg] = useState('');
+  const [confirmarExclusao, setConfirmarExclusao] = useState<Conexao | null>(null);
 
   const carregar = useCallback(async () => {
     setLoading(true);
@@ -60,14 +62,17 @@ export default function CanaisPage() {
     finally { setSincronizando(false); }
   }
 
+  /** O que remover significa muda conforme a origem do canal. */
+  function avisoExclusao(c: Conexao): React.ReactNode {
+    const nome = <b className="text-ink">{c.apelido}</b>;
+    if (c.canal === 'NX_SYSTEMS' && c.origem !== 'nx')
+      return <>Remover a integração NX {nome}? Isso desliga a sincronização de canais (a URL e o token serão apagados da Recorrai). Os canais já importados continuam, mas não dá para sincronizar de novo sem reconfigurar.</>;
+    if (c.origem === 'nx')
+      return <>Remover {nome} da Recorrai? No NX ele permanece — você pode trazer de volta clicando em &quot;Sincronizar canais&quot;.</>;
+    return <>Remover a conexão {nome}?</>;
+  }
+
   async function excluir(c: Conexao) {
-    const base = c.canal === 'NX_SYSTEMS' && c.origem !== 'nx';
-    const msg = base
-      ? `Remover a integração NX "${c.apelido}"? Isso desliga a sincronização de canais (a URL e o token serão apagados da Recorrai). Os canais já importados continuam, mas não dá para sincronizar de novo sem reconfigurar.`
-      : c.origem === 'nx'
-        ? `Remover "${c.apelido}" da Recorrai? No NX ele permanece — você pode trazer de volta clicando em "Sincronizar canais".`
-        : `Remover a conexão "${c.apelido}"?`;
-    if (!confirm(msg)) return;
     await api(`/canais/${c.id}`, { method: 'DELETE' }).catch(() => {});
     carregar();
   }
@@ -98,7 +103,7 @@ export default function CanaisPage() {
             <span key={b.id} className="flex items-center gap-1.5 rounded-full border border-line bg-surface px-2.5 py-1 text-xs">
               {b.apelido}
               <span className={`h-1.5 w-1.5 rounded-full ${b.status === 'CONECTADO' ? 'bg-success' : 'bg-primary'}`} />
-              <button onClick={() => excluir(b)} title="Remover integração" className="text-muted hover:text-danger"><X size={12} /></button>
+              <button onClick={() => setConfirmarExclusao(b)} title="Remover integração" className="text-muted hover:text-danger"><X size={12} /></button>
             </span>
           ))}
           <span className="text-xs text-muted">Guarda a URL + token usados para sincronizar os canais. Não é um canal de envio.</span>
@@ -109,14 +114,14 @@ export default function CanaisPage() {
         <div className="mb-6">
           <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-ink">Canais do NX <span className="rounded-full bg-primary-tint px-2 py-0.5 text-xs font-normal text-primary">{importadosNx.length}</span></h2>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-            {importadosNx.map((c) => <CanalCard key={c.id} c={c} onExcluir={excluir} onQr={setQr} />)}
+            {importadosNx.map((c) => <CanalCard key={c.id} c={c} onExcluir={setConfirmarExclusao} onQr={setQr} />)}
           </div>
         </div>
       )}
 
       {importadosNx.length > 0 && outros.length > 0 && <h2 className="mb-2 text-sm font-semibold text-ink">Outros canais</h2>}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-        {outros.map((c) => <CanalCard key={c.id} c={c} onExcluir={excluir} onQr={setQr} />)}
+        {outros.map((c) => <CanalCard key={c.id} c={c} onExcluir={setConfirmarExclusao} onQr={setQr} />)}
         {!loading && lista.length === 0 && <div className="col-span-full rounded-lg border border-dashed border-line py-10 text-center text-sm text-muted">Nenhum canal conectado. Use "Sincronizar canais (NX)" ou "Adicionar canal".</div>}
       </div>
       {loading && <p className="mt-3 text-sm text-muted">Carregando...</p>}
@@ -126,6 +131,16 @@ export default function CanaisPage() {
 
       {novo && <NovoCanalModal onClose={() => setNovo(false)} onCreated={(conn) => { setNovo(false); carregar(); const t = TIPOS.find((x) => x.canal === conn.canal); if (t?.qr) setQr(conn); }} />}
       {qr && <QrModal conn={qr} onClose={() => { setQr(null); carregar(); }} />}
+      {confirmarExclusao && (
+        <ConfirmDialog
+          titulo="Remover canal"
+          mensagem={avisoExclusao(confirmarExclusao)}
+          confirmLabel="Remover"
+          danger
+          onConfirm={() => { const c = confirmarExclusao; setConfirmarExclusao(null); excluir(c); }}
+          onClose={() => setConfirmarExclusao(null)}
+        />
+      )}
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { UserPlus, Download, RefreshCw, Eye, Pencil, Trash2, X, Tag, Plus, Check
 import { api } from '@/lib/api';
 import { PageTitle, RiskBadge } from '@/components/ui';
 import { ImportWizard } from '@/components/ImportWizard';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 
 interface Customer {
   id: string;
@@ -66,6 +67,7 @@ export default function ClientesPage() {
   const [etiquetas, setEtiquetas] = useState<Etiqueta[]>([]);
   const [aba, setAba] = useState<Aba>('geral');
   const [etiquetasModal, setEtiquetasModal] = useState(false);
+  const [confirmarExclusao, setConfirmarExclusao] = useState<Customer | null>(null);
   const reloadEtiquetas = useCallback(() => { api<Etiqueta[]>('/clientes/etiquetas').then(setEtiquetas).catch(() => {}); }, []);
 
   const carregar = useCallback(async () => {
@@ -89,7 +91,6 @@ export default function ClientesPage() {
   }, []);
 
   async function excluir(c: Customer) {
-    if (!confirm(`Excluir o cliente ${c.nome}? Isso remove faturas e histórico dele.`)) return;
     await api(`/clientes/${c.id}`, { method: 'DELETE' }).catch(() => {});
     carregar();
   }
@@ -178,7 +179,7 @@ export default function ClientesPage() {
                   <div className="flex items-center justify-end gap-1">
                     <Link href={`/clientes/${c.id}`} title="Ver detalhes" className="rounded p-1.5 text-muted hover:bg-canvas hover:text-primary"><Eye size={16} /></Link>
                     <button onClick={() => setModal({ open: true, edit: c })} title="Editar" className="rounded p-1.5 text-muted hover:bg-canvas hover:text-primary"><Pencil size={16} /></button>
-                    <button onClick={() => excluir(c)} title="Excluir" className="rounded p-1.5 text-muted hover:bg-danger-tint hover:text-danger"><Trash2 size={16} /></button>
+                    <button onClick={() => setConfirmarExclusao(c)} title="Excluir" className="rounded p-1.5 text-muted hover:bg-danger-tint hover:text-danger"><Trash2 size={16} /></button>
                   </div>
                 </td>
               </tr>
@@ -193,6 +194,16 @@ export default function ClientesPage() {
       {etiquetasModal && <EtiquetasModal etiquetas={etiquetas} onChange={reloadEtiquetas} onClose={() => setEtiquetasModal(false)} />}
       {importModal && <ImportGatewayModal gateways={gateways} onClose={() => setImportModal(false)} onDone={() => { setImportModal(false); recarregarTudo(); }} />}
       {wizard && <ImportWizard criarCobrancas={false} onClose={() => setWizard(false)} onDone={() => { setWizard(false); recarregarTudo(); }} />}
+      {confirmarExclusao && (
+        <ConfirmDialog
+          titulo="Excluir cliente"
+          mensagem={<>Excluir o cliente <b className="text-ink">{confirmarExclusao.nome}</b>? Isso remove faturas e histórico dele.</>}
+          confirmLabel="Excluir"
+          danger
+          onConfirm={() => { const c = confirmarExclusao; setConfirmarExclusao(null); excluir(c); }}
+          onClose={() => setConfirmarExclusao(null)}
+        />
+      )}
     </div>
   );
 }
@@ -326,6 +337,7 @@ function EtiquetasModal({ etiquetas, onChange, onClose }: { etiquetas: Etiqueta[
   const [cor, setCor] = useState(CORES_ETIQUETA[0]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  const [confirmarExclusao, setConfirmarExclusao] = useState<string | null>(null);
 
   async function criar() {
     const n = nome.trim().toLowerCase();
@@ -338,7 +350,6 @@ function EtiquetasModal({ etiquetas, onChange, onClose }: { etiquetas: Etiqueta[
     finally { setBusy(false); }
   }
   async function excluir(nomeTag: string) {
-    if (!confirm(`Excluir a etiqueta "${nomeTag}"? Os clientes já marcados continuam com ela.`)) return;
     await api(`/clientes/etiquetas/${encodeURIComponent(nomeTag)}`, { method: 'DELETE' }).catch(() => {});
     onChange();
   }
@@ -370,12 +381,23 @@ function EtiquetasModal({ etiquetas, onChange, onClose }: { etiquetas: Etiqueta[
           {etiquetas.map((e) => (
             <div key={e.nome} className="flex items-center justify-between rounded border border-line px-3 py-2">
               <TagChip nome={e.nome} cor={e.cor} />
-              <button onClick={() => excluir(e.nome)} className="rounded p-1 text-muted hover:bg-danger-tint hover:text-danger"><Trash2 size={14} /></button>
+              <button onClick={() => setConfirmarExclusao(e.nome)} className="rounded p-1 text-muted hover:bg-danger-tint hover:text-danger"><Trash2 size={14} /></button>
             </div>
           ))}
           {etiquetas.length === 0 && <p className="py-4 text-center text-sm text-muted">Nenhuma etiqueta criada ainda.</p>}
         </div>
       </div>
+      {/* z-[60] do ConfirmDialog fica acima deste modal (z-50). */}
+      {confirmarExclusao !== null && (
+        <ConfirmDialog
+          titulo="Excluir etiqueta"
+          mensagem={<>Excluir a etiqueta <b className="text-ink">{confirmarExclusao}</b>? Os clientes já marcados continuam com ela.</>}
+          confirmLabel="Excluir"
+          danger
+          onConfirm={() => { const n = confirmarExclusao; setConfirmarExclusao(null); excluir(n); }}
+          onClose={() => setConfirmarExclusao(null)}
+        />
+      )}
     </div>
   );
 }

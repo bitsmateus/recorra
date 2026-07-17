@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { RefreshCw, Plus, Trash2, X, Database } from 'lucide-react';
 import { api } from '@/lib/api';
 import { PageTitle } from '@/components/ui';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 
 // ERPs com integração nativa (puxam clientes + cobranças automaticamente).
 type CampoCred = { key: string; label: string; placeholder?: string; extra?: boolean };
@@ -38,6 +39,7 @@ export default function IntegracoesPage() {
   const [loading, setLoading] = useState(true);
   const [novo, setNovo] = useState(false);
   const [msg, setMsg] = useState('');
+  const [confirmarExclusao, setConfirmarExclusao] = useState<Integracao | null>(null);
 
   const carregar = useCallback(async () => {
     setLoading(true);
@@ -62,7 +64,6 @@ export default function IntegracoesPage() {
     } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro ao testar'); }
   }
   async function excluir(i: Integracao) {
-    if (!confirm(`Remover a integração ${erpNome(i.sistema)}? Os clientes/faturas já importados permanecem.`)) return;
     await api(`/config/integracoes/${i.id}`, { method: 'DELETE' }).catch(() => {});
     carregar();
   }
@@ -86,7 +87,7 @@ export default function IntegracoesPage() {
             <div key={i.id} className="rounded-lg border border-line bg-surface p-4">
               <div className="mb-2 flex items-start justify-between">
                 <div className="flex items-center gap-2"><Database size={18} className="text-muted" /><span className="font-medium text-ink">{erpNome(i.sistema)}</span></div>
-                <button onClick={() => excluir(i)} className="rounded p-1 text-muted hover:bg-danger-tint hover:text-danger"><Trash2 size={14} /></button>
+                <button onClick={() => setConfirmarExclusao(i)} className="rounded p-1 text-muted hover:bg-danger-tint hover:text-danger"><Trash2 size={14} /></button>
               </div>
               {i.urlBase && <div className="mb-2 truncate font-mono text-[11px] text-muted">{i.urlBase}</div>}
               <div className="mb-3"><StatusChip status={i.status} /></div>
@@ -101,6 +102,16 @@ export default function IntegracoesPage() {
       </section>
 
       {novo && <NovaIntegracaoModal onClose={() => setNovo(false)} onCreated={() => { setNovo(false); carregar(); }} />}
+      {confirmarExclusao && (
+        <ConfirmDialog
+          titulo="Remover integração"
+          mensagem={<>Remover a integração <b className="text-ink">{erpNome(confirmarExclusao.sistema)}</b>? Os clientes/faturas já importados permanecem.</>}
+          confirmLabel="Remover"
+          danger
+          onConfirm={() => { const i = confirmarExclusao; setConfirmarExclusao(null); excluir(i); }}
+          onClose={() => setConfirmarExclusao(null)}
+        />
+      )}
     </div>
   );
 }

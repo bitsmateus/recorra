@@ -5,6 +5,7 @@ import { Zap, Layers, Download, Pencil, Trash2, X, Filter, Plus, FileSpreadsheet
 import { ImportWizard } from '@/components/ImportWizard';
 import { api } from '@/lib/api';
 import { PageTitle, brl } from '@/components/ui';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 
 // Aceita valor em formato BR (109,90 ou 1.109,90) ou com ponto decimal (109.90).
 function parseValorBR(v: string): number {
@@ -51,6 +52,7 @@ export default function CobrancasPage() {
   const [busy, setBusy] = useState(false);
   const [editar, setEditar] = useState<Invoice | null>(null);
   const [excluir, setExcluir] = useState<Invoice | null>(null);
+  const [confirmarImport, setConfirmarImport] = useState(false);
   const [pagamento, setPagamento] = useState<Invoice | null>(null);
   const [criar, setCriar] = useState(false);
   const [menuImport, setMenuImport] = useState(false);
@@ -87,10 +89,13 @@ export default function CobrancasPage() {
     setBusy(false); load();
   }
 
-  async function importarGateway() {
+  /** Valida antes de perguntar: sem gateway escolhido não há o que confirmar. */
+  function pedirImportacao() {
     if (!accountId) return setMsg('Selecione um gateway primeiro.');
-    const g = gateways.find((x) => x.id === accountId);
-    if (!confirm(`Importar clientes e cobranças de ${g?.apelido || g?.provider || 'gateway'} para o Recorrai?`)) return;
+    setConfirmarImport(true);
+  }
+
+  async function importarGateway() {
     setBusy(true); setMsg('Importando do gateway...');
     try {
       const r = await api<{ clientes: number; clientesAtualizados: number; faturas: number; faturasAtualizadas: number }>('/cobrancas/importar-gateway', { method: 'POST', body: { accountId } });
@@ -148,7 +153,7 @@ export default function CobrancasPage() {
               <div className="fixed inset-0 z-10" onClick={() => setMenuImport(false)} />
               <div className="absolute left-0 z-20 mt-1 w-60 overflow-hidden rounded-lg border border-line bg-surface shadow-lg">
                 <button onClick={() => { setMenuImport(false); setWizard(true); }} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-canvas"><FileSpreadsheet size={15} /> Assistente Excel/CSV</button>
-                <button onClick={() => { setMenuImport(false); importarGateway(); }} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-canvas"><Download size={15} /> Importar do gateway</button>
+                <button onClick={() => { setMenuImport(false); pedirImportacao(); }} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-canvas"><Download size={15} /> Importar do gateway</button>
                 <button onClick={() => { setMenuImport(false); baixarModelo(); }} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-canvas"><FileDown size={15} /> Baixar modelo Excel</button>
               </div>
             </>
@@ -227,6 +232,15 @@ export default function CobrancasPage() {
       {criar && <CriarManualModal gateways={gateways} onClose={() => setCriar(false)} onSaved={() => { setCriar(false); load(); }} />}
       {pagamento && <PagamentoModal inv={pagamento} onClose={() => setPagamento(null)} />}
       {excluir && <ExcluirModal inv={excluir} onClose={() => setExcluir(null)} onEscolha={(escopo) => excluirComEscopo(excluir, escopo)} />}
+      {confirmarImport && (
+        <ConfirmDialog
+          titulo="Importar do gateway"
+          mensagem={<>Importar clientes e cobranças de <b className="text-ink">{gateways.find((x) => x.id === accountId)?.apelido || gateways.find((x) => x.id === accountId)?.provider || 'gateway'}</b> para o Recorrai?</>}
+          confirmLabel="Importar"
+          onConfirm={() => { setConfirmarImport(false); importarGateway(); }}
+          onClose={() => setConfirmarImport(false)}
+        />
+      )}
     </div>
   );
 }
