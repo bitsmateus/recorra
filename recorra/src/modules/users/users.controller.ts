@@ -6,7 +6,7 @@ import { Roles } from '@/common/auth/roles.decorator';
 import { TenantId, CurrentUser } from '@/common/auth/current-user.decorator';
 import { AuthUser } from '@/common/auth/jwt.types';
 import { UsersService } from './users.service';
-import { InviteUserDto } from './dto/users.dto';
+import { CreateUserDto, SetPasswordDto } from './dto/users.dto';
 
 @Controller('usuarios')
 export class UsersController {
@@ -18,17 +18,20 @@ export class UsersController {
     return this.users.list(tenantId);
   }
 
-  @Post('convidar')
+  /** Cria o usuário já com senha — quem administra passa as credenciais. */
+  @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('OWNER', 'ADMIN')
-  invite(@TenantId() tenantId: string, @CurrentUser() actor: AuthUser, @Body() dto: InviteUserDto) {
-    return this.users.invite(tenantId, actor.role, dto);
+  criar(@TenantId() tenantId: string, @CurrentUser() actor: AuthUser, @Body() dto: CreateUserDto) {
+    return this.users.criar(tenantId, actor.role, dto);
   }
 
-  /** Público: aceitar convite e definir senha. */
-  @Post('aceitar-convite')
-  accept(@Body() dto: { token: string; senha: string }) {
-    return this.users.acceptInvite(dto);
+  /** Define/troca a senha de um usuário do tenant. */
+  @Patch(':id/senha')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('OWNER', 'ADMIN')
+  senha(@TenantId() tenantId: string, @CurrentUser() actor: AuthUser, @Param('id') id: string, @Body() dto: SetPasswordDto) {
+    return this.users.definirSenha(tenantId, actor, id, dto.senha);
   }
 
   @Patch(':id/papel')

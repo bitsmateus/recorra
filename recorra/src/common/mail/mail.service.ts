@@ -3,9 +3,11 @@ import axios from 'axios';
 import { env } from '@/config/env';
 
 /**
- * E-mails da plataforma (verificação de e-mail, convite de usuário).
+ * E-mails da plataforma (verificação de e-mail, redefinição de senha).
  * Usa Resend se RESEND_API_KEY estiver configurado; caso contrário, apenas
  * loga (útil em desenvolvimento).
+ *
+ * Não há e-mail de convite: usuários são criados com senha direto em Equipe.
  */
 @Injectable()
 export class MailService {
@@ -47,12 +49,4 @@ export class MailService {
     );
   }
 
-  async sendInvite(to: string, token: string, empresa: string) {
-    const link = `${env.FRONTEND_URL}/aceitar-convite?token=${token}`;
-    await this.send(
-      to,
-      `Convite para ${empresa} — Recorrai`,
-      `<p>Você foi convidado para acessar o Recorrai da empresa <b>${empresa}</b>.</p><p>Defina sua senha: <a href="${link}">${link}</a></p>`,
-    );
-  }
 }

@@ -2,65 +2,82 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable 
 import { UserRole } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { PrismaService } from '@/common/prisma/prisma.service';
-import { MailService } from '@/common/mail/mail.service';
 import { AuditService } from '@/common/audit/audit.service';
 import { AuthUser } from '@/common/auth/jwt.types';
-import { randomToken, hashToken, expiresInDays, isExpired } from '@/common/auth/tokens';
 
-/** Gestão de usuários do tenant: convite por e-mail, aceite, listagem, papéis. */
+/**
+ * Gestão de usuários do tenant: criação com senha, listagem, papéis.
+ *
+ * Não há convite por e-mail: quem administra cria o usuário já com a senha e passa
+ * as credenciais. O fluxo antigo dependia de um provedor de e-mail configurado e
+ * apontava para uma página de aceite que nunca existiu no painel.
+ */
 @Injectable()
 export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly mail: MailService,
     private readonly audit: AuditService,
   ) {}
 
-  list(tenantId: string) {
-    return this.prisma.user.findMany({
+  async list(tenantId: string) {
+    const rows = await this.prisma.user.findMany({
       where: { tenantId },
-      select: { id: true, nome: true, email: true, role: true, ativo: true, convidado: true, emailVerify: true, twoFaEnabled: true, createdAt: true },
+      select: { id: true, nome: true, email: true, role: true, ativo: true, senhaHash: true, emailVerify: true, twoFaEnabled: true, createdAt: true },
       orderBy: { createdAt: 'asc' },
     });
+    // `semSenha` sai do próprio hash, não de uma flag que pode divergir: sem senha,
+    // o usuário simplesmente não consegue entrar.
+    return rows.map(({ senhaHash, ...u }) => ({ ...u, semSenha: !senhaHash }));
   }
 
-  /** Convida um usuário: cria registro pendente + envia e-mail com token. */
-  async invite(tenantId: string, actorRole: UserRole, dto: { nome: string; email: string; role: UserRole }) {
+  /** Cria o usuário já pronto para entrar: e-mail + senha definidos por quem administra. */
+  async criar(tenantId: string, actorRole: UserRole, dto: { nome: string; email: string; senha: string; role: UserRole }) {
     // Só um OWNER pode criar outro OWNER (evita escalada ADMIN → OWNER).
     if (dto.role === 'OWNER' && actorRole !== 'OWNER') {
       throw new ForbiddenException('Apenas um OWNER pode conceder o papel OWNER');
     }
-    const existing = await this.prisma.user.findFirst({ where: { tenantId, email: dto.email } });
+    const email = dto.email.trim().toLowerCase();
+    const existing = await this.prisma.user.findFirst({ where: { tenantId, email } });
     if (existing) throw new ConflictException('Já existe um usuário com esse e-mail');
 
-    const token = randomToken();
-    await this.prisma.user.create({
+    const senhaHash = await argon2.hash(dto.senha, { type: argon2.argon2id });
+    const criado = await this.prisma.user.create({
       data: {
         tenantId,
-        nome: dto.nome,
-        email: dto.email,
+        nome: dto.nome.trim(),
+        email,
         role: dto.role,
-        convidado: true,
+        senhaHash,
+        // Sem convite: a conta nasce ativa e com o e-mail dado como verificado —
+        // quem administra é quem informou o endereço.
+        convidado: false,
+        emailVerify: true,
         ativo: true,
-        inviteToken: hashToken(token),
-        inviteTokenExp: expiresInDays(7),
       },
+      select: { id: true, nome: true, email: true, role: true, ativo: true },
     });
-
-    const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
-    await this.mail.sendInvite(dto.email, token, tenant.nome);
-    return { ok: true };
+    await this.audit.record({
+      tenantId, userId: undefined, acao: 'user.create', entidade: 'User', entidadeId: criado.id,
+      depois: { email: criado.email, role: criado.role }, // nunca a senha
+    });
+    return criado;
   }
 
-  /** Aceita o convite: define senha e ativa a conta. Rota pública. */
-  async acceptInvite(dto: { token: string; senha: string }) {
-    const user = await this.prisma.user.findFirst({ where: { inviteToken: hashToken(dto.token) } });
-    if (!user || isExpired(user.inviteTokenExp)) throw new BadRequestException('Convite inválido ou expirado');
-
-    const senhaHash = await argon2.hash(dto.senha, { type: argon2.argon2id });
+  /** Define ou troca a senha de um usuário do tenant (destrava quem ficou sem senha). */
+  async definirSenha(tenantId: string, actor: AuthUser, userId: string, senha: string) {
+    const alvo = await this.assertTenant(tenantId, userId);
+    // Mesma regra dos outros pontos: mexer num OWNER exige ser OWNER.
+    if (alvo.role === 'OWNER' && actor.role !== 'OWNER') {
+      throw new ForbiddenException('Apenas um OWNER pode trocar a senha de outro OWNER');
+    }
+    const senhaHash = await argon2.hash(senha, { type: argon2.argon2id });
     await this.prisma.user.update({
-      where: { id: user.id },
+      where: { id: userId },
       data: { senhaHash, convidado: false, emailVerify: true, inviteToken: null, inviteTokenExp: null },
+    });
+    await this.audit.record({
+      tenantId, userId: actor.id, acao: 'user.senha.definir', entidade: 'User', entidadeId: userId,
+      depois: { email: alvo.email }, // nunca a senha
     });
     return { ok: true };
   }
