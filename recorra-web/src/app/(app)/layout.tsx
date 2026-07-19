@@ -130,7 +130,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen bg-canvas">
       {/* Sidebar fixa (desktop) */}
-      <aside className="hidden w-60 flex-col border-r border-line bg-surface md:flex">
+      <aside className="hidden w-60 flex-col border-r border-line bg-surface md:flex print:hidden">
         <div className="border-b border-line px-5 py-4">
           <Logo size={30} />
         </div>
@@ -141,7 +141,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       {menuAberto && (
         <div className="fixed inset-0 z-40 bg-black/40 md:hidden" onClick={() => setMenuAberto(false)} />
       )}
-      <aside className={`fixed inset-y-0 left-0 z-50 flex w-64 max-w-[85vw] flex-col border-r border-line bg-surface transition-transform duration-200 md:hidden ${menuAberto ? 'translate-x-0' : '-translate-x-full'}`}>
+      <aside className={`fixed inset-y-0 left-0 z-50 flex w-64 max-w-[85vw] flex-col border-r border-line bg-surface transition-transform duration-200 md:hidden print:hidden ${menuAberto ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="flex items-center justify-between border-b border-line px-4 py-4">
           <Logo size={28} />
           <button onClick={() => setMenuAberto(false)} className="rounded p-1.5 text-muted hover:bg-canvas" aria-label="Fechar menu">
@@ -153,7 +153,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Top bar (mobile) */}
-        <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-line bg-surface px-4 py-3 md:hidden">
+        <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-line bg-surface px-4 py-3 md:hidden print:hidden">
           <button onClick={() => setMenuAberto(true)} className="rounded p-1.5 text-ink hover:bg-canvas" aria-label="Abrir menu">
             <Menu size={22} />
           </button>

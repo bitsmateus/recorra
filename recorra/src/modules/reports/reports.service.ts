@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import * as XLSX from 'xlsx';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { funnelByChannel, funnelByStep, DispatchRow } from './funnel';
 import { custoComunicacao, computeRoi, CanalVolume } from './roi';
@@ -15,10 +16,21 @@ export class ReportsService {
     return d;
   }
 
+  /** Intervalo `de`/`ate` (YYYY-MM-DD) para o where; undefined se ambos vazios/inválidos. */
+  private range(de?: string, ate?: string): { gte?: Date; lte?: Date } | undefined {
+    const gte = de ? new Date(`${de}T00:00:00.000Z`) : undefined;
+    const lte = ate ? new Date(`${ate}T23:59:59.999Z`) : undefined;
+    if (gte && Number.isNaN(gte.getTime())) return undefined;
+    if (lte && Number.isNaN(lte.getTime())) return undefined;
+    if (!gte && !lte) return undefined;
+    return { ...(gte ? { gte } : {}), ...(lte ? { lte } : {}) };
+  }
+
   /** Funil de recuperação por passo (offset) e por canal. */
-  async funnel(tenantId: string) {
+  async funnel(tenantId: string, de?: string, ate?: string) {
+    const periodo = this.range(de, ate);
     const dispatches = await this.prisma.messageDispatch.findMany({
-      where: { tenantId, status: { in: ['ENVIADO', 'ENTREGUE', 'LIDO'] } },
+      where: { tenantId, status: { in: ['ENVIADO', 'ENTREGUE', 'LIDO'] }, ...(periodo ? { createdAt: periodo } : {}) },
       include: { invoice: { select: { status: true, vencimento: true } } },
       take: 5000,
     });
@@ -33,19 +45,19 @@ export class ReportsService {
     return { porCanal: funnelByChannel(rows), porPasso: funnelByStep(rows) };
   }
 
-  /** Custo de comunicação vs recuperado (ROI) no mês. */
-  async roi(tenantId: string) {
-    const inicio = this.inicioMes();
+  /** Custo de comunicação vs recuperado (ROI). Sem período, usa o mês corrente. */
+  async roi(tenantId: string, de?: string, ate?: string) {
+    const periodo = this.range(de, ate) ?? { gte: this.inicioMes() };
     const porCanal = await this.prisma.messageDispatch.groupBy({
       by: ['canal'],
-      where: { tenantId, status: { in: ['ENVIADO', 'ENTREGUE', 'LIDO'] }, createdAt: { gte: inicio } },
+      where: { tenantId, status: { in: ['ENVIADO', 'ENTREGUE', 'LIDO'] }, createdAt: periodo },
       _count: true,
     });
     const volumes: CanalVolume[] = porCanal.map((c) => ({ canal: c.canal, quantidade: c._count }));
     const custo = custoComunicacao(volumes);
 
     const recuperadoAgg = await this.prisma.invoice.aggregate({
-      where: { tenantId, status: 'PAGA', pagoEm: { gte: inicio } },
+      where: { tenantId, status: 'PAGA', pagoEm: periodo },
       _sum: { valor: true },
     });
     const recuperado = Number(recuperadoAgg._sum.valor ?? 0);
@@ -53,10 +65,34 @@ export class ReportsService {
     return { ...computeRoi(custo, recuperado), volumes };
   }
 
-  /** Extrato/repasse por gateway. */
-  async extratoPorGateway(tenantId: string) {
+  /** Recuperado por mês (últimos N meses), por data de pagamento. */
+  async recuperacaoMensal(tenantId: string, mesesQ?: string) {
+    const n = Math.min(24, Math.max(3, Number(mesesQ) || 6));
+    const hoje = new Date();
+    const inicio = new Date(hoje.getFullYear(), hoje.getMonth() - (n - 1), 1);
+    const pagas = await this.prisma.invoice.findMany({
+      where: { tenantId, status: 'PAGA', pagoEm: { gte: inicio } },
+      select: { valor: true, pagoEm: true },
+    });
+    const chave = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const meses: { mes: string; label: string; recebido: number; faturas: number }[] = [];
+    for (let i = 0; i < n; i++) {
+      const d = new Date(hoje.getFullYear(), hoje.getMonth() - (n - 1) + i, 1);
+      meses.push({ mes: chave(d), label: d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', ''), recebido: 0, faturas: 0 });
+    }
+    const idx = new Map(meses.map((m, i) => [m.mes, i] as const));
+    for (const p of pagas) {
+      const i = idx.get(chave(new Date(p.pagoEm!)));
+      if (i !== undefined) { meses[i].recebido += Number(p.valor); meses[i].faturas += 1; }
+    }
+    return meses;
+  }
+
+  /** Extrato/repasse por gateway. Período opcional filtra por vencimento. */
+  async extratoPorGateway(tenantId: string, de?: string, ate?: string) {
+    const periodo = this.range(de, ate);
     const invoices = await this.prisma.invoice.findMany({
-      where: { tenantId, provider: { not: null } },
+      where: { tenantId, provider: { not: null }, ...(periodo ? { vencimento: periodo } : {}) },
       select: { provider: true, valor: true, status: true, splitConfig: true },
       take: 10000,
     });
@@ -85,31 +121,55 @@ export class ReportsService {
     }));
   }
 
-  /** Exporta faturas em CSV. */
-  async exportInvoicesCsv(tenantId: string): Promise<string> {
+  /** Linhas de fatura para exportação (CSV/Excel), com período opcional por vencimento. */
+  private async faturasParaExport(tenantId: string, de?: string, ate?: string) {
+    const periodo = this.range(de, ate);
     const invoices = await this.prisma.invoice.findMany({
-      where: { tenantId },
+      where: { tenantId, ...(periodo ? { vencimento: periodo } : {}) },
       include: { customer: { select: { nome: true, doc: true } } },
       orderBy: { vencimento: 'desc' },
       take: 10000,
     });
+    return invoices.map((i) => ({
+      Cliente: i.customer.nome,
+      Documento: i.customer.doc,
+      Valor: Number(i.valor).toFixed(2),
+      Vencimento: i.vencimento.toISOString().slice(0, 10),
+      Pago_em: i.pagoEm ? i.pagoEm.toISOString().slice(0, 10) : '',
+      Status: i.status,
+      Origem: i.origem ?? '',
+    }));
+  }
+
+  /** Exporta faturas em CSV. */
+  async exportInvoicesCsv(tenantId: string, de?: string, ate?: string): Promise<string> {
+    const linhas = await this.faturasParaExport(tenantId, de, ate);
     return toCsv(
       [
-        { key: 'nome', label: 'Cliente' },
-        { key: 'doc', label: 'Documento' },
-        { key: 'valor', label: 'Valor' },
-        { key: 'vencimento', label: 'Vencimento' },
-        { key: 'status', label: 'Status' },
-        { key: 'origem', label: 'Origem' },
+        { key: 'Cliente', label: 'Cliente' },
+        { key: 'Documento', label: 'Documento' },
+        { key: 'Valor', label: 'Valor' },
+        { key: 'Vencimento', label: 'Vencimento' },
+        { key: 'Pago_em', label: 'Pago em' },
+        { key: 'Status', label: 'Status' },
+        { key: 'Origem', label: 'Origem' },
       ],
-      invoices.map((i) => ({
-        nome: i.customer.nome,
-        doc: i.customer.doc,
-        valor: Number(i.valor).toFixed(2),
-        vencimento: i.vencimento.toISOString().slice(0, 10),
-        status: i.status,
-        origem: i.origem ?? '',
-      })),
+      linhas,
     );
+  }
+
+  /** Exporta faturas em Excel (.xlsx) como base64, no mesmo padrão do modelo de cobranças. */
+  async exportInvoicesXlsx(tenantId: string, de?: string, ate?: string) {
+    const linhas = await this.faturasParaExport(tenantId, de, ate);
+    const ws = XLSX.utils.json_to_sheet(linhas.length ? linhas : [{ Cliente: '', Documento: '', Valor: '', Vencimento: '', Pago_em: '', Status: '', Origem: '' }]);
+    ws['!cols'] = [{ wch: 28 }, { wch: 18 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 14 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'faturas');
+    const buf: Buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    return {
+      filename: 'faturas-recorra.xlsx',
+      mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      base64: buf.toString('base64'),
+    };
   }
 }
