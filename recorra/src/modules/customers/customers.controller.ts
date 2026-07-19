@@ -90,6 +90,13 @@ export class CustomersController {
     return this.customers.remove(tenantId, id);
   }
 
+  @Post('excluir-lote')
+  @UseGuards(RolesGuard)
+  @Roles('OWNER', 'ADMIN')
+  removeMany(@TenantId() tenantId: string, @Body('ids') ids?: string[]) {
+    return this.customers.removeMany(tenantId, ids ?? []);
+  }
+
   @Patch(':id/tags')
   @UseGuards(RolesGuard)
   @Roles('OWNER', 'ADMIN', 'FINANCEIRO', 'OPERADOR')

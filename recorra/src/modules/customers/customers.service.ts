@@ -71,6 +71,18 @@ export class CustomersService {
     return { ok: true };
   }
 
+  /**
+   * Exclusão em massa. O `deleteMany` filtra por tenant, então ids de outro
+   * tenant são simplesmente ignorados (não apagam nada) — e a operação é
+   * atômica: ou remove todos os selecionados válidos, ou nenhum.
+   */
+  async removeMany(tenantId: string, ids: string[]) {
+    const alvo = [...new Set(ids)].filter(Boolean);
+    if (!alvo.length) return { excluidos: 0 };
+    const r = await this.prisma.customer.deleteMany({ where: { tenantId, id: { in: alvo } } });
+    return { excluidos: r.count };
+  }
+
   async getOrThrow(tenantId: string, id: string) {
     const c = await this.prisma.customer.findFirst({ where: { id, tenantId } });
     if (!c) throw new NotFoundException('Cliente não encontrado');

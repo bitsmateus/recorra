@@ -68,6 +68,10 @@ export default function ClientesPage() {
   const [aba, setAba] = useState<Aba>('geral');
   const [etiquetasModal, setEtiquetasModal] = useState(false);
   const [confirmarExclusao, setConfirmarExclusao] = useState<Customer | null>(null);
+  const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
+  const [confirmarLote, setConfirmarLote] = useState(false);
+
+  const toggleSel = (id: string) => setSelecionados((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const reloadEtiquetas = useCallback(() => { api<Etiqueta[]>('/clientes/etiquetas').then(setEtiquetas).catch(() => {}); }, []);
 
   const carregar = useCallback(async () => {
@@ -85,6 +89,8 @@ export default function ClientesPage() {
   }, [filtros]);
 
   useEffect(() => { carregar(); }, [carregar]);
+  // Some da seleção quem foi excluído ou saiu da lista no recarregamento.
+  useEffect(() => { setSelecionados((s) => new Set([...s].filter((id) => clientes.some((c) => c.id === id)))); }, [clientes]);
   useEffect(() => {
     api<Gateway[]>('/config/gateways').then(setGateways).catch(() => setGateways([]));
     api<Etiqueta[]>('/clientes/etiquetas').then(setEtiquetas).catch(() => setEtiquetas([]));
@@ -95,6 +101,12 @@ export default function ClientesPage() {
     carregar();
   }
 
+  async function excluirLote() {
+    await api('/clientes/excluir-lote', { method: 'POST', body: { ids: [...selecionados] } }).catch(() => {});
+    setSelecionados(new Set());
+    carregar();
+  }
+
   function recarregarTudo() {
     carregar();
     api<Etiqueta[]>('/clientes/etiquetas').then(setEtiquetas).catch(() => {});
@@ -102,6 +114,9 @@ export default function ClientesPage() {
 
   const corPorTag = new Map(etiquetas.map((e) => [e.nome, e.cor] as const));
   const visiveis = clientes.filter((c) => (aba === 'aberto' ? situacaoDe(c).key === 'aberto' : aba === 'incompleto' ? cadastroIncompleto(c) : true));
+  const idsVisiveis = visiveis.map((c) => c.id);
+  const todosMarcados = idsVisiveis.length > 0 && idsVisiveis.every((id) => selecionados.has(id));
+  const toggleTodos = () => setSelecionados(todosMarcados ? new Set() : new Set(idsVisiveis));
   const contagem = {
     geral: clientes.length,
     aberto: clientes.filter((c) => situacaoDe(c).key === 'aberto').length,
@@ -117,7 +132,7 @@ export default function ClientesPage() {
         {([['geral', 'Visão geral'], ['aberto', 'Em aberto'], ['incompleto', 'Cadastro incompleto']] as [Aba, string][]).map(([k, label]) => (
           <button
             key={k}
-            onClick={() => setAba(k)}
+            onClick={() => { setAba(k); setSelecionados(new Set()); }}
             className={`-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-sm transition ${aba === k ? 'border-primary font-medium text-primary' : 'border-transparent text-muted hover:text-ink'}`}
           >
             {label} <span className="tabular text-xs text-muted">({contagem[k]})</span>
@@ -142,15 +157,27 @@ export default function ClientesPage() {
         <select value={filtros.faixa} onChange={(e) => setFiltros({ ...filtros, faixa: e.target.value })} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Risco: todos</option><option value="BOM">Bom pagador</option><option value="ATENCAO">Atenção</option><option value="RISCO">Risco</option></select>
       </div>
 
-      <div className="mb-2 text-sm text-muted">Total de clientes: <span className="tabular font-medium text-ink">{visiveis.length}</span></div>
+      <div className="mb-2 flex items-center gap-3 text-sm text-muted">
+        <span>Total de clientes: <span className="tabular font-medium text-ink">{visiveis.length}</span></span>
+      </div>
+
+      {selecionados.size > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-primary/30 bg-primary-tint px-4 py-2.5 text-sm">
+          <span className="font-medium text-primary">{selecionados.size} cliente(s) selecionado(s)</span>
+          <button onClick={() => setConfirmarLote(true)} className="ml-auto flex items-center gap-1.5 rounded-md bg-danger px-3 py-1.5 text-xs font-medium text-white hover:opacity-90"><Trash2 size={14} /> Excluir selecionados</button>
+          <button onClick={() => setSelecionados(new Set())} className="text-xs font-medium text-muted hover:text-ink">Limpar seleção</button>
+        </div>
+      )}
+
       <div className="overflow-hidden rounded-lg border border-line bg-surface">
         <div className="w-full overflow-x-auto"><table className="w-full min-w-[760px] text-sm">
           <thead className="border-b border-line bg-canvas text-left text-xs uppercase text-muted">
-            <tr><th className="px-4 py-3 font-medium">Cliente</th><th className="px-4 py-3 font-medium">Documento</th><th className="px-4 py-3 font-medium">Situação</th><th className="px-4 py-3 font-medium">Tags</th><th className="px-4 py-3 font-medium">Cobranças</th><th className="px-4 py-3 font-medium">Score / Risco</th><th className="px-4 py-3 font-medium text-right">Ações</th></tr>
+            <tr><th className="w-10 px-4 py-3"><input type="checkbox" checked={todosMarcados} onChange={toggleTodos} className="h-4 w-4 cursor-pointer accent-primary" aria-label="Selecionar todos" /></th><th className="px-4 py-3 font-medium">Cliente</th><th className="px-4 py-3 font-medium">Documento</th><th className="px-4 py-3 font-medium">Situação</th><th className="px-4 py-3 font-medium">Tags</th><th className="px-4 py-3 font-medium">Cobranças</th><th className="px-4 py-3 font-medium">Score / Risco</th><th className="px-4 py-3 font-medium text-right">Ações</th></tr>
           </thead>
           <tbody>
             {visiveis.map((c) => (
-              <tr key={c.id} className="border-b border-line last:border-0 hover:bg-canvas/50">
+              <tr key={c.id} className={`border-b border-line last:border-0 hover:bg-canvas/50 ${selecionados.has(c.id) ? 'bg-primary-tint/40' : ''}`}>
+                <td className="px-4 py-3"><input type="checkbox" checked={selecionados.has(c.id)} onChange={() => toggleSel(c.id)} className="h-4 w-4 cursor-pointer accent-primary" aria-label={`Selecionar ${c.nome}`} /></td>
                 <td className="px-4 py-3">
                   <Link href={`/clientes/${c.id}`} className="font-medium text-ink hover:text-primary">{c.nome}</Link>
                   <div className="text-xs text-muted">{c.plano || 'Sem plano'}{c.uf ? ` · ${c.uf}` : ''}</div>
@@ -184,7 +211,7 @@ export default function ClientesPage() {
                 </td>
               </tr>
             ))}
-            {!loading && visiveis.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-muted">Nenhum cliente encontrado.</td></tr>}
+            {!loading && visiveis.length === 0 && <tr><td colSpan={8} className="px-4 py-8 text-center text-muted">Nenhum cliente encontrado.</td></tr>}
           </tbody>
         </table></div>
       </div>
@@ -202,6 +229,16 @@ export default function ClientesPage() {
           danger
           onConfirm={() => { const c = confirmarExclusao; setConfirmarExclusao(null); excluir(c); }}
           onClose={() => setConfirmarExclusao(null)}
+        />
+      )}
+      {confirmarLote && (
+        <ConfirmDialog
+          titulo="Excluir clientes"
+          mensagem={<>Excluir <b className="text-ink">{selecionados.size}</b> cliente(s) selecionado(s)? Isso remove as faturas e o histórico de cada um. Não dá para desfazer.</>}
+          confirmLabel={`Excluir ${selecionados.size}`}
+          danger
+          onConfirm={() => { setConfirmarLote(false); excluirLote(); }}
+          onClose={() => setConfirmarLote(false)}
         />
       )}
     </div>

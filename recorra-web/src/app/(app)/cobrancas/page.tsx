@@ -53,7 +53,10 @@ export default function CobrancasPage() {
   const [editar, setEditar] = useState<Invoice | null>(null);
   const [excluir, setExcluir] = useState<Invoice | null>(null);
   const [confirmarImport, setConfirmarImport] = useState(false);
+  const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
+  const [confirmarLote, setConfirmarLote] = useState(false);
   const [pagamento, setPagamento] = useState<Invoice | null>(null);
+  const toggleSel = (id: string) => setSelecionados((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const [criar, setCriar] = useState(false);
   const [menuImport, setMenuImport] = useState(false);
   const [wizard, setWizard] = useState(false);
@@ -68,6 +71,8 @@ export default function CobrancasPage() {
   }, [filtros]);
 
   useEffect(() => { load(); }, [load]);
+  // Some da seleção quem saiu da lista (excluída ou filtrada) no recarregamento.
+  useEffect(() => { setSelecionados((s) => new Set([...s].filter((id) => invoices.some((i) => i.id === id)))); }, [invoices]);
   useEffect(() => {
     api<Gateway[]>('/config/gateways').then((gws) => { setGateways(gws); setAccountId((cur) => cur || (gws[0]?.id ?? '')); }).catch(() => setGateways([]));
     api<{ nome: string }[]>('/clientes/etiquetas').then(setEtiquetas).catch(() => setEtiquetas([]));
@@ -87,6 +92,13 @@ export default function CobrancasPage() {
     const r = await api<{ geradas: number; total: number }>('/cobrancas/lote', { method: 'POST', body: { accountId, metodo: metodoGerar } }).catch(() => ({ geradas: 0, total: 0 }));
     setMsg(`✓ ${r.geradas}/${r.total} cobranças geradas`);
     setBusy(false); load();
+  }
+
+  async function excluirLote(escopo: 'recorra' | 'ambos') {
+    await api('/cobrancas/excluir-lote', { method: 'POST', body: { invoiceIds: [...selecionados], escopo } }).catch(() => {});
+    setSelecionados(new Set());
+    setConfirmarLote(false);
+    load();
   }
 
   /** Valida antes de perguntar: sem gateway escolhido não há o que confirmar. */
@@ -126,6 +138,10 @@ export default function CobrancasPage() {
   }
 
   const filtrosAtivos = Object.entries(filtros).filter(([, v]) => v).length;
+  const idsVisiveis = invoices.map((i) => i.id);
+  const todosMarcados = idsVisiveis.length > 0 && idsVisiveis.every((id) => selecionados.has(id));
+  const toggleTodos = () => setSelecionados(todosMarcados ? new Set() : new Set(idsVisiveis));
+  const geradasSelecionadas = invoices.filter((i) => selecionados.has(i.id) && i.externalId).length;
 
   return (
     <div>
@@ -187,10 +203,19 @@ export default function CobrancasPage() {
         </div>
       </div>
 
+      {selecionados.size > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-primary/30 bg-primary-tint px-4 py-2.5 text-sm">
+          <span className="font-medium text-primary">{selecionados.size} cobrança(s) selecionada(s)</span>
+          <button onClick={() => setConfirmarLote(true)} className="ml-auto flex items-center gap-1.5 rounded-md bg-danger px-3 py-1.5 text-xs font-medium text-white hover:opacity-90"><Trash2 size={14} /> Excluir selecionadas</button>
+          <button onClick={() => setSelecionados(new Set())} className="text-xs font-medium text-muted hover:text-ink">Limpar seleção</button>
+        </div>
+      )}
+
       <div className="overflow-hidden rounded-lg border border-line bg-surface">
         <div className="w-full overflow-x-auto"><table className="w-full min-w-[640px] text-sm">
           <thead className="border-b border-line bg-canvas text-left text-xs uppercase text-muted">
             <tr>
+              <th className="w-10 px-4 py-3"><input type="checkbox" checked={todosMarcados} onChange={toggleTodos} className="h-4 w-4 cursor-pointer accent-primary" aria-label="Selecionar todas" /></th>
               <th className="px-4 py-3 font-medium">Cliente</th>
               <th className="px-4 py-3 font-medium">Valor</th>
               <th className="px-4 py-3 font-medium">Vencimento</th>
@@ -202,7 +227,8 @@ export default function CobrancasPage() {
           </thead>
           <tbody>
             {invoices.map((inv) => (
-              <tr key={inv.id} className="border-b border-line last:border-0">
+              <tr key={inv.id} className={`border-b border-line last:border-0 ${selecionados.has(inv.id) ? 'bg-primary-tint/40' : ''}`}>
+                <td className="px-4 py-3"><input type="checkbox" checked={selecionados.has(inv.id)} onChange={() => toggleSel(inv.id)} className="h-4 w-4 cursor-pointer accent-primary" aria-label={`Selecionar cobrança de ${inv.customer?.nome || 'cliente'}`} /></td>
                 <td className="px-4 py-3 font-medium text-ink">{inv.customer?.nome || '—'}</td>
                 <td className="tabular px-4 py-3">{brl(Number(inv.valor))}</td>
                 <td className="px-4 py-3 text-muted">{new Date(inv.vencimento).toLocaleDateString('pt-BR')}</td>
@@ -222,7 +248,7 @@ export default function CobrancasPage() {
                 </td>
               </tr>
             ))}
-            {invoices.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-muted">Nenhuma fatura.</td></tr>}
+            {invoices.length === 0 && <tr><td colSpan={8} className="px-4 py-8 text-center text-muted">Nenhuma fatura.</td></tr>}
           </tbody>
         </table></div>
       </div>
@@ -232,6 +258,7 @@ export default function CobrancasPage() {
       {criar && <CriarManualModal gateways={gateways} onClose={() => setCriar(false)} onSaved={() => { setCriar(false); load(); }} />}
       {pagamento && <PagamentoModal inv={pagamento} onClose={() => setPagamento(null)} />}
       {excluir && <ExcluirModal inv={excluir} onClose={() => setExcluir(null)} onEscolha={(escopo) => excluirComEscopo(excluir, escopo)} />}
+      {confirmarLote && <ExcluirLoteModal total={selecionados.size} geradas={geradasSelecionadas} onClose={() => setConfirmarLote(false)} onEscolha={excluirLote} />}
       {confirmarImport && (
         <ConfirmDialog
           titulo="Importar do gateway"
@@ -356,6 +383,40 @@ function ExcluirModal({ inv, onClose, onEscolha }: { inv: Invoice; onClose: () =
             <button onClick={() => onEscolha('ambos')} className="w-full rounded border border-line p-3 text-left hover:border-danger hover:bg-danger-tint">
               <div className="text-sm font-medium text-ink">Excluir em ambas (Recorrai e gateway)</div>
               <div className="text-xs text-muted">Cancela a cobrança no gateway e apaga o registro daqui.</div>
+            </button>
+          )}
+        </div>
+        <div className="mt-5 flex justify-end">
+          <button onClick={onClose} className="rounded border border-line px-4 py-2 text-sm hover:bg-canvas">Cancelar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Exclusão em massa: mesma escolha de escopo do modal único, agora para N faturas. */
+function ExcluirLoteModal({ total, geradas, onClose, onEscolha }: { total: number; geradas: number; onClose: () => void; onEscolha: (escopo: 'recorra' | 'ambos') => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-1 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-ink">Excluir {total} cobrança(s)</h2>
+          <button onClick={onClose} className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>
+        </div>
+        <p className="mb-4 text-sm text-muted">
+          {geradas > 0
+            ? `${geradas} de ${total} já foram geradas no gateway. Escolha o que fazer com elas.`
+            : 'Nenhuma foi gerada no gateway, então só existem no Recorrai.'}
+        </p>
+        <div className="space-y-2">
+          <button onClick={() => onEscolha('recorra')} className="w-full rounded border border-line p-3 text-left hover:border-primary hover:bg-canvas">
+            <div className="text-sm font-medium text-ink">Excluir só no Recorrai</div>
+            <div className="text-xs text-muted">Remove os registros daqui. {geradas > 0 ? 'As geradas continuam ativas no gateway.' : ''}</div>
+          </button>
+          {geradas > 0 && (
+            <button onClick={() => onEscolha('ambos')} className="w-full rounded border border-line p-3 text-left hover:border-danger hover:bg-danger-tint">
+              <div className="text-sm font-medium text-ink">Excluir em ambas (Recorrai e gateway)</div>
+              <div className="text-xs text-muted">Cancela no gateway as que foram geradas e apaga todos os registros daqui.</div>
             </button>
           )}
         </div>
