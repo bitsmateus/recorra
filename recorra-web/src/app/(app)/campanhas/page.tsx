@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Plus, Play, Pause, BarChart3, Pencil, Trash2, X, Megaphone, ExternalLink, Copy, Filter, Loader2 } from 'lucide-react';
+import { Plus, Play, Pause, BarChart3, Pencil, Trash2, X, Megaphone, ExternalLink, Copy, Filter, Loader2, HelpCircle } from 'lucide-react';
 import { api } from '@/lib/api';
 import { PageTitle } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -51,17 +51,39 @@ function canaisConfigurados(contas: ContaCanal[]): { v: string; l: string }[] {
   return out;
 }
 
+/** "?" com explicação ao passar o mouse. Reaproveita o padrão da tela de disparos. */
+function Ajuda({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="group relative inline-flex align-middle">
+      <button type="button" tabIndex={-1} className="flex h-4 w-4 items-center justify-center rounded-full text-muted hover:text-primary"><HelpCircle size={13} /></button>
+      <span className="pointer-events-none absolute left-0 top-6 z-30 hidden w-64 whitespace-normal rounded-lg border border-line bg-surface p-2.5 text-xs font-normal leading-relaxed text-ink shadow-lg group-hover:block">{children}</span>
+    </span>
+  );
+}
+
+/** Tipo de envio amigável, para deixar claro se a conta é E-mail, WhatsApp ou SMS. */
+function tipoDeEnvioLabel(canal: string): string {
+  if (canal.startsWith('WHATSAPP')) return 'WhatsApp';
+  if (canal === 'EMAIL') return 'E-mail';
+  if (canal === 'SMS') return 'SMS';
+  return CANAL_LABEL[canal] ?? canal; // NX Systems, API genérica...
+}
+
 /** Conexões (por conta) disponíveis para envio. */
 interface Conexao { id: string; canal: string; whats: boolean; label: string }
 function conexoesDisponiveis(contas: ContaCanal[]): Conexao[] {
   return contas
     .filter((c) => c.status !== 'DESCONECTADO')
-    .map((c) => ({
-      id: c.id,
-      canal: c.canal,
-      whats: ehWhatsApp(c.canal),
-      label: (c.apelido?.trim() || CANAL_LABEL[c.canal] || c.canal) + (ehWhatsApp(c.canal) ? ' (WhatsApp oficial)' : ''),
-    }));
+    .map((c) => {
+      const apelido = c.apelido?.trim();
+      // Sempre começa pelo tipo (E-mail / WhatsApp / SMS) e só então o apelido da conta.
+      return {
+        id: c.id,
+        canal: c.canal,
+        whats: ehWhatsApp(c.canal),
+        label: apelido ? `${tipoDeEnvioLabel(c.canal)} · ${apelido}` : tipoDeEnvioLabel(c.canal),
+      };
+    });
 }
 
 interface Template { id: string; nome: string; corpo: string; status: string; idioma?: string }
@@ -468,16 +490,24 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
         <label className="mb-4 block text-sm"><span className="mb-1 block text-xs text-muted">Nome da campanha *</span><input value={f.nome} onChange={(e) => set('nome', e.target.value)} placeholder="Ex.: Aviso de vencimento mensal" className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary" /></label>
 
         <div className="mb-4">
-          <span className="mb-1 block text-xs font-semibold text-muted">O que enviar</span>
+          <span className="mb-1 flex items-center gap-1 text-xs font-semibold text-muted">
+            O que enviar
+            <Ajuda>
+              <b>Lembrete de cobrança</b> e <b>Mensagem única</b> só diferem quando o cliente tem mais de uma fatura em aberto:<br /><br />
+              <b>Lembrete:</b> uma mensagem para cada fatura em aberto, com o Pix/boleto de cada uma. Só vai para quem tem dívida.<br /><br />
+              <b>Mensagem única:</b> uma única mensagem por cliente, para todo mundo do público — mesmo quem não deve nada.<br /><br />
+              <b>Régua:</b> dispara um fluxo com vários passos ao longo do tempo.
+            </Ajuda>
+          </span>
           <div className="mb-3 grid grid-cols-3 gap-2">
-            <button onClick={() => set('tipoEnvio', 'LEMBRETE')} className={`rounded border p-3 text-left text-sm ${f.tipoEnvio === 'LEMBRETE' ? 'border-primary bg-primary-tint' : 'border-line hover:bg-canvas'}`}><b className="text-ink">Lembrete de cobrança</b><div className="text-xs text-muted">Manda o Pix/boleto de cada cliente.</div></button>
-            <button onClick={() => set('tipoEnvio', 'MENSAGEM')} className={`rounded border p-3 text-left text-sm ${f.tipoEnvio === 'MENSAGEM' ? 'border-primary bg-primary-tint' : 'border-line hover:bg-canvas'}`}><b className="text-ink">Mensagem única</b><div className="text-xs text-muted">Um texto enviado de uma vez.</div></button>
+            <button onClick={() => set('tipoEnvio', 'LEMBRETE')} className={`rounded border p-3 text-left text-sm ${f.tipoEnvio === 'LEMBRETE' ? 'border-primary bg-primary-tint' : 'border-line hover:bg-canvas'}`}><b className="text-ink">Lembrete de cobrança</b><div className="text-xs text-muted">Uma mensagem por fatura em aberto, com Pix/boleto. Só para quem deve.</div></button>
+            <button onClick={() => set('tipoEnvio', 'MENSAGEM')} className={`rounded border p-3 text-left text-sm ${f.tipoEnvio === 'MENSAGEM' ? 'border-primary bg-primary-tint' : 'border-line hover:bg-canvas'}`}><b className="text-ink">Mensagem única</b><div className="text-xs text-muted">Uma mensagem por cliente, para todo o público (mesmo sem dívida).</div></button>
             <button onClick={() => set('tipoEnvio', 'REGUA')} className={`rounded border p-3 text-left text-sm ${f.tipoEnvio === 'REGUA' ? 'border-primary bg-primary-tint' : 'border-line hover:bg-canvas'}`}><b className="text-ink">Régua (fluxo)</b><div className="text-xs text-muted">Aciona uma régua com passos.</div></button>
           </div>
           {f.tipoEnvio === 'LEMBRETE' ? (
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-sm">
-                <span className="text-xs text-muted">Canal:</span>
+                <span className="text-xs text-muted">Método de envio:</span>
                 <select value={f.channelAccountId} onChange={(e) => { const c = conexoes.find((x) => x.id === e.target.value); setF((s) => ({ ...s, channelAccountId: e.target.value, canal: c?.canal || '' })); }} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">{conexoes.length === 0 && <option value="">Nenhum canal conectado</option>}{conexoes.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}</select>
               </div>
               {isWhats ? (
@@ -496,7 +526,13 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
                 </>
               )}
               <div className="flex flex-wrap items-center gap-2 text-sm">
-                <span className="text-xs text-muted">Quando o cliente tem várias faturas em aberto:</span>
+                <span className="flex items-center gap-1 text-xs text-muted">
+                  Quando o cliente tem várias faturas em aberto:
+                  <Ajuda>
+                    <b>Uma mensagem por fatura:</b> se o cliente deve 3 faturas, ele recebe 3 mensagens, uma com o Pix/boleto de cada uma.<br /><br />
+                    <b>Só a mais próxima do vencimento:</b> manda uma única mensagem, com a fatura que vence primeiro. Bom para não encher o cliente de mensagens.
+                  </Ajuda>
+                </span>
                 <select value={f.escopoFatura} onChange={(e) => set('escopoFatura', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
                   <option value="TODAS">Uma mensagem por fatura</option>
                   <option value="PROXIMA">Só a mais próxima do vencimento</option>
@@ -506,7 +542,7 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
           ) : f.tipoEnvio === 'MENSAGEM' ? (
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-sm">
-                <span className="text-xs text-muted">Canal:</span>
+                <span className="text-xs text-muted">Método de envio:</span>
                 <select value={f.channelAccountId} onChange={(e) => { const c = conexoes.find((x) => x.id === e.target.value); setF((s) => ({ ...s, channelAccountId: e.target.value, canal: c?.canal || '' })); }} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">{conexoes.length === 0 && <option value="">Nenhum canal conectado</option>}{conexoes.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}</select>
               </div>
 
@@ -552,12 +588,25 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
         </div>
 
         <div className="mb-4">
-          <span className="mb-1 block text-xs font-semibold text-muted">Quando enviar</span>
-          <div className="flex flex-wrap gap-2">
+          <span className="mb-1 flex items-center gap-1 text-xs font-semibold text-muted">
+            Quando enviar
+            <Ajuda>
+              <b>Uma vez:</b> dispara agora, uma única vez, e encerra.<br /><br />
+              <b>Todo mês:</b> repete automaticamente todo mês, no dia que você escolher ao lado.<br /><br />
+              <b>Sempre ativa:</b> fica ligada e envia para cada novo contato que entrar no público (útil com público dinâmico).
+            </Ajuda>
+          </span>
+          <div className="flex flex-wrap items-center gap-2">
             {[['UMA_VEZ', 'Uma vez'], ['MENSAL', 'Todo mês'], ['SEMPRE_ATIVA', 'Sempre ativa']].map(([v, l]) => (
               <button key={v} onClick={() => set('agendamento', v)} className={`rounded border px-3 py-2 text-sm ${f.agendamento === v ? 'border-primary bg-primary-tint text-primary' : 'border-line hover:bg-canvas'}`}>{l}</button>
             ))}
-            {f.agendamento === 'MENSAL' && <input value={f.diaDoMes} onChange={(e) => set('diaDoMes', e.target.value)} placeholder="Dia" className="w-20 rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />}
+            {f.agendamento === 'MENSAL' && (
+              <label className="flex items-center gap-1.5 text-xs text-muted">
+                Dispara todo dia
+                <input type="number" min={1} max={31} value={f.diaDoMes} onChange={(e) => set('diaDoMes', e.target.value)} className="w-16 rounded border border-line px-2 py-2 text-center text-sm text-ink outline-none focus:border-primary" />
+                do mês
+              </label>
+            )}
           </div>
           {f.agendamento !== 'UMA_VEZ' && (
             <label className="mt-2 flex items-center gap-2 text-xs text-muted"><input type="checkbox" checked={f.publicoDinamico} onChange={(e) => set('publicoDinamico', e.target.checked)} /> Recalcular o público a cada envio (dinâmico)</label>
