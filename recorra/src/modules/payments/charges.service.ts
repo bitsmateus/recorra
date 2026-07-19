@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable, NotFoundException , BadRequestException } from '@nestjs/common';
-import { ChargeMethod, InvoiceStatus } from '@prisma/client';
+import { ChargeMethod, InvoiceStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { AuditService } from '@/common/audit/audit.service';
 import { PaymentProviderFactory } from './payment-provider.factory';
@@ -246,7 +246,12 @@ export class ChargesService {
     if (filtros.geracao === 'pendente') where.externalId = null;
     if (filtros.q) {
       const q = filtros.q.trim();
-      where.customer = { OR: [{ nome: { contains: q, mode: 'insensitive' } }, { doc: { contains: q.replace(/\D/g, '') } }] };
+      const digitos = q.replace(/\D/g, '');
+      // Só busca por doc quando há dígitos: `doc contains ""` casaria com todo
+      // mundo e anularia o filtro por nome (ex.: buscar "mateus" trazia tudo).
+      const alternativas: Prisma.CustomerWhereInput[] = [{ nome: { contains: q, mode: 'insensitive' } }];
+      if (digitos) alternativas.push({ doc: { contains: digitos } });
+      where.customer = { OR: alternativas };
     }
     if (filtros.etiqueta) {
       where.customer = { ...(where.customer ?? {}), tags: { has: filtros.etiqueta.toLowerCase() } };

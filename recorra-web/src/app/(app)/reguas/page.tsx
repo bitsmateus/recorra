@@ -630,7 +630,8 @@ function StepCard({
             className="rounded border border-line px-2 py-1 outline-none focus:border-primary"
           >
             <option value="">nenhum</option>
-            {Object.entries(canalLabel).filter(([k]) => k !== step.canal).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+            {/* Só canais conectados, como o seletor principal — não todos os tipos possíveis. */}
+            {[...new Set(conectados.map((c) => c.canal))].filter((k) => k !== step.canal).map((k) => <option key={k} value={k}>{canalLabel[k as Canal]?.label || k}</option>)}
           </select>
         </label>
         {!canalOficial && (
@@ -654,7 +655,7 @@ function StepCard({
             <option value="">Selecionar template...</option>
             {templates.map((t) => <option key={t.id} value={t.id}>{t.nome}{t.status !== 'APROVADO' ? ` (${t.status})` : ''}</option>)}
           </select>
-          {templates.length === 0 && <p className="mt-1 text-xs text-muted">Nenhum template ainda. Sincronize em <Link href="/configuracoes" className="text-primary underline">Configurações</Link>.</p>}
+          {templates.length === 0 && <p className="mt-1 text-xs text-muted">Nenhum template ainda. Sincronize em <Link href="/templates" className="text-primary underline">Templates WhatsApp</Link>.</p>}
 
           {/* Mapeamento: variável posicional do template -> variável da Recorrai */}
           {temTemplate && (
