@@ -711,12 +711,33 @@ model PlatformInvoice {
   disparos       Int      @default(0)
   valorExcedente Decimal  @default(0) @db.Decimal(12, 2)
   valorTotal     Decimal  @db.Decimal(12, 2)
-  status         String   @default("aberta")
+  status         String   @default("aberta") // aberta | cobrada | paga
+  // Cobrança no gateway da plataforma (Asaas):
+  asaasPaymentId String?
+  linkPagamento  String?
+  pixCopiaCola   String?
+  boletoUrl      String?
+  pagoEm         DateTime?
   createdAt      DateTime @default(now())
 
   @@unique([tenantId, competencia])
   @@index([tenantId])
+  @@index([asaasPaymentId])
   @@map("platform_invoices")
+}
+
+/// Conta de gateway DA PLATAFORMA (o SaaS cobrando seus tenants). Singleton na prática.
+/// Distinta de PaymentProviderAccount (cada tenant cobrando os clientes dele).
+model PlatformPaymentAccount {
+  id          String              @id @default(cuid())
+  provider    PaymentProviderType @default(ASAAS)
+  ambiente    String              @default("sandbox") // sandbox | production
+  credentials String // JSON cifrado (AES-256-GCM): apiKey, webhookToken
+  ativo       Boolean             @default(true)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@map("platform_payment_accounts")
 }
 
 model PaymentHistoryFeature {

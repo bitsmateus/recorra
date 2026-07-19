@@ -5,12 +5,14 @@ import { PlanTier } from '@prisma/client';
 import { PlatformService, PlanoInput } from './platform.service';
 import { PlatformGuard, PlatformPayload } from './platform.guard';
 import { BillingSaasService } from './billing-saas.service';
+import { PlatformAsaasService } from './platform-asaas.service';
 
 @Controller('admin')
 export class PlatformController {
   constructor(
     private readonly platform: PlatformService,
     private readonly billing: BillingSaasService,
+    private readonly asaas: PlatformAsaasService,
   ) {}
 
   // Rate limit estrito: o superadmin controla todos os tenants (alvo de brute force).
@@ -55,6 +57,31 @@ export class PlatformController {
   @UseGuards(PlatformGuard)
   pagarFatura(@Param('id') id: string, @Body('paga') paga: boolean) {
     return this.platform.marcarFaturaPaga(id, paga ?? true);
+  }
+
+  // ---- Cobrança da plataforma via Asaas ----
+  @Get('asaas/config')
+  @UseGuards(PlatformGuard)
+  asaasConfig() {
+    return this.asaas.getConfig();
+  }
+
+  @Put('asaas/config')
+  @UseGuards(PlatformGuard)
+  asaasSalvar(@Body() body: { ambiente?: string; apiKey?: string; webhookToken?: string }) {
+    return this.asaas.saveConfig(body);
+  }
+
+  @Post('faturas/:id/cobrar')
+  @UseGuards(PlatformGuard)
+  cobrarFatura(@Param('id') id: string) {
+    return this.asaas.cobrar(id);
+  }
+
+  @Post('faturas/:id/sincronizar')
+  @UseGuards(PlatformGuard)
+  sincronizarFatura(@Param('id') id: string) {
+    return this.asaas.sincronizar(id);
   }
 
   // ---- Planos (catálogo editável) ----

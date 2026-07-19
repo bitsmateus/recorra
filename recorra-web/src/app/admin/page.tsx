@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { LogOut, Plus, Check } from 'lucide-react';
+import { LogOut, Plus } from 'lucide-react';
 import { adminApi, getAdminToken, clearAdminToken } from '@/lib/adminApi';
 import { Logo } from '@/components/Logo';
 import { Metric, brl } from '@/components/ui';
@@ -199,28 +199,94 @@ function NovoTenant({ onDone }: { onDone: () => void }) {
   );
 }
 
+function AsaasConfig() {
+  const [cfg, setCfg] = useState<any>(null);
+  const [form, setForm] = useState({ ambiente: 'sandbox', apiKey: '', webhookToken: '' });
+  const [msg, setMsg] = useState('');
+  const [aberto, setAberto] = useState(false);
+  const load = useCallback(() => { adminApi<any>('/admin/asaas/config').then((c) => { setCfg(c); if (c?.ambiente) setForm((f) => ({ ...f, ambiente: c.ambiente })); }).catch(() => {}); }, []);
+  useEffect(load, [load]);
+  // O webhook fica FORA do prefixo /api (excluído em main.ts), então tira o /api do fim.
+  const webhookUrl = `${(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api').replace(/\/api\/?$/, '')}/webhooks/plataforma/asaas`;
+
+  async function salvar() {
+    try { await adminApi('/admin/asaas/config', { method: 'PUT', body: form }); setMsg('✓ Salvo'); setForm((f) => ({ ...f, apiKey: '', webhookToken: '' })); load(); }
+    catch (e) { setMsg(e instanceof Error ? e.message : 'Erro'); }
+  }
+
+  return (
+    <div className="mb-6 rounded-lg border border-line bg-surface p-4">
+      <button onClick={() => setAberto((v) => !v)} className="flex w-full items-center justify-between text-left">
+        <span className="text-sm font-medium text-ink">Cobrança automática (Asaas)</span>
+        <span className={`rounded-full px-2 py-0.5 text-xs ${cfg?.configurado ? 'bg-success-tint text-[#0F6E56]' : 'bg-canvas text-muted'}`}>{cfg?.configurado ? `conectado · ${cfg.ambiente}` : 'não configurado'}</span>
+      </button>
+      {aberto && (
+        <div className="mt-4">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <label className="text-xs text-muted">Ambiente
+              <select value={form.ambiente} onChange={(e) => setForm({ ...form, ambiente: e.target.value })} className="mt-1 w-full rounded border border-line px-3 py-2 text-sm text-ink outline-none focus:border-primary"><option value="sandbox">Sandbox</option><option value="production">Produção</option></select>
+            </label>
+            <label className="text-xs text-muted">API Key do Asaas<input value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} placeholder={cfg?.configurado ? '•••• (deixe em branco p/ manter)' : 'sua chave'} className="mt-1 w-full rounded border border-line px-3 py-2 text-sm text-ink outline-none focus:border-primary" /></label>
+            <label className="text-xs text-muted">Webhook token (opcional)<input value={form.webhookToken} onChange={(e) => setForm({ ...form, webhookToken: e.target.value })} className="mt-1 w-full rounded border border-line px-3 py-2 text-sm text-ink outline-none focus:border-primary" /></label>
+          </div>
+          <p className="mt-3 text-xs text-muted">No painel do Asaas, cadastre o webhook apontando para:<br /><code className="break-all text-ink">{webhookUrl}</code></p>
+          <div className="mt-3 flex items-center gap-3">
+            <button onClick={salvar} className="rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover">Salvar Asaas</button>
+            {msg && <span className="text-sm text-primary">{msg}</span>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function FinanceiroTab() {
   const [rows, setRows] = useState<any[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [msg, setMsg] = useState('');
   const load = useCallback(() => { adminApi<any[]>('/admin/faturas').then(setRows).catch(() => {}); }, []);
   useEffect(load, [load]);
+
+  async function cobrar(id: string) {
+    setBusy(id); setMsg('');
+    try { await adminApi(`/admin/faturas/${id}/cobrar`, { method: 'POST', body: {} }); load(); }
+    catch (e) { setMsg(e instanceof Error ? e.message : 'Erro ao cobrar'); }
+    finally { setBusy(null); }
+  }
+  async function sincronizar(id: string) {
+    setBusy(id);
+    try { await adminApi(`/admin/faturas/${id}/sincronizar`, { method: 'POST', body: {} }); load(); }
+    catch (e) { setMsg(e instanceof Error ? e.message : 'Erro ao sincronizar'); }
+    finally { setBusy(null); }
+  }
+
   return (
     <div>
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-lg font-semibold text-ink">Faturas do SaaS</h2>
         <button onClick={async () => { await adminApi('/admin/faturas/fechar-mes', { method: 'POST', body: {} }); load(); }} className="rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover">Fechar mês (gerar faturas)</button>
       </div>
+      <AsaasConfig />
+      {msg && <p className="mb-3 text-sm text-danger">{msg}</p>}
       <div className="overflow-hidden rounded-lg border border-line bg-surface">
-        <div className="w-full overflow-x-auto"><table className="w-full min-w-[640px] text-sm">
-          <thead className="border-b border-line bg-canvas text-left text-xs uppercase text-muted"><tr><th className="px-4 py-3">Tenant</th><th className="px-4 py-3">Competência</th><th className="px-4 py-3">Plano</th><th className="px-4 py-3">Total</th><th className="px-4 py-3">Status</th></tr></thead>
+        <div className="w-full overflow-x-auto"><table className="w-full min-w-[760px] text-sm">
+          <thead className="border-b border-line bg-canvas text-left text-xs uppercase text-muted"><tr><th className="px-4 py-3">Tenant</th><th className="px-4 py-3">Competência</th><th className="px-4 py-3">Total</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Cobrança (Asaas)</th></tr></thead>
           <tbody>
             {rows.map((r) => (
               <tr key={r.id} className="border-b border-line last:border-0">
                 <td className="px-4 py-3 font-medium text-ink">{r.tenantNome}</td>
                 <td className="px-4 py-3 text-muted">{r.competencia}</td>
-                <td className="px-4 py-3 text-muted">{r.plano}</td>
                 <td className="tabular px-4 py-3">{brl(Number(r.valorTotal))}</td>
                 <td className="px-4 py-3">
-                  <button onClick={async () => { await adminApi(`/admin/faturas/${r.id}/pagar`, { method: 'PATCH', body: { paga: r.status !== 'paga' } }); load(); }} className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${r.status === 'paga' ? 'bg-success-tint text-[#0F6E56]' : 'bg-warning-tint text-[#854F0B]'}`}>{r.status === 'paga' ? <><Check size={12} /> Paga</> : 'Em aberto'}</button>
+                  <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${r.status === 'paga' ? 'bg-success-tint text-[#0F6E56]' : r.status === 'cobrada' ? 'bg-primary-tint text-primary' : 'bg-warning-tint text-[#854F0B]'}`}>{r.status === 'paga' ? 'Paga' : r.status === 'cobrada' ? 'Cobrada' : 'Em aberto'}</span>
+                </td>
+                <td className="px-4 py-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {!r.asaasPaymentId && r.status !== 'paga' && <button disabled={busy === r.id} onClick={() => cobrar(r.id)} className="rounded bg-primary px-3 py-1 text-xs font-medium text-white hover:bg-primary-hover disabled:opacity-50">{busy === r.id ? '...' : 'Gerar cobrança'}</button>}
+                    {r.linkPagamento && <a href={r.linkPagamento} target="_blank" rel="noopener noreferrer" className="rounded border border-line px-3 py-1 text-xs text-primary hover:bg-canvas">Abrir link</a>}
+                    {r.asaasPaymentId && r.status !== 'paga' && <button disabled={busy === r.id} onClick={() => sincronizar(r.id)} className="rounded border border-line px-3 py-1 text-xs hover:bg-canvas disabled:opacity-50">Sincronizar</button>}
+                    <button onClick={async () => { await adminApi(`/admin/faturas/${r.id}/pagar`, { method: 'PATCH', body: { paga: r.status !== 'paga' } }); load(); }} className="rounded border border-line px-2 py-1 text-xs text-muted hover:bg-canvas" title="Marcar manualmente">{r.status === 'paga' ? 'Reabrir' : 'Marcar paga'}</button>
+                  </div>
                 </td>
               </tr>
             ))}
