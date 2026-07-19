@@ -55,6 +55,33 @@ export function inicioDoMes(ref = new Date(), timezone: string = PADRAO): Date {
   return data(`${ano}-${mes}-01`, '00:00:00.000', timezone)!;
 }
 
+/**
+ * Intervalo por vencimento — borda em UTC, não no fuso do tenant.
+ *
+ * Vencimento é uma data-only ("dia 15"), gravada à meia-noite UTC (o container
+ * roda em UTC). Recortar com o fuso do tenant (−03:00) empurraria a fatura do
+ * dia 1º, gravada em `01T00:00Z`, para as 21h do dia 30 anterior — jogando-a no
+ * mês errado. Aqui as duas pontas ficam no mesmo referencial em que o dado foi
+ * gravado: UTC.
+ */
+export function intervaloVencimento(de?: string, ate?: string): { gte?: Date; lte?: Date } | undefined {
+  const inicio = dataUtc(de, '00:00:00.000');
+  const fim = dataUtc(ate, '23:59:59.999');
+  if (!inicio && !fim) return undefined;
+  return { ...(inicio && { gte: inicio }), ...(fim && { lte: fim }) };
+}
+
+function dataUtc(iso: string | undefined, hora: string): Date | undefined {
+  if (!iso) return undefined;
+  const d = new Date(`${iso}T${hora}Z`);
+  return Number.isNaN(d.getTime()) ? undefined : d;
+}
+
+/** Primeiro dia do mês corrente em UTC — padrão do filtro por vencimento. */
+export function inicioDoMesUtc(ref = new Date()): Date {
+  return new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), 1));
+}
+
 /** Chave `YYYY-MM` usada para agrupar por mês. */
 export function chaveMes(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;

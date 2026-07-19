@@ -3,7 +3,7 @@ import { ChannelType } from '@prisma/client';
 import { JwtAuthGuard } from '@/common/auth/jwt-auth.guard';
 import { TenantId } from '@/common/auth/current-user.decorator';
 import { PrismaService } from '@/common/prisma/prisma.service';
-import { intervaloDatas, inicioDoMes, chaveMes } from '@/common/util/periodo';
+import { intervaloDatas, inicioDoMes, intervaloVencimento, inicioDoMesUtc, chaveMes } from '@/common/util/periodo';
 
 const TIPO_LABEL: Record<string, string> = {
   WHATSAPP: 'WhatsApp',
@@ -33,25 +33,32 @@ export class DashboardController {
     return intervaloDatas(de, ate, fuso) ?? { gte: inicioDoMes(new Date(), fuso) };
   }
 
+  /** Recorte por vencimento (data-only, UTC). Padrão: mês corrente. */
+  private periodoVencimento(de?: string, ate?: string): { gte?: Date; lte?: Date } {
+    return intervaloVencimento(de, ate) ?? { gte: inicioDoMesUtc() };
+  }
+
   @Get('resumo')
   async resumo(@TenantId() tenantId: string, @Query('de') de?: string, @Query('ate') ate?: string) {
-    const periodo = await this.periodo(tenantId, de, ate);
+    const venc = this.periodoVencimento(de, ate);
+    const eventos = await this.periodo(tenantId, de, ate);
 
     const [inadimplencia, recuperado, cobrancasAtivas, disparos] = await Promise.all([
-      // Inadimplência e cobranças ativas são uma foto de agora, não do período:
-      // "quanto está vencido hoje" não muda porque o usuário olhou outro mês.
+      // Faturas recortam pela data de vencimento: são as cobranças "daquele mês".
+      // Recuperado = das que vencem no período, quais já foram pagas.
       this.prisma.invoice.aggregate({
-        where: { tenantId, status: 'VENCIDA' },
+        where: { tenantId, status: 'VENCIDA', vencimento: venc },
         _sum: { valor: true },
         _count: true,
       }),
       this.prisma.invoice.aggregate({
-        where: { tenantId, status: 'PAGA', pagoEm: periodo },
+        where: { tenantId, status: 'PAGA', vencimento: venc },
         _sum: { valor: true },
         _count: true,
       }),
-      this.prisma.invoice.count({ where: { tenantId, status: { in: ['PENDENTE', 'VENCIDA'] } } }),
-      this.prisma.messageDispatch.count({ where: { tenantId, createdAt: periodo } }),
+      this.prisma.invoice.count({ where: { tenantId, status: { in: ['PENDENTE', 'VENCIDA'] }, vencimento: venc } }),
+      // Disparos são eventos, não faturas: filtram por quando saíram (fuso do tenant).
+      this.prisma.messageDispatch.count({ where: { tenantId, createdAt: eventos } }),
     ]);
 
     const inadValor = Number(inadimplencia._sum.valor ?? 0);
@@ -138,13 +145,14 @@ export class DashboardController {
 
   /** Aging: contas a receber em aberto e vencidas, agrupadas por faixa de dias. */
   @Get('aging')
-  async aging(@TenantId() tenantId: string) {
+  async aging(@TenantId() tenantId: string, @Query('de') de?: string, @Query('ate') ate?: string) {
     const hoje = new Date();
     hoje.setHours(0, 0, 0, 0);
     const DIA = 86_400_000;
 
+    // Mesmo recorte por vencimento do resumo: só as cobranças que vencem no período.
     const faturas = await this.prisma.invoice.findMany({
-      where: { tenantId, status: { in: ['PENDENTE', 'VENCIDA'] } },
+      where: { tenantId, status: { in: ['PENDENTE', 'VENCIDA'] }, vencimento: this.periodoVencimento(de, ate) },
       select: { valor: true, vencimento: true, customerId: true, status: true },
     });
 

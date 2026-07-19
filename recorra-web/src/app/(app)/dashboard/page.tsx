@@ -303,17 +303,18 @@ export default function DashboardPage() {
     const id = ++pedido.current;
     const qs = query ? `?${query}` : '';
     setErro('');
-    const [resumo, canaisResp] = await Promise.all([
+    const [resumo, canaisResp, agingResp] = await Promise.all([
       api<Resumo>(`/dashboard/resumo${qs}`).catch((e: Error) => { if (id === pedido.current) setErro(e.message); return null; }),
       api<Canais>(`/dashboard/disparos-canais${qs}`).catch(() => null),
+      api<Aging>(`/dashboard/aging${qs}`).catch(() => null),
     ]);
     if (id !== pedido.current) return;
     setData(resumo);
     setCanais(canaisResp);
+    setAging(agingResp);
   }, [query]);
 
   useEffect(() => { carregar(); }, [carregar]);
-  useEffect(() => { api<Aging>('/dashboard/aging').then(setAging).catch(() => {}); }, []);
   // Mesma corrida do `pedido`: alternar 24m -> 6m depressa pode deixar a
   // resposta longa chegar por último e desenhar 24 pontos com o 6m marcado.
   useEffect(() => {
@@ -346,7 +347,7 @@ export default function DashboardPage() {
       {data && (
         <>
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-            <Metric label="Inadimplência (hoje)" value={brl(data.inadimplencia.valor)} accent="#EF4444" />
+            <Metric label="Inadimplência" value={brl(data.inadimplencia.valor)} accent="#EF4444" />
             <Metric label="Recuperado no período" value={brl(data.recuperadoMes.valor)} accent="#0F6E56" />
             <Metric label="Taxa de recuperação" value={`${data.taxaRecuperacao}%`} accent="#14857C" />
             <Metric label="Disparos no período" value={num(data.disparosMes)} />

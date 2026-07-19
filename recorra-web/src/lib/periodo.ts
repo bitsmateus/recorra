@@ -18,25 +18,27 @@ export function iso(d: Date): string {
 /**
  * Converte um preset no intervalo `de`/`ate` que vai para a API.
  *
- * Os presets de dias incluem hoje ("7 dias" = hoje e os 6 anteriores). O cálculo
- * é feito aqui, no navegador, porque é o calendário do usuário que define o que
- * "este mês" significa — o servidor só recebe as duas datas já resolvidas.
+ * O filtro recorta as cobranças pela data de vencimento, então mês e ano são o
+ * período de calendário INTEIRO — "Este mês" inclui o que ainda vai vencer até o
+ * fim do mês, não só até hoje. Já os presets de dias são janelas móveis que
+ * terminam hoje ("30 dias" = o que venceu nos últimos 30 dias). O cálculo é feito
+ * aqui, no navegador, porque é o calendário do usuário que define esses limites —
+ * o servidor só recebe as duas datas já resolvidas.
  */
 export function intervaloDe(chave: PeriodoChave, hoje = new Date()): { de: string; ate: string } | null {
   const ate = iso(hoje);
   const dias = (n: number) => iso(new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() - (n - 1)));
+  const y = hoje.getFullYear(), m = hoje.getMonth();
 
   switch (chave) {
     case '7d': return { de: dias(7), ate };
     case '15d': return { de: dias(15), ate };
     case '30d': return { de: dias(30), ate };
     case '90d': return { de: dias(90), ate };
-    case 'mes': return { de: iso(new Date(hoje.getFullYear(), hoje.getMonth(), 1)), ate };
-    case 'mes-passado': return {
-      de: iso(new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1)),
-      ate: iso(new Date(hoje.getFullYear(), hoje.getMonth(), 0)), // dia 0 = último dia do mês anterior
-    };
-    case 'ano': return { de: iso(new Date(hoje.getFullYear(), 0, 1)), ate };
+    // Dia 0 do mês seguinte = último dia do mês atual.
+    case 'mes': return { de: iso(new Date(y, m, 1)), ate: iso(new Date(y, m + 1, 0)) };
+    case 'mes-passado': return { de: iso(new Date(y, m - 1, 1)), ate: iso(new Date(y, m, 0)) };
+    case 'ano': return { de: iso(new Date(y, 0, 1)), ate: iso(new Date(y, 11, 31)) };
     default: return null; // custom: quem manda são os campos de data
   }
 }
