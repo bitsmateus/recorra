@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, Users, Plug, LogOut, CreditCard, Settings, GitBranch, UserCog, Send, BarChart3, Gauge, HelpCircle, ChevronDown, Megaphone, Wallet, SlidersHorizontal, Radio, Menu, X, Mail, MessageSquare } from 'lucide-react';
+import { LayoutDashboard, Users, Plug, LogOut, CreditCard, GitBranch, UserCog, Send, BarChart3, Gauge, HelpCircle, ChevronDown, Megaphone, Wallet, SlidersHorizontal, Radio, Menu, X, Mail, MessageSquare } from 'lucide-react';
 import { Logo } from '@/components/Logo';
 import { getToken, logout } from '@/lib/api';
 
@@ -33,7 +33,6 @@ const grupos: Grupo[] = [
     { href: '/integracoes', label: 'Integrações', icon: Plug },
     { href: '/equipe', label: 'Equipe', icon: UserCog },
     { href: '/plano', label: 'Plano', icon: Gauge },
-    { href: '/configuracoes', label: 'Ajustes', icon: Settings },
   ] },
   { label: 'Ajuda', icon: HelpCircle, items: [
     { href: '/ajuda', label: 'Central de Ajuda', icon: HelpCircle },

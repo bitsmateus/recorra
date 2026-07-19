@@ -5,6 +5,7 @@ import { RefreshCw, Plus, Trash2, X, Database } from 'lucide-react';
 import { api } from '@/lib/api';
 import { PageTitle } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import GatewayPagamento from '@/components/GatewayPagamento';
 
 // ERPs com integração nativa (puxam clientes + cobranças automaticamente).
 type CampoCred = { key: string; label: string; placeholder?: string; extra?: boolean };
@@ -100,6 +101,8 @@ export default function IntegracoesPage() {
           {!loading && lista.length === 0 && <div className="col-span-full rounded-lg border border-dashed border-line py-10 text-center text-sm text-muted">Nenhum ERP conectado. Clique em "Adicionar integração" para começar a puxar seus clientes e cobranças.</div>}
         </div>
       </section>
+
+      <GatewayPagamento />
 
       {novo && <NovaIntegracaoModal onClose={() => setNovo(false)} onCreated={() => { setNovo(false); carregar(); }} />}
       {confirmarExclusao && (
