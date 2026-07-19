@@ -13,7 +13,7 @@ export class PlatformWebhookController {
 
   @Post('asaas')
   @HttpCode(200)
-  asaas(@Headers() headers: Record<string, string>, @Body() body: unknown) {
+  receber(@Headers() headers: Record<string, string>, @Body() body: unknown) {
     return this.asaas.handleWebhook(headers, body);
   }
 }
