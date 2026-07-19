@@ -8,6 +8,19 @@ import { generateTotpSecret, totpAuthUrl, verifyTotp } from '@/common/auth/totp'
 import { detectAnomalies } from './anomaly';
 import { PLANS } from './plans';
 
+export interface PlanoInput {
+  nome?: string;
+  preco?: number;
+  sobConsulta?: boolean;
+  maxClientes?: number;
+  disparosInclusos?: number;
+  custoExcedente?: number;
+  maxUsuarios?: number;
+  features?: unknown[];
+  ativo?: boolean;
+  ordem?: number;
+}
+
 @Injectable()
 export class PlatformService {
   constructor(
@@ -54,7 +67,7 @@ export class PlatformService {
   // ---------------- Tenants ----------------
 
   async listTenants() {
-    const tenants = await this.prisma.tenant.findMany({ orderBy: { createdAt: 'desc' } });
+    const tenants = await this.prisma.tenant.findMany({ orderBy: { createdAt: 'desc' }, include: { plan: { select: { id: true, nome: true } } } });
     const out = [];
     for (const t of tenants) {
       const [clientes, faturas, disparos] = await Promise.all([
@@ -62,7 +75,7 @@ export class PlatformService {
         this.prisma.invoice.count({ where: { tenantId: t.id } }),
         this.prisma.messageDispatch.count({ where: { tenantId: t.id } }),
       ]);
-      out.push({ id: t.id, nome: t.nome, cnpj: t.cnpj, plano: t.plano, ativo: t.ativo, criadoEm: t.createdAt, uso: { clientes, faturas, disparos } });
+      out.push({ id: t.id, nome: t.nome, cnpj: t.cnpj, plano: t.plano, planId: t.planId, planoNome: t.plan?.nome ?? null, ativo: t.ativo, criadoEm: t.createdAt, uso: { clientes, faturas, disparos } });
     }
     return out;
   }
@@ -94,11 +107,12 @@ export class PlatformService {
     return { id: tenant.id, nome: tenant.nome };
   }
 
-  async updateTenant(id: string, patch: { nome?: string; cnpj?: string; ativo?: boolean; plano?: PlanTier }) {
+  async updateTenant(id: string, patch: { nome?: string; cnpj?: string; ativo?: boolean; plano?: PlanTier; planId?: string | null }) {
     return this.prisma.tenant.update({
       where: { id },
-      data: { nome: patch.nome, cnpj: patch.cnpj, ativo: patch.ativo, plano: patch.plano },
-      select: { id: true, nome: true, cnpj: true, ativo: true, plano: true },
+      // planId: string vincula ao catálogo; null desvincula (volta a usar o enum `plano`).
+      data: { nome: patch.nome, cnpj: patch.cnpj, ativo: patch.ativo, plano: patch.plano, ...(patch.planId !== undefined ? { planId: patch.planId } : {}) },
+      select: { id: true, nome: true, cnpj: true, ativo: true, plano: true, planId: true },
     });
   }
 
@@ -130,9 +144,16 @@ export class PlatformService {
       this.prisma.platformInvoice.count(),
       this.prisma.tenant.groupBy({ by: ['plano'], _count: true, where: { ativo: true } }),
     ]);
-    // MRR estimado: soma da mensalidade base dos planos dos tenants ativos
-    const tenantsAtivos = await this.prisma.tenant.groupBy({ by: ['plano'], _count: true, where: { ativo: true } });
-    const mrr = tenantsAtivos.reduce((s, g) => s + (PLANS[g.plano as keyof typeof PLANS]?.preco ?? 0) * g._count, 0);
+    // MRR estimado: soma a mensalidade dos tenants ativos. Quem tem plano do catálogo
+    // (planId) usa o preço dele; senão cai no preço do enum legado. "Sob consulta" = 0.
+    const ativos = await this.prisma.tenant.findMany({
+      where: { ativo: true },
+      select: { plano: true, plan: { select: { preco: true, sobConsulta: true } } },
+    });
+    const mrr = ativos.reduce((s, t) => {
+      if (t.plan) return s + (t.plan.sobConsulta ? 0 : Number(t.plan.preco));
+      return s + (PLANS[t.plano as keyof typeof PLANS]?.preco ?? 0);
+    }, 0);
     return {
       faturado: Number(faturado._sum.valorTotal ?? 0),
       recebido: Number(recebido._sum.valorTotal ?? 0),
@@ -159,10 +180,69 @@ export class PlatformService {
     return this.prisma.platformInvoice.update({ where: { id }, data: { status: paga ? 'paga' : 'aberta' }, select: { id: true, status: true } });
   }
 
-  // ---------------- Planos (catalogo) ----------------
+  // ---------------- Planos (catalogo editável) ----------------
 
-  listPlanos() {
-    return Object.values(PLANS);
+  /** Normaliza os Decimais do banco para número, no formato que a UI consome. */
+  private mapPlano(p: {
+    id: string; nome: string; preco: unknown; sobConsulta: boolean; maxClientes: number;
+    disparosInclusos: number; custoExcedente: unknown; maxUsuarios: number; features: string[]; ativo: boolean; ordem: number;
+  }) {
+    return {
+      id: p.id, nome: p.nome, preco: Number(p.preco), sobConsulta: p.sobConsulta,
+      maxClientes: p.maxClientes, disparosInclusos: p.disparosInclusos, custoExcedente: Number(p.custoExcedente),
+      maxUsuarios: p.maxUsuarios, features: p.features, ativo: p.ativo, ordem: p.ordem, editavel: true,
+    };
+  }
+
+  /** Catálogo do banco; se ainda não foi semeado, cai no constante legado para não vir vazio. */
+  async listPlanos() {
+    const rows = await this.prisma.plan.findMany({ orderBy: [{ ordem: 'asc' }, { preco: 'asc' }] });
+    if (rows.length === 0) {
+      // Fallback: catálogo ainda não semeado. Não editável (não existe linha no banco).
+      return Object.values(PLANS).map((p, i) => ({
+        id: p.tier, nome: p.nome, preco: p.preco, sobConsulta: false, maxClientes: p.maxClientes,
+        disparosInclusos: p.disparosInclusos, custoExcedente: p.custoExcedente, maxUsuarios: p.maxUsuarios,
+        features: p.features as string[], ativo: true, ordem: i, editavel: false,
+      }));
+    }
+    return rows.map((p) => this.mapPlano(p));
+  }
+
+  private sanitizePlano(b: PlanoInput) {
+    const sobConsulta = !!b.sobConsulta;
+    return {
+      nome: (b.nome ?? '').trim(),
+      preco: sobConsulta ? 0 : Math.max(0, Number(b.preco) || 0),
+      sobConsulta,
+      maxClientes: Number.isFinite(Number(b.maxClientes)) ? Number(b.maxClientes) : -1,
+      disparosInclusos: Math.max(0, Number(b.disparosInclusos) || 0),
+      custoExcedente: Math.max(0, Number(b.custoExcedente) || 0),
+      maxUsuarios: Number.isFinite(Number(b.maxUsuarios)) ? Number(b.maxUsuarios) : -1,
+      features: Array.isArray(b.features) ? b.features.filter((f): f is string => typeof f === 'string') : [],
+      ativo: b.ativo === undefined ? true : !!b.ativo,
+      ordem: Number(b.ordem) || 0,
+    };
+  }
+
+  async createPlano(body: PlanoInput) {
+    const data = this.sanitizePlano(body);
+    if (!data.nome) throw new BadRequestException('Nome do plano é obrigatório.');
+    const p = await this.prisma.plan.create({ data });
+    return this.mapPlano(p);
+  }
+
+  async updatePlano(id: string, body: PlanoInput) {
+    const data = this.sanitizePlano(body);
+    if (!data.nome) throw new BadRequestException('Nome do plano é obrigatório.');
+    const p = await this.prisma.plan.update({ where: { id }, data });
+    return this.mapPlano(p);
+  }
+
+  async deletePlano(id: string) {
+    const emUso = await this.prisma.tenant.count({ where: { planId: id } });
+    if (emUso > 0) throw new ConflictException(`Este plano está em uso por ${emUso} cliente(s). Troque-os de plano antes de excluir.`);
+    await this.prisma.plan.delete({ where: { id } });
+    return { ok: true };
   }
 
   // ---------------- Admins da plataforma ----------------

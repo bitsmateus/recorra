@@ -103,9 +103,12 @@ function TenantsTab() {
   const [tenants, setTenants] = useState<any[]>([]);
   const [novo, setNovo] = useState(false);
   const [detalhe, setDetalhe] = useState<string | null>(null);
-  const planos = ['TRIAL', 'NOTIFICADOR', 'ESSENCIAL', 'PROFISSIONAL', 'ESCALA', 'ENTERPRISE'];
+  const tiersLegado = ['TRIAL', 'NOTIFICADOR', 'ESSENCIAL', 'PROFISSIONAL', 'ESCALA', 'ENTERPRISE'];
+  const [planosDb, setPlanosDb] = useState<any[]>([]);
   const load = useCallback(() => { adminApi<any[]>('/admin/tenants').then(setTenants).catch(() => {}); }, []);
   useEffect(load, [load]);
+  // Só os planos reais da tabela (editáveis) podem ser vinculados via planId.
+  useEffect(() => { adminApi<any[]>('/admin/planos').then((ps) => setPlanosDb(ps.filter((p) => p.editavel))).catch(() => {}); }, []);
 
   return (
     <div>
@@ -122,7 +125,14 @@ function TenantsTab() {
               <tr key={t.id} className="border-b border-line last:border-0">
                 <td className="px-4 py-3"><div className="font-medium text-ink">{t.nome}</div><div className="text-xs text-muted">{t.cnpj || '—'}</div></td>
                 <td className="px-4 py-3">
-                  <select value={t.plano} onChange={async (e) => { await adminApi(`/admin/tenants/${t.id}`, { method: 'PATCH', body: { plano: e.target.value } }); load(); }} className="rounded border border-line px-2 py-1 text-xs">{planos.map((p) => <option key={p}>{p}</option>)}</select>
+                  {planosDb.length > 0 ? (
+                    <select value={t.planId ?? ''} onChange={async (e) => { await adminApi(`/admin/tenants/${t.id}`, { method: 'PATCH', body: { planId: e.target.value || null } }); load(); }} className="rounded border border-line px-2 py-1 text-xs">
+                      <option value="">— (legado: {t.plano})</option>
+                      {planosDb.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
+                    </select>
+                  ) : (
+                    <select value={t.plano} onChange={async (e) => { await adminApi(`/admin/tenants/${t.id}`, { method: 'PATCH', body: { plano: e.target.value } }); load(); }} className="rounded border border-line px-2 py-1 text-xs">{tiersLegado.map((p) => <option key={p}>{p}</option>)}</select>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-xs text-muted">{t.uso.clientes} cli · {t.uso.faturas} fat · {t.uso.disparos} disp</td>
                 <td className="px-4 py-3">
@@ -222,23 +232,86 @@ function FinanceiroTab() {
   );
 }
 
+const FEATURES_PLANO = ['cobranca', 'ia_risco', 'reguas_por_risco', 'ia_completa', 'multi_gateway', 'api_ingestao'];
+const PLANO_VAZIO = { nome: '', preco: 0, sobConsulta: false, maxClientes: -1, disparosInclusos: 0, custoExcedente: 0, maxUsuarios: -1, features: [] as string[], ativo: true, ordem: 0 };
+
 function PlanosTab() {
   const [planos, setPlanos] = useState<any[]>([]);
-  useEffect(() => { adminApi<any[]>('/admin/planos').then(setPlanos).catch(() => {}); }, []);
+  const [form, setForm] = useState<any>(PLANO_VAZIO);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [msg, setMsg] = useState('');
+  const load = useCallback(() => { adminApi<any[]>('/admin/planos').then(setPlanos).catch(() => {}); }, []);
+  useEffect(load, [load]);
+
+  const set = (k: string, v: unknown) => setForm((s: any) => ({ ...s, [k]: v }));
+  const toggleFeat = (f: string) => setForm((s: any) => ({ ...s, features: s.features.includes(f) ? s.features.filter((x: string) => x !== f) : [...s.features, f] }));
+  const editar = (p: any) => { setEditId(p.id); setForm({ nome: p.nome, preco: p.preco, sobConsulta: p.sobConsulta, maxClientes: p.maxClientes, disparosInclusos: p.disparosInclusos, custoExcedente: p.custoExcedente, maxUsuarios: p.maxUsuarios, features: p.features, ativo: p.ativo, ordem: p.ordem }); };
+  const cancelar = () => { setEditId(null); setForm(PLANO_VAZIO); setMsg(''); };
+
+  async function salvar() {
+    if (!form.nome.trim()) return setMsg('Dê um nome ao plano.');
+    try {
+      if (editId) await adminApi(`/admin/planos/${editId}`, { method: 'PUT', body: form });
+      else await adminApi('/admin/planos', { method: 'POST', body: form });
+      cancelar(); load();
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro ao salvar'); }
+  }
+  async function excluir(id: string) {
+    try { await adminApi(`/admin/planos/${id}`, { method: 'DELETE' }); load(); }
+    catch (e) { setMsg(e instanceof Error ? e.message : 'Erro ao excluir'); }
+  }
+
   return (
     <div>
       <h2 className="mb-4 text-lg font-semibold text-ink">Planos</h2>
+
+      <div className="mb-6 rounded-lg border border-line bg-surface p-4">
+        <div className="mb-3 text-sm font-medium text-ink">{editId ? 'Editar plano' : 'Novo plano'}</div>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <label className="text-xs text-muted md:col-span-2">Nome<input value={form.nome} onChange={(e) => set('nome', e.target.value)} placeholder="Ex.: Até 1.000 clientes" className="mt-1 w-full rounded border border-line px-3 py-2 text-sm text-ink outline-none focus:border-primary" /></label>
+          <label className="flex items-end gap-2 text-xs text-muted"><input type="checkbox" checked={form.sobConsulta} onChange={(e) => set('sobConsulta', e.target.checked)} className="h-4 w-4 accent-primary" /> Sob consulta (sem preço fixo)</label>
+          {!form.sobConsulta && <label className="text-xs text-muted">Preço (R$/mês)<input type="number" min={0} step="0.01" value={form.preco} onChange={(e) => set('preco', Number(e.target.value))} className="mt-1 w-full rounded border border-line px-3 py-2 text-sm text-ink outline-none focus:border-primary" /></label>}
+          <label className="text-xs text-muted">Máx. clientes (-1 = ∞)<input type="number" value={form.maxClientes} onChange={(e) => set('maxClientes', Number(e.target.value))} className="mt-1 w-full rounded border border-line px-3 py-2 text-sm text-ink outline-none focus:border-primary" /></label>
+          <label className="text-xs text-muted">Disparos inclusos<input type="number" min={0} value={form.disparosInclusos} onChange={(e) => set('disparosInclusos', Number(e.target.value))} className="mt-1 w-full rounded border border-line px-3 py-2 text-sm text-ink outline-none focus:border-primary" /></label>
+          <label className="text-xs text-muted">Custo excedente (R$/msg)<input type="number" min={0} step="0.0001" value={form.custoExcedente} onChange={(e) => set('custoExcedente', Number(e.target.value))} className="mt-1 w-full rounded border border-line px-3 py-2 text-sm text-ink outline-none focus:border-primary" /></label>
+          <label className="text-xs text-muted">Máx. usuários (-1 = ∞)<input type="number" value={form.maxUsuarios} onChange={(e) => set('maxUsuarios', Number(e.target.value))} className="mt-1 w-full rounded border border-line px-3 py-2 text-sm text-ink outline-none focus:border-primary" /></label>
+          <label className="text-xs text-muted">Ordem na vitrine<input type="number" value={form.ordem} onChange={(e) => set('ordem', Number(e.target.value))} className="mt-1 w-full rounded border border-line px-3 py-2 text-sm text-ink outline-none focus:border-primary" /></label>
+        </div>
+        <div className="mt-3">
+          <span className="mb-1 block text-xs text-muted">Recursos inclusos</span>
+          <div className="flex flex-wrap gap-1.5">
+            {FEATURES_PLANO.map((f) => (
+              <button key={f} type="button" onClick={() => toggleFeat(f)} className={`rounded-full border px-2.5 py-1 text-xs ${form.features.includes(f) ? 'border-primary bg-primary-tint text-primary' : 'border-line text-muted hover:bg-canvas'}`}>{f}</button>
+            ))}
+          </div>
+        </div>
+        <div className="mt-3 flex items-center gap-3">
+          <label className="flex items-center gap-2 text-xs text-muted"><input type="checkbox" checked={form.ativo} onChange={(e) => set('ativo', e.target.checked)} className="h-4 w-4 accent-primary" /> Ativo</label>
+          <button onClick={salvar} className="rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover">{editId ? 'Salvar plano' : 'Adicionar plano'}</button>
+          {editId && <button onClick={cancelar} className="text-sm text-muted">cancelar</button>}
+          {msg && <span className="text-sm text-danger">{msg}</span>}
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         {planos.map((p) => (
-          <div key={p.tier} className="rounded-lg border border-line bg-surface p-4">
-            <div className="text-sm font-semibold text-ink">{p.nome}</div>
-            <div className="my-1 text-2xl font-semibold text-primary">{p.preco === 0 ? 'sob consulta' : brl(p.preco)}<span className="text-xs text-muted">{p.preco > 0 ? '/mês' : ''}</span></div>
+          <div key={p.id} className={`rounded-lg border bg-surface p-4 ${p.ativo ? 'border-line' : 'border-dashed border-line opacity-70'}`}>
+            <div className="flex items-start justify-between">
+              <div className="text-sm font-semibold text-ink">{p.nome}{!p.ativo && <span className="ml-1 text-xs font-normal text-muted">(inativo)</span>}</div>
+              {p.editavel && (
+                <div className="flex gap-1">
+                  <button onClick={() => editar(p)} className="rounded border border-line px-2 py-0.5 text-xs hover:bg-canvas">Editar</button>
+                  <button onClick={() => excluir(p.id)} className="rounded border border-line px-2 py-0.5 text-xs text-danger hover:bg-danger-tint">Excluir</button>
+                </div>
+              )}
+            </div>
+            <div className="my-1 text-2xl font-semibold text-primary">{p.sobConsulta ? 'sob consulta' : brl(p.preco)}<span className="text-xs text-muted">{p.sobConsulta ? '' : '/mês'}</span></div>
             <div className="text-xs text-muted">Até {p.maxClientes < 0 ? '∞' : p.maxClientes} clientes · {p.disparosInclusos} disparos · {p.maxUsuarios < 0 ? '∞' : p.maxUsuarios} usuários</div>
             <div className="mt-2 flex flex-wrap gap-1">{p.features.map((f: string) => <span key={f} className="rounded bg-canvas px-1.5 py-0.5 text-[10px] text-muted">{f}</span>)}</div>
           </div>
         ))}
       </div>
-      <p className="mt-3 text-xs text-muted">Os valores/limites dos planos vêm de <code>src/modules/platform/plans.ts</code>. Para torná-los editáveis pelo painel, criamos uma tabela de planos — me avise que eu implemento.</p>
+      {planos.some((p) => !p.editavel) && <p className="mt-3 text-xs text-muted">Estes planos ainda vêm do código (catálogo antigo). Rode <code>npm run prisma:seed</code> uma vez para trazer as faixas para a tabela e poder editá-las.</p>}
     </div>
   );
 }

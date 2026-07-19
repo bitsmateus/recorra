@@ -6,7 +6,7 @@ import { api } from '@/lib/api';
 import { PageTitle, Metric, brl } from '@/components/ui';
 
 interface PlanInfo {
-  plano: { nome: string; preco: number; maxClientes: number; disparosInclusos: number; maxUsuarios: number };
+  plano: { nome: string; preco: number; sobConsulta?: boolean; maxClientes: number; disparosInclusos: number; maxUsuarios: number };
   uso: { clientes: number; disparos: number; usuarios: number };
   fatura: { base: number; disparosExcedentes: number; valorExcedente: number; total: number };
   limites: { clientesOk: boolean; usuariosOk: boolean; avisos: string[] };
@@ -41,7 +41,7 @@ export default function PlanoPage() {
 
   return (
     <div>
-      <PageTitle title="Plano e uso" subtitle={`Plano atual: ${info.plano.nome} · ${brl(info.plano.preco)}/mês`} />
+      <PageTitle title="Plano e uso" subtitle={`Plano atual: ${info.plano.nome} · ${info.plano.sobConsulta ? 'sob consulta' : `${brl(info.plano.preco)}/mês`}`} />
 
       {info.limites.avisos.length > 0 && (
         <div className="mb-6 rounded-lg border border-warning/40 bg-warning-tint p-4">

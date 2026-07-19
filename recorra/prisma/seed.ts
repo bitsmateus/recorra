@@ -64,6 +64,22 @@ async function main() {
   }
 
 
+  // Catálogo de planos (faixas públicas do site). Só semeia se a tabela estiver vazia,
+  // para não sobrescrever o que o superadmin editar depois.
+  const jaTemPlano = await prisma.plan.count();
+  if (jaTemPlano === 0) {
+    const COBRANCA = ['cobranca', 'ia_risco', 'reguas_por_risco', 'multi_gateway', 'api_ingestao'];
+    await prisma.plan.createMany({
+      data: [
+        { nome: 'Até 300 clientes', preco: 297, maxClientes: 300, disparosInclusos: 1500, custoExcedente: 0.1, maxUsuarios: 3, features: COBRANCA, ordem: 1 },
+        { nome: 'Até 1.000 clientes', preco: 497, maxClientes: 1000, disparosInclusos: 5000, custoExcedente: 0.09, maxUsuarios: 5, features: COBRANCA, ordem: 2 },
+        { nome: 'Até 2.500 clientes', preco: 797, maxClientes: 2500, disparosInclusos: 12000, custoExcedente: 0.08, maxUsuarios: 10, features: COBRANCA, ordem: 3 },
+        { nome: 'Até 5.000 clientes', preco: 1297, maxClientes: 5000, disparosInclusos: 25000, custoExcedente: 0.07, maxUsuarios: 15, features: COBRANCA, ordem: 4 },
+        { nome: 'Acima disso', preco: 0, sobConsulta: true, maxClientes: -1, disparosInclusos: 0, custoExcedente: 0.07, maxUsuarios: -1, features: COBRANCA, ordem: 5 },
+      ],
+    });
+  }
+
   // eslint-disable-next-line no-console
   console.log('✅ Seed concluído.');
   // eslint-disable-next-line no-console

@@ -1,8 +1,8 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Request } from 'express';
 import { PlanTier } from '@prisma/client';
-import { PlatformService } from './platform.service';
+import { PlatformService, PlanoInput } from './platform.service';
 import { PlatformGuard, PlatformPayload } from './platform.guard';
 import { BillingSaasService } from './billing-saas.service';
 
@@ -57,11 +57,29 @@ export class PlatformController {
     return this.platform.marcarFaturaPaga(id, paga ?? true);
   }
 
-  // ---- Planos ----
+  // ---- Planos (catálogo editável) ----
   @Get('planos')
   @UseGuards(PlatformGuard)
   planos() {
     return this.platform.listPlanos();
+  }
+
+  @Post('planos')
+  @UseGuards(PlatformGuard)
+  criarPlano(@Body() body: PlanoInput) {
+    return this.platform.createPlano(body);
+  }
+
+  @Put('planos/:id')
+  @UseGuards(PlatformGuard)
+  editarPlano(@Param('id') id: string, @Body() body: PlanoInput) {
+    return this.platform.updatePlano(id, body);
+  }
+
+  @Delete('planos/:id')
+  @UseGuards(PlatformGuard)
+  excluirPlano(@Param('id') id: string) {
+    return this.platform.deletePlano(id);
   }
 
   // ---- Admins da plataforma ----
@@ -98,7 +116,7 @@ export class PlatformController {
 
   @Patch('tenants/:id')
   @UseGuards(PlatformGuard)
-  updateTenant(@Param('id') id: string, @Body() body: { nome?: string; cnpj?: string; ativo?: boolean; plano?: PlanTier }) {
+  updateTenant(@Param('id') id: string, @Body() body: { nome?: string; cnpj?: string; ativo?: boolean; plano?: PlanTier; planId?: string | null }) {
     return this.platform.updateTenant(id, body);
   }
 

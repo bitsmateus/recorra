@@ -146,7 +146,9 @@ model Tenant {
   id           String   @id @default(cuid())
   nome         String
   cnpj         String?
-  plano        PlanTier @default(TRIAL)
+  plano        PlanTier @default(TRIAL) // legado: fallback enquanto planId não é definido
+  planId       String?  // plano do catálogo editável (tabela plans); null = usa `plano`
+  plan         Plan?    @relation(fields: [planId], references: [id])
   ativo        Boolean  @default(true)
   timezone     String   @default("America/Sao_Paulo")
   config       Json?
@@ -176,6 +178,27 @@ model Tenant {
   conversations      Conversation[]
 
   @@map("tenants")
+}
+
+/// Catálogo de planos do SaaS, editável pelo superadmin (substitui a constante PLANS).
+model Plan {
+  id               String   @id @default(cuid())
+  nome             String
+  preco            Decimal  @default(0) @db.Decimal(12, 2) // mensalidade base (R$); 0 quando sobConsulta
+  sobConsulta      Boolean  @default(false) // "Acima disso: sob consulta"
+  maxClientes      Int      @default(-1) // -1 = ilimitado
+  disparosInclusos Int      @default(0)
+  custoExcedente   Decimal  @default(0) @db.Decimal(10, 4) // R$/msg acima do incluso
+  maxUsuarios      Int      @default(-1) // -1 = ilimitado
+  features         String[] // ex.: cobranca, ia_risco, multi_gateway...
+  ativo            Boolean  @default(true) // aparece para escolha/exibição
+  ordem            Int      @default(0) // ordenação na vitrine
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  tenants Tenant[]
+
+  @@map("plans")
 }
 
 model ApiKey {
