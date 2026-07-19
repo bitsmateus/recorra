@@ -47,6 +47,19 @@ export class PlatformController {
     return this.platform.financeiro();
   }
 
+  // ---- Relatórios (tendências, implementações, disparos, ranking) ----
+  @Get('relatorios/financeiro')
+  @UseGuards(PlatformGuard)
+  relatorioFinanceiro() {
+    return this.platform.relatorioFinanceiro();
+  }
+
+  @Get('relatorios/disparos')
+  @UseGuards(PlatformGuard)
+  relatorioDisparos() {
+    return this.platform.relatorioDisparos();
+  }
+
   @Get('faturas')
   @UseGuards(PlatformGuard)
   faturas(@Query('status') status?: string) {

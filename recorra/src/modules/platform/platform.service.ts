@@ -275,4 +275,92 @@ export class PlatformService {
     ]);
     return { tenants, tenantsAtivos: ativos, clientes, disparos, recuperadoTotal: Number(recuperado._sum.valor ?? 0) };
   }
+
+  // ---------------- Relatórios (superadmin) ----------------
+
+  /** MRR: soma da mensalidade dos tenants ativos (plano do catálogo ou enum legado; sob consulta = 0). */
+  private async calcularMrr(): Promise<number> {
+    const ativos = await this.prisma.tenant.findMany({
+      where: { ativo: true },
+      select: { plano: true, plan: { select: { preco: true, sobConsulta: true } } },
+    });
+    return ativos.reduce((s, t) => {
+      if (t.plan) return s + (t.plan.sobConsulta ? 0 : Number(t.plan.preco));
+      return s + (PLANS[t.plano as keyof typeof PLANS]?.preco ?? 0);
+    }, 0);
+  }
+
+  /** Últimos N meses como buckets [gte, lt) com chave YYYY-MM e rótulo curto. */
+  private ultimosMeses(n: number) {
+    const hoje = new Date();
+    const chave = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    return Array.from({ length: n }, (_, i) => {
+      const d = new Date(hoje.getFullYear(), hoje.getMonth() - (n - 1) + i, 1);
+      const prox = new Date(hoje.getFullYear(), hoje.getMonth() - (n - 1) + i + 1, 1);
+      return { mes: chave(d), label: d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', ''), gte: d, lt: prox };
+    });
+  }
+
+  /** Distintos tenantIds com registro ativo numa tabela de setup (para o funil de implementação). */
+  private async tenantsCom(model: 'channelAccount' | 'paymentProviderAccount' | 'dunningRule' | 'sourceIntegration'): Promise<Set<string>> {
+    const rows = await (this.prisma[model] as { groupBy: (a: unknown) => Promise<{ tenantId: string }[]> }).groupBy({ by: ['tenantId'], where: { ativo: true } });
+    return new Set(rows.map((r) => r.tenantId));
+  }
+
+  /** Relatório financeiro do SaaS: MRR, receita por mês e implementações (novos tenants e ativos "live"). */
+  async relatorioFinanceiro() {
+    const meses = this.ultimosMeses(12);
+    const [mrr, tenantsTotal, tenantsAtivos, faturasPorMes, recebidasPorMes, novosPorMes, comCanal, comGateway, comRegua, comIntegracao, clientesRows] = await Promise.all([
+      this.calcularMrr(),
+      this.prisma.tenant.count(),
+      this.prisma.tenant.count({ where: { ativo: true } }),
+      this.prisma.platformInvoice.groupBy({ by: ['competencia'], _sum: { valorTotal: true } }),
+      this.prisma.platformInvoice.groupBy({ by: ['competencia'], where: { status: 'paga' }, _sum: { valorTotal: true } }),
+      Promise.all(meses.map((m) => this.prisma.tenant.count({ where: { createdAt: { gte: m.gte, lt: m.lt } } }))),
+      this.tenantsCom('channelAccount'),
+      this.tenantsCom('paymentProviderAccount'),
+      this.tenantsCom('dunningRule'),
+      this.tenantsCom('sourceIntegration'),
+      this.prisma.customer.groupBy({ by: ['tenantId'] }),
+    ]);
+
+    const fatMap = new Map(faturasPorMes.map((f) => [f.competencia, Number(f._sum.valorTotal ?? 0)]));
+    const recMap = new Map(recebidasPorMes.map((f) => [f.competencia, Number(f._sum.valorTotal ?? 0)]));
+    const receitaMensal = meses.map((m) => ({ mes: m.mes, label: m.label, faturado: fatMap.get(m.mes) ?? 0, recebido: recMap.get(m.mes) ?? 0 }));
+    const novosTenants = meses.map((m, i) => ({ mes: m.mes, label: m.label, novos: novosPorMes[i] }));
+
+    // Implementado ("live") = tem canal + gateway + régua + (clientes ou integração).
+    const temBase = new Set<string>([...clientesRows.map((c) => c.tenantId), ...comIntegracao]);
+    let implementados = 0;
+    for (const id of comCanal) if (comGateway.has(id) && comRegua.has(id) && temBase.has(id)) implementados++;
+
+    return { mrr, tenantsTotal, tenantsAtivos, implementados, receitaMensal, novosTenants };
+  }
+
+  /** Relatório de disparos do SaaS: volume por mês, por canal, por status e ranking de tenants. */
+  async relatorioDisparos() {
+    const meses = this.ultimosMeses(12);
+    const [total, porMesCounts, porCanal, porStatus, ranking] = await Promise.all([
+      this.prisma.messageDispatch.count(),
+      Promise.all(meses.map((m) => this.prisma.messageDispatch.count({ where: { createdAt: { gte: m.gte, lt: m.lt } } }))),
+      this.prisma.messageDispatch.groupBy({ by: ['canal'], _count: { _all: true } }),
+      this.prisma.messageDispatch.groupBy({ by: ['status'], _count: { _all: true } }),
+      this.prisma.messageDispatch.groupBy({ by: ['tenantId'], _count: { _all: true }, orderBy: { _count: { tenantId: 'desc' } }, take: 10 }),
+    ]);
+
+    const nomes = new Map(
+      (await this.prisma.tenant.findMany({ where: { id: { in: ranking.map((r) => r.tenantId) } }, select: { id: true, nome: true } })).map((t) => [t.id, t.nome]),
+    );
+    const tipoDe = (c: string) => (c.startsWith('WHATSAPP') ? 'WHATSAPP' : c);
+    const canalMap = new Map<string, number>();
+    for (const g of porCanal) { const k = tipoDe(g.canal); canalMap.set(k, (canalMap.get(k) ?? 0) + g._count._all); }
+
+    return {
+      total,
+      porMes: meses.map((m, i) => ({ mes: m.mes, label: m.label, total: porMesCounts[i] })),
+      porCanal: [...canalMap.entries()].map(([canal, qtd]) => ({ canal, total: qtd })).sort((a, b) => b.total - a.total),
+      porStatus: porStatus.map((g) => ({ status: g.status, total: g._count._all })),
+      rankingTenants: ranking.map((r) => ({ tenantId: r.tenantId, nome: nomes.get(r.tenantId) ?? '—', disparos: r._count._all })),
+    };
+  }
 }

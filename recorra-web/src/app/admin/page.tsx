@@ -7,9 +7,10 @@ import { adminApi, getAdminToken, clearAdminToken } from '@/lib/adminApi';
 import { Logo } from '@/components/Logo';
 import { Metric, brl } from '@/components/ui';
 
-type Tab = 'dashboard' | 'tenants' | 'financeiro' | 'planos' | 'tutoriais' | 'admins';
+type Tab = 'dashboard' | 'relatorios' | 'tenants' | 'financeiro' | 'planos' | 'tutoriais' | 'admins';
 const TABS: { id: Tab; label: string }[] = [
   { id: 'dashboard', label: 'Dashboard' },
+  { id: 'relatorios', label: 'Relatórios' },
   { id: 'tenants', label: 'Tenants' },
   { id: 'financeiro', label: 'Financeiro' },
   { id: 'planos', label: 'Planos' },
@@ -50,12 +51,125 @@ export default function AdminPage() {
 
       <main className="mx-auto max-w-6xl p-8">
         {tab === 'dashboard' && <DashboardTab />}
+        {tab === 'relatorios' && <RelatoriosTab />}
         {tab === 'tenants' && <TenantsTab />}
         {tab === 'financeiro' && <FinanceiroTab />}
         {tab === 'planos' && <PlanosTab />}
         {tab === 'tutoriais' && <TutoriaisTab />}
         {tab === 'admins' && <AdminsTab />}
       </main>
+    </div>
+  );
+}
+
+/** Barras mensais reutilizável (1 ou 2 séries). SVG, sem lib. */
+function BarChart({ titulo, sub, dados, series, fmt }: {
+  titulo: string; sub?: string; dados: any[];
+  series: { key: string; cor: string; nome: string }[];
+  fmt: (n: number) => string;
+}) {
+  const w = 720, h = 220, padX = 40, padTop = 12, padBottom = 28;
+  const max = Math.max(1, ...dados.flatMap((d) => series.map((s) => Number(d[s.key]) || 0)));
+  const n = dados.length || 1;
+  const slot = (w - padX * 2) / n;
+  const bw = Math.min(slot / (series.length + 0.5), 26);
+  const y = (v: number) => padTop + (1 - v / max) * (h - padTop - padBottom);
+  return (
+    <div className="rounded-lg border border-line bg-surface p-4">
+      <div className="mb-1 flex items-center justify-between">
+        <h3 className="text-sm font-medium text-ink">{titulo}</h3>
+        {series.length > 1 && (
+          <div className="flex gap-3 text-xs text-muted">
+            {series.map((s) => <span key={s.key} className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{ background: s.cor }} />{s.nome}</span>)}
+          </div>
+        )}
+      </div>
+      {sub && <p className="mb-2 text-xs text-muted">{sub}</p>}
+      {dados.length === 0 ? <p className="py-12 text-center text-sm text-muted">Sem dados.</p> : (
+        <div className="w-full overflow-x-auto">
+          <svg viewBox={`0 0 ${w} ${h}`} className="h-52 w-full min-w-[560px]">
+            {dados.map((d, i) => {
+              const x0 = padX + i * slot + (slot - bw * series.length) / 2;
+              return (
+                <g key={i}>
+                  {series.map((s, si) => {
+                    const v = Number(d[s.key]) || 0;
+                    const topo = y(v);
+                    return <rect key={s.key} x={x0 + si * bw} y={topo} width={Math.max(1, bw - 2)} height={Math.max(0, h - padBottom - topo)} rx={2} fill={s.cor}><title>{`${d.label}: ${fmt(v)}`}</title></rect>;
+                  })}
+                  <text x={padX + i * slot + slot / 2} y={h - padBottom + 14} textAnchor="middle" className="fill-muted text-[10px]">{d.label}</text>
+                </g>
+              );
+            })}
+          </svg>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RelatoriosTab() {
+  const [fin, setFin] = useState<any>(null);
+  const [disp, setDisp] = useState<any>(null);
+  useEffect(() => {
+    adminApi('/admin/relatorios/financeiro').then(setFin).catch(() => {});
+    adminApi('/admin/relatorios/disparos').then(setDisp).catch(() => {});
+  }, []);
+  const nf = (n: number) => Number(n).toLocaleString('pt-BR');
+  const canalLabel: Record<string, string> = { WHATSAPP: 'WhatsApp', EMAIL: 'E-mail', SMS: 'SMS', HTTP_GENERIC: 'HTTP', NX_SYSTEMS: 'NX' };
+
+  return (
+    <div className="space-y-10">
+      <section className="space-y-4">
+        <h2 className="text-sm font-semibold text-ink">Financeiro &amp; implementações</h2>
+        {fin && (
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+            <Metric label="MRR" value={brl(fin.mrr)} accent="#14857C" />
+            <Metric label="Tenants ativos" value={nf(fin.tenantsAtivos)} accent="#0F6E56" />
+            <Metric label="Total de tenants" value={nf(fin.tenantsTotal)} />
+            <Metric label="Implementados (live)" value={nf(fin.implementados)} accent="#0F6E56" />
+          </div>
+        )}
+        {fin && <BarChart titulo="Receita por mês" sub="Faturas da plataforma emitidas x recebidas" dados={fin.receitaMensal} series={[{ key: 'faturado', cor: '#94A3B8', nome: 'Faturado' }, { key: 'recebido', cor: '#14857C', nome: 'Recebido' }]} fmt={brl} />}
+        {fin && <BarChart titulo="Novos tenants por mês" sub="Implementações (assinaturas iniciadas)" dados={fin.novosTenants} series={[{ key: 'novos', cor: '#14857C', nome: 'Novos' }]} fmt={nf} />}
+      </section>
+
+      <section className="space-y-4">
+        <h2 className="text-sm font-semibold text-ink">Disparos da plataforma</h2>
+        {disp && (
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+            <Metric label="Total de disparos" value={nf(disp.total)} />
+            {disp.porCanal?.slice(0, 3).map((c: any) => <Metric key={c.canal} label={canalLabel[c.canal] ?? c.canal} value={nf(c.total)} />)}
+          </div>
+        )}
+        {disp && <BarChart titulo="Disparos por mês" dados={disp.porMes} series={[{ key: 'total', cor: '#14857C', nome: 'Disparos' }]} fmt={nf} />}
+        {disp && (
+          <div className="rounded-lg border border-line bg-surface p-4">
+            <h3 className="mb-3 text-sm font-medium text-ink">Ranking de tenants por disparos</h3>
+            <div className="w-full overflow-x-auto"><table className="w-full min-w-[420px] text-sm">
+              <thead className="border-b border-line text-left text-xs uppercase text-muted"><tr><th className="py-2 font-medium">#</th><th className="py-2 font-medium">Tenant</th><th className="py-2 text-right font-medium">Disparos</th></tr></thead>
+              <tbody>
+                {disp.rankingTenants?.map((r: any, i: number) => (
+                  <tr key={r.tenantId} className="border-b border-line last:border-0">
+                    <td className="py-2 text-muted">{i + 1}</td>
+                    <td className="py-2 font-medium text-ink">{r.nome}</td>
+                    <td className="tabular py-2 text-right">{nf(r.disparos)}</td>
+                  </tr>
+                ))}
+                {(!disp.rankingTenants || disp.rankingTenants.length === 0) && <tr><td colSpan={3} className="py-6 text-center text-muted">Sem disparos ainda.</td></tr>}
+              </tbody>
+            </table></div>
+          </div>
+        )}
+        {disp && disp.porStatus?.length > 0 && (
+          <div className="rounded-lg border border-line bg-surface p-4">
+            <h3 className="mb-2 text-sm font-medium text-ink">Por status</h3>
+            <div className="flex flex-wrap gap-2">
+              {disp.porStatus.map((s: any) => <span key={s.status} className="rounded-full bg-canvas px-3 py-1 text-xs text-ink">{s.status}: <span className="font-medium">{nf(s.total)}</span></span>)}
+            </div>
+          </div>
+        )}
+      </section>
     </div>
   );
 }
