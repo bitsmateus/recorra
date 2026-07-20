@@ -250,6 +250,19 @@ export class ChargesService {
     }
   }
 
+  /**
+   * Remove as cobranças PAGAS que vieram da importação de gateway (origem "import-gateway").
+   * Não toca em cobranças geradas/manuais nem em pendentes/vencidas. As pagas podem ser
+   * trazidas de volta por cliente via "Sincronizar pagas". Os disparos ligados a essas
+   * faturas têm o vínculo anulado (invoiceId = null), preservando o histórico de envios.
+   */
+  async limparPagasImportadas(tenantId: string) {
+    const r = await this.prisma.invoice.deleteMany({
+      where: { tenantId, origem: "import-gateway", status: "PAGA" },
+    });
+    return { excluidas: r.count };
+  }
+
   listInvoices(
     tenantId: string,
     filtros: {

@@ -53,6 +53,7 @@ export default function CobrancasPage() {
   const [editar, setEditar] = useState<Invoice | null>(null);
   const [excluir, setExcluir] = useState<Invoice | null>(null);
   const [confirmarImport, setConfirmarImport] = useState(false);
+  const [confirmarLimparPagas, setConfirmarLimparPagas] = useState(false);
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
   const [confirmarLote, setConfirmarLote] = useState(false);
   const [pagamento, setPagamento] = useState<Invoice | null>(null);
@@ -117,6 +118,16 @@ export default function CobrancasPage() {
     setBusy(false);
   }
 
+  async function limparPagasImportadas() {
+    setBusy(true); setMsg('Limpando cobranças pagas importadas...');
+    try {
+      const r = await api<{ excluidas: number }>('/cobrancas/limpar-pagas-importadas', { method: 'POST' });
+      setMsg(`✓ ${r.excluidas} cobrança(s) paga(s) importada(s) removida(s). Elas podem voltar por cliente em "Sincronizar pagas".`);
+      load();
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro ao limpar'); }
+    setBusy(false);
+  }
+
   async function baixarModelo() {
     try {
       const r = await api<{ filename: string; base64: string; mime: string }>('/cobrancas/modelo-excel');
@@ -171,6 +182,8 @@ export default function CobrancasPage() {
                 <button onClick={() => { setMenuImport(false); setWizard(true); }} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-canvas"><FileSpreadsheet size={15} /> Assistente Excel/CSV</button>
                 <button onClick={() => { setMenuImport(false); pedirImportacao(); }} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-canvas"><Download size={15} /> Importar do gateway</button>
                 <button onClick={() => { setMenuImport(false); baixarModelo(); }} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-canvas"><FileDown size={15} /> Baixar modelo Excel</button>
+                <div className="border-t border-line" />
+                <button onClick={() => { setMenuImport(false); setConfirmarLimparPagas(true); }} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-danger hover:bg-danger-tint"><Trash2 size={15} /> Limpar pagas importadas</button>
               </div>
             </>
           )}
@@ -266,6 +279,16 @@ export default function CobrancasPage() {
           confirmLabel="Importar"
           onConfirm={() => { setConfirmarImport(false); importarGateway(); }}
           onClose={() => setConfirmarImport(false)}
+        />
+      )}
+      {confirmarLimparPagas && (
+        <ConfirmDialog
+          titulo="Limpar cobranças pagas importadas"
+          mensagem={<>Remover todas as cobranças <b className="text-ink">já pagas</b> que vieram da importação de gateway? Cobranças pendentes/vencidas e as geradas manualmente não são afetadas. Você pode trazer as pagas de volta por cliente em <b className="text-ink">Sincronizar pagas</b>.</>}
+          confirmLabel="Limpar pagas"
+          danger
+          onConfirm={() => { setConfirmarLimparPagas(false); limparPagasImportadas(); }}
+          onClose={() => setConfirmarLimparPagas(false)}
         />
       )}
     </div>

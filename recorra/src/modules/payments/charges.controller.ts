@@ -126,6 +126,12 @@ export class ChargesController {
     return this.charges.importarDoGateway(tenantId, accountId, { somentePagas: !!somentePagas, customerId });
   }
 
+  @Post('limpar-pagas-importadas')
+  @Roles('OWNER', 'ADMIN')
+  limparPagasImportadas(@TenantId() tenantId: string) {
+    return this.charges.limparPagasImportadas(tenantId);
+  }
+
   @Post('lote')
   @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
   lote(
