@@ -71,6 +71,8 @@ export interface ImportedPayment {
 
 export interface PaymentProvider {
   readonly type: string;
+  /** Valida as credenciais fazendo uma chamada leve autenticada. */
+  testConnection?(): Promise<boolean>;
   createCharge(input: CreateChargeInput): Promise<CreateChargeResult>;
   getChargeStatus(externalId: string): Promise<ChargeStatusResult>;
   cancelCharge(externalId: string): Promise<void>;

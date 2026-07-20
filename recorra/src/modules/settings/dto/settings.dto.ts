@@ -40,6 +40,21 @@ export class CreatePaymentAccountDto {
   credentials!: Record<string, unknown>;
 }
 
+export class UpdatePaymentAccountDto {
+  @IsOptional()
+  @IsString()
+  apelido?: string;
+
+  @IsOptional()
+  @IsIn(['sandbox', 'production'])
+  ambiente?: string;
+
+  // Se enviado (com chaves), recifra as credenciais. Vazio/ausente mantém as atuais.
+  @IsOptional()
+  @IsObject()
+  credentials?: Record<string, unknown>;
+}
+
 export class CreateChannelAccountDto {
   @IsIn(['WHATSAPP_CLOUD', 'WHATSAPP_EVOLUTION', 'WHATSAPP_UAZAPI', 'EMAIL', 'SMS', 'HTTP_GENERIC', 'NX_SYSTEMS'])
   canal!: ChannelType;

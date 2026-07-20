@@ -4,7 +4,7 @@ import { RolesGuard } from '@/common/auth/roles.guard';
 import { Roles } from '@/common/auth/roles.decorator';
 import { TenantId } from '@/common/auth/current-user.decorator';
 import { SettingsService } from './settings.service';
-import { CreateIntegrationDto, UpdateIntegrationDto, CreatePaymentAccountDto, CreateChannelAccountDto } from './dto/settings.dto';
+import { CreateIntegrationDto, UpdateIntegrationDto, CreatePaymentAccountDto, UpdatePaymentAccountDto, CreateChannelAccountDto } from './dto/settings.dto';
 
 @Controller('config')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -51,6 +51,24 @@ export class SettingsController {
   @Roles('OWNER', 'ADMIN')
   createGateway(@TenantId() tenantId: string, @Body() dto: CreatePaymentAccountDto) {
     return this.settings.createPaymentAccount(tenantId, dto);
+  }
+
+  @Patch('gateways/:id')
+  @Roles('OWNER', 'ADMIN')
+  updateGateway(@TenantId() tenantId: string, @Param('id') id: string, @Body() dto: UpdatePaymentAccountDto) {
+    return this.settings.updatePaymentAccount(tenantId, id, dto);
+  }
+
+  @Post('gateways/:id/testar')
+  @Roles('OWNER', 'ADMIN')
+  testGateway(@TenantId() tenantId: string, @Param('id') id: string) {
+    return this.settings.testPaymentAccount(tenantId, id);
+  }
+
+  @Delete('gateways/:id')
+  @Roles('OWNER', 'ADMIN')
+  removeGateway(@TenantId() tenantId: string, @Param('id') id: string) {
+    return this.settings.removePaymentAccount(tenantId, id);
   }
 
   // Canais

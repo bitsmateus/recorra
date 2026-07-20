@@ -38,6 +38,12 @@ export class StripeProvider implements PaymentProvider {
     return 'pix';
   }
 
+  async testConnection(): Promise<boolean> {
+    // /v1/balance valida a secret key.
+    const { status } = await this.http.get('/v1/balance');
+    return status >= 200 && status < 300;
+  }
+
   async createCharge(input: CreateChargeInput): Promise<CreateChargeResult> {
     const { data } = await this.http.post(
       '/v1/payment_intents',

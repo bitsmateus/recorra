@@ -107,6 +107,12 @@ export class BancoPixProvider implements PaymentProvider {
     return this.http;
   }
 
+  async testConnection(): Promise<boolean> {
+    // O handshake mTLS + OAuth2 (client_credentials) valida certificado e credenciais.
+    const http = await this.auth();
+    return !!http;
+  }
+
   async createCharge(input: CreateChargeInput): Promise<CreateChargeResult> {
     const http = await this.auth();
     const doc = input.customer.doc.replace(/\D/g, '');

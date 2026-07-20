@@ -24,6 +24,12 @@ export class MercadoPagoProvider implements PaymentProvider {
     this.webhookSecret = creds.webhookToken;
   }
 
+  async testConnection(): Promise<boolean> {
+    // /users/me valida o access token.
+    const { status } = await this.http.get('/users/me');
+    return status >= 200 && status < 300;
+  }
+
   async createCharge(input: CreateChargeInput): Promise<CreateChargeResult> {
     const [firstName, ...rest] = input.customer.nome.split(' ');
     const body = {

@@ -2,7 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { CryptoService } from '@/common/crypto/crypto.service';
 import { ConnectorFactory } from '@/modules/connectors/connector.factory';
-import { CreateIntegrationDto, UpdateIntegrationDto, CreatePaymentAccountDto, CreateChannelAccountDto } from './dto/settings.dto';
+import { PaymentProviderFactory } from '@/modules/payments/payment-provider.factory';
+import { CreateIntegrationDto, UpdateIntegrationDto, CreatePaymentAccountDto, UpdatePaymentAccountDto, CreateChannelAccountDto } from './dto/settings.dto';
 
 /**
  * Configuração do tenant: integrações de origem (ERP), contas de gateway e
@@ -15,6 +16,7 @@ export class SettingsService {
     private readonly prisma: PrismaService,
     private readonly crypto: CryptoService,
     private readonly connectors: ConnectorFactory,
+    private readonly payments: PaymentProviderFactory,
   ) {}
 
   // ---------- Integrações (ERP) ----------
@@ -107,6 +109,42 @@ export class SettingsService {
     const { credentials, ...rest } = created;
     void credentials;
     return rest;
+  }
+
+  /**
+   * Edita um gateway. `credentials` só é recifrado se vier com chaves — permite
+   * trocar só o ambiente/apelido sem redigitar a chave. Como as credenciais nunca
+   * são retornadas, editar sem enviá-las preserva as atuais.
+   */
+  async updatePaymentAccount(tenantId: string, id: string, dto: UpdatePaymentAccountDto) {
+    await this.prisma.paymentProviderAccount.findFirstOrThrow({ where: { id, tenantId } });
+    const data: { apelido?: string; ambiente?: string; credentials?: string } = {};
+    if (dto.apelido !== undefined) data.apelido = dto.apelido;
+    if (dto.ambiente !== undefined) data.ambiente = dto.ambiente;
+    if (dto.credentials && Object.keys(dto.credentials).length > 0) {
+      data.credentials = this.crypto.encryptJson(dto.credentials);
+    }
+    const updated = await this.prisma.paymentProviderAccount.update({ where: { id }, data });
+    const { credentials, ...rest } = updated;
+    void credentials;
+    return rest;
+  }
+
+  async removePaymentAccount(tenantId: string, id: string) {
+    await this.prisma.paymentProviderAccount.deleteMany({ where: { id, tenantId } });
+    return { ok: true };
+  }
+
+  /** Testa a conexão com o gateway configurado (chamada leve autenticada). */
+  async testPaymentAccount(tenantId: string, id: string) {
+    try {
+      const provider = await this.payments.forAccount(id, tenantId);
+      if (!provider.testConnection) return { ok: false, erro: 'Teste não disponível para este gateway' };
+      const ok = await provider.testConnection();
+      return { ok };
+    } catch (e) {
+      return { ok: false, erro: e instanceof Error ? e.message : String(e) };
+    }
   }
 
   // ---------- Canais ----------

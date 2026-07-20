@@ -42,6 +42,12 @@ export class EfiProvider implements PaymentProvider {
     return this.token!;
   }
 
+  async testConnection(): Promise<boolean> {
+    // Obter o token OAuth2 já valida client_id/client_secret.
+    const token = await this.auth();
+    return !!token;
+  }
+
   async createCharge(input: CreateChargeInput): Promise<CreateChargeResult> {
     await this.auth();
     // cobrança imediata Pix

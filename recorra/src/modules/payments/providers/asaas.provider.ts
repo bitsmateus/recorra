@@ -43,6 +43,12 @@ export class AsaasProvider implements PaymentProvider {
     }
   }
 
+  async testConnection(): Promise<boolean> {
+    // GET leve e autenticado: token inválido devolve 401.
+    const { status } = await this.http.get('/customers', { params: { limit: 1 } });
+    return status >= 200 && status < 300;
+  }
+
   async createCharge(input: CreateChargeInput): Promise<CreateChargeResult> {
     const customerId = await this.ensureCustomer(input);
 

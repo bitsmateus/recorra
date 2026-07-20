@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { Pencil, Trash2 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 
 interface Row {
   id: string;
@@ -13,6 +15,7 @@ const GATEWAYS = [
   { v: 'BANCO_INTER', l: 'Banco Inter' }, { v: 'SICOOB', l: 'Sicoob' }, { v: 'SICREDI', l: 'Sicredi' }, { v: 'BANCO_BRASIL', l: 'Banco do Brasil' },
 ];
 const BANCOS_PIX = ['BANCO_INTER', 'SICOOB', 'SICREDI', 'BANCO_BRASIL'];
+const gwLabel = (v: string) => GATEWAYS.find((g) => g.v === v)?.l || v;
 
 function Field({ label, value, onChange, type = 'text', placeholder }: { label: string; value: string; onChange: (v: string) => void; type?: string; placeholder?: string }) {
   return (
@@ -45,6 +48,9 @@ export default function GatewayPagamento() {
   const [certBase64, setCertBase64] = useState('');
   const [certName, setCertName] = useState('');
   const [msg, setMsg] = useState('');
+  const [editandoId, setEditandoId] = useState<string | null>(null);
+  const [testando, setTestando] = useState<string | null>(null);
+  const [confirmar, setConfirmar] = useState<Row | null>(null);
   const isBanco = BANCOS_PIX.includes(provider);
   const setB = (k: string, v: string) => setBanco((s) => ({ ...s, [k]: v }));
 
@@ -52,6 +58,35 @@ export default function GatewayPagamento() {
     api<Row[]>('/config/gateways').then(setRows).catch(() => {});
   }, []);
   useEffect(load, [load]);
+
+  function limparCampos() {
+    setApiKey(''); setWebhookToken('');
+    setBanco({ clientId: '', clientSecret: '', pixKey: '', certPassword: '', appKey: '' });
+    setCertBase64(''); setCertName('');
+  }
+  function iniciarEdicao(r: Row) {
+    setEditandoId(r.id);
+    setProvider(String(r.provider));
+    setAmbiente(String(r.ambiente));
+    limparCampos();
+    setMsg('Editando — preencha as credenciais só se quiser substituí-las.');
+    if (typeof window !== 'undefined') window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+  }
+  function cancelarEdicao() { setEditandoId(null); limparCampos(); setMsg(''); }
+
+  async function testar(id: string) {
+    setTestando(id); setMsg('Testando conexão...');
+    try {
+      const r = await api<{ ok: boolean; erro?: string }>(`/config/gateways/${id}/testar`, { method: 'POST' });
+      setMsg(r.ok ? '✓ Conexão OK — o gateway está respondendo.' : `✗ Falha na conexão${r.erro ? `: ${r.erro}` : ''}`);
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro ao testar'); }
+    finally { setTestando(null); }
+  }
+  async function excluir(id: string) {
+    await api(`/config/gateways/${id}`, { method: 'DELETE' }).catch(() => {});
+    if (editandoId === id) cancelarEdicao();
+    load();
+  }
 
   function onCert(file: File) {
     const reader = new FileReader();
@@ -68,15 +103,29 @@ export default function GatewayPagamento() {
     const credentials = isBanco
       ? { apiKey: '', clientId: banco.clientId, clientSecret: banco.clientSecret, pixKey: banco.pixKey, certBase64, certPassword: banco.certPassword, ...(provider === 'BANCO_BRASIL' ? { appKey: banco.appKey } : {}) }
       : { apiKey, webhookToken };
+    // Há credenciais preenchidas? Na edição, sem nada preenchido mantém as atuais.
+    const temCreds = isBanco
+      ? !!(banco.clientId || banco.clientSecret || banco.pixKey || certBase64 || banco.certPassword)
+      : !!(apiKey || webhookToken);
     try {
-      await api('/config/gateways', { method: 'POST', body: { provider, ambiente, credentials } });
-      setMsg('✓ Gateway salvo');
-      setApiKey(''); setWebhookToken(''); setBanco({ clientId: '', clientSecret: '', pixKey: '', certPassword: '', appKey: '' }); setCertBase64(''); setCertName('');
+      if (editandoId) {
+        const body: Record<string, unknown> = { ambiente };
+        if (temCreds) body.credentials = credentials;
+        await api(`/config/gateways/${editandoId}`, { method: 'PATCH', body });
+        setMsg('✓ Gateway atualizado');
+        setEditandoId(null);
+      } else {
+        await api('/config/gateways', { method: 'POST', body: { provider, ambiente, credentials } });
+        setMsg('✓ Gateway salvo');
+      }
+      limparCampos();
       load();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Erro');
     }
   }
+
+  const edicao = !!editandoId;
 
   return (
     <section className="mt-10">
@@ -84,11 +133,31 @@ export default function GatewayPagamento() {
         <h2 className="text-sm font-semibold text-ink">Gateway de pagamento</h2>
         <p className="text-sm text-muted">Conecte o gateway que gera os Pix/boletos das cobranças dos seus clientes.</p>
       </div>
+
+      {rows.length > 0 && (
+        <div className="mb-3 space-y-2">
+          {rows.map((r) => (
+            <div key={r.id} className="flex items-center justify-between rounded-lg border border-line bg-surface px-4 py-2.5">
+              <div className="flex items-center gap-2 text-sm">
+                <span className="font-medium text-ink">{gwLabel(String(r.provider))}</span>
+                <span className="rounded-full bg-primary-tint px-2 py-0.5 text-xs font-medium text-primary">{String(r.ambiente)}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <button onClick={() => testar(r.id)} disabled={testando === r.id} className="rounded border border-line px-3 py-1 text-xs hover:bg-canvas disabled:opacity-60">{testando === r.id ? 'Testando...' : 'Testar'}</button>
+                <button onClick={() => iniciarEdicao(r)} title="Editar gateway" className="rounded p-1.5 text-muted hover:bg-canvas hover:text-ink"><Pencil size={14} /></button>
+                <button onClick={() => setConfirmar(r)} title="Remover gateway" className="rounded p-1.5 text-muted hover:bg-danger-tint hover:text-danger"><Trash2 size={14} /></button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="rounded-lg border border-line bg-surface p-5">
+        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">{edicao ? `Editar gateway — ${gwLabel(provider)}` : 'Adicionar gateway'}</p>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
           <label className="block">
             <span className="mb-1 block text-xs text-muted">Gateway</span>
-            <select value={provider} onChange={(e) => setProvider(e.target.value)} className="w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
+            <select value={provider} onChange={(e) => setProvider(e.target.value)} disabled={edicao} className="w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary disabled:opacity-60">
               {GATEWAYS.map((g) => <option key={g.v} value={g.v}>{g.l}</option>)}
             </select>
           </label>
@@ -102,13 +171,13 @@ export default function GatewayPagamento() {
 
           {!isBanco ? (
             <>
-              <Field label="API Key / Access Token" value={apiKey} onChange={setApiKey} placeholder="sua chave do gateway" />
-              <Field label="Webhook token (opcional)" value={webhookToken} onChange={setWebhookToken} />
+              <Field label="API Key / Access Token" value={apiKey} onChange={setApiKey} placeholder={edicao ? 'Deixe em branco para manter' : 'sua chave do gateway'} />
+              <Field label="Webhook token (opcional)" value={webhookToken} onChange={setWebhookToken} placeholder={edicao ? 'Deixe em branco para manter' : undefined} />
             </>
           ) : (
             <>
-              <Field label="Client ID" value={banco.clientId} onChange={(v) => setB('clientId', v)} />
-              <Field label="Client Secret" value={banco.clientSecret} onChange={(v) => setB('clientSecret', v)} />
+              <Field label="Client ID" value={banco.clientId} onChange={(v) => setB('clientId', v)} placeholder={edicao ? 'Deixe em branco para manter' : undefined} />
+              <Field label="Client Secret" value={banco.clientSecret} onChange={(v) => setB('clientSecret', v)} placeholder={edicao ? 'Deixe em branco para manter' : undefined} />
               <Field label="Chave Pix (recebedora)" value={banco.pixKey} onChange={(v) => setB('pixKey', v)} placeholder="CNPJ, e-mail ou aleatória" />
               <Field label="Senha do certificado (opcional)" value={banco.certPassword} onChange={(v) => setB('certPassword', v)} />
               {provider === 'BANCO_BRASIL' && <Field label="App Key (gw-dev-app-key)" value={banco.appKey} onChange={(v) => setB('appKey', v)} />}
@@ -121,18 +190,24 @@ export default function GatewayPagamento() {
           )}
         </div>
         {isBanco && <p className="mt-2 text-xs text-muted">Bancos usam a API Pix (padrão BACEN) com certificado mTLS. O certificado é cifrado antes de salvar. Confira client_id/secret e o ambiente no portal do banco.</p>}
+        {edicao && <p className="mt-2 text-xs text-muted">Por segurança, as credenciais salvas não são exibidas. Preencha um campo apenas se quiser substituí-lo.</p>}
         <div className="mt-3 flex items-center gap-3">
-          <button onClick={salvar} className="rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover">Salvar gateway</button>
+          <button onClick={salvar} className="rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover">{edicao ? 'Salvar alterações' : 'Salvar gateway'}</button>
+          {edicao && <button onClick={cancelarEdicao} className="rounded border border-line px-4 py-2 text-sm hover:bg-canvas">Cancelar</button>}
           {msg && <span className="text-sm text-primary">{msg}</span>}
         </div>
-        {rows.length > 0 && (
-          <div className="mt-4 flex flex-wrap gap-2">
-            {rows.map((r) => (
-              <span key={r.id} className="rounded-full bg-primary-tint px-3 py-1 text-xs font-medium text-primary">{String(r.provider)} · {String(r.ambiente)}</span>
-            ))}
-          </div>
-        )}
       </div>
+
+      {confirmar && (
+        <ConfirmDialog
+          titulo="Remover gateway"
+          mensagem={<>Remover o gateway <b className="text-ink">{gwLabel(String(confirmar.provider))} · {String(confirmar.ambiente)}</b>? As cobranças já geradas não são afetadas.</>}
+          confirmLabel="Remover"
+          danger
+          onConfirm={() => { const r = confirmar; setConfirmar(null); excluir(r.id); }}
+          onClose={() => setConfirmar(null)}
+        />
+      )}
     </section>
   );
 }
