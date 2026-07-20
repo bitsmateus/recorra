@@ -1,4 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
+import { ChargeMethod } from '@prisma/client';
 import {
   PaymentProvider,
   CreateChargeInput,
@@ -6,6 +7,8 @@ import {
   ChargeStatusResult,
   WebhookParseResult,
   ProviderCredentials,
+  ImportedCustomer,
+  ImportedPayment,
 } from '../payment-provider.interface';
 import { verifyStripeSignature } from '../webhook-signature';
 
@@ -104,5 +107,92 @@ export class StripeProvider implements PaymentProvider {
       canceled: 'CANCELADA',
     };
     return map[s] ?? 'PENDENTE';
+  }
+
+  supportsImport(): boolean {
+    return true;
+  }
+
+  // O Stripe não tem campo nativo de CPF/CNPJ; convém guardá-lo no metadata do customer.
+  private docDoCustomer(cust: any): string {
+    const m = cust?.metadata ?? {};
+    const raw = m.cpf ?? m.cnpj ?? m.doc ?? m.documento ?? m.document ?? m.tax_id ?? '';
+    return String(raw).replace(/\D/g, '');
+  }
+
+  private metodoDe(types?: string[]): ChargeMethod {
+    const t = types ?? [];
+    if (t.includes('pix')) return 'PIX';
+    if (t.includes('boleto')) return 'BOLETO';
+    if (t.includes('card')) return 'CARTAO';
+    return 'PIX';
+  }
+
+  private vencimentoDe(pi: any): Date {
+    const na = pi?.next_action;
+    const exp = na?.pix_display_qr_code?.expires_at ?? na?.boleto_display_details?.expires_at;
+    if (exp) return new Date(Number(exp) * 1000);
+    return new Date(Number(pi?.created ?? 0) * 1000);
+  }
+
+  private mapPI(pi: any): ImportedPayment {
+    const na = pi?.next_action;
+    return {
+      externalId: pi.id,
+      customerExternalId: pi.customer ? String(pi.customer) : '',
+      valor: Number(pi.amount ?? 0) / 100, // Stripe usa centavos
+      vencimento: this.vencimentoDe(pi),
+      status: this.normalizeStatus(pi.status),
+      metodo: this.metodoDe(pi.payment_method_types),
+      descricao: pi.description ?? undefined,
+      pixCopiaCola: na?.pix_display_qr_code?.data ?? undefined,
+      boletoUrl: na?.boleto_display_details?.hosted_voucher_url ?? undefined,
+      linkPagamento: na?.hosted_voucher_url ?? undefined,
+      pagoEm: pi.status === 'succeeded' ? new Date(Number(pi.created ?? 0) * 1000) : undefined,
+    };
+  }
+
+  async listCustomers(): Promise<ImportedCustomer[]> {
+    const out: ImportedCustomer[] = [];
+    let startingAfter: string | undefined;
+    for (let i = 0; i < 100; i++) {
+      const { data } = await this.http.get('/v1/customers', {
+        params: { limit: 100, ...(startingAfter ? { starting_after: startingAfter } : {}) },
+      });
+      const rows: any[] = data?.data ?? [];
+      for (const cu of rows) {
+        const doc = this.docDoCustomer(cu);
+        if (!doc) continue; // sem CPF/CNPJ não dá para deduplicar/criar o cliente
+        out.push({ externalId: cu.id, nome: cu.name || cu.email || doc, doc, email: cu.email ?? undefined, telefone: cu.phone ?? undefined });
+      }
+      if (!data?.has_more || rows.length === 0) break;
+      startingAfter = rows[rows.length - 1].id;
+    }
+    return out;
+  }
+
+  async listPayments(): Promise<ImportedPayment[]> {
+    const out: ImportedPayment[] = [];
+    let startingAfter: string | undefined;
+    for (let i = 0; i < 200; i++) {
+      const { data } = await this.http.get('/v1/payment_intents', {
+        params: { limit: 100, ...(startingAfter ? { starting_after: startingAfter } : {}) },
+      });
+      const rows: any[] = data?.data ?? [];
+      for (const pi of rows) if (pi.customer) out.push(this.mapPI(pi));
+      if (!data?.has_more || rows.length === 0) break;
+      startingAfter = rows[rows.length - 1].id;
+    }
+    return out;
+  }
+
+  async getChargeDetail(externalId: string): Promise<ImportedPayment | null> {
+    try {
+      const { data: pi } = await this.http.get(`/v1/payment_intents/${externalId}`);
+      if (!pi?.id) return null;
+      return this.mapPI(pi);
+    } catch {
+      return null;
+    }
   }
 }
