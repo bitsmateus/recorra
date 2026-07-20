@@ -1,10 +1,10 @@
-import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '@/common/auth/jwt-auth.guard';
 import { RolesGuard } from '@/common/auth/roles.guard';
 import { Roles } from '@/common/auth/roles.decorator';
 import { TenantId } from '@/common/auth/current-user.decorator';
 import { SettingsService } from './settings.service';
-import { CreateIntegrationDto, CreatePaymentAccountDto, CreateChannelAccountDto } from './dto/settings.dto';
+import { CreateIntegrationDto, UpdateIntegrationDto, CreatePaymentAccountDto, CreateChannelAccountDto } from './dto/settings.dto';
 
 @Controller('config')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -21,6 +21,12 @@ export class SettingsController {
   @Roles('OWNER', 'ADMIN')
   createIntegration(@TenantId() tenantId: string, @Body() dto: CreateIntegrationDto) {
     return this.settings.createIntegration(tenantId, dto);
+  }
+
+  @Patch('integracoes/:id')
+  @Roles('OWNER', 'ADMIN')
+  updateIntegration(@TenantId() tenantId: string, @Param('id') id: string, @Body() dto: UpdateIntegrationDto) {
+    return this.settings.updateIntegration(tenantId, id, dto);
   }
 
   @Post('integracoes/:id/testar')

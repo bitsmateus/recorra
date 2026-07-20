@@ -13,6 +13,17 @@ export class CreateIntegrationDto {
   credentials!: Record<string, unknown>;
 }
 
+export class UpdateIntegrationDto {
+  @IsOptional()
+  @IsString()
+  urlBase?: string;
+
+  // Se enviado (com chaves), recifra as credenciais. Vazio/ausente mantém as atuais.
+  @IsOptional()
+  @IsObject()
+  credentials?: Record<string, unknown>;
+}
+
 export class CreatePaymentAccountDto {
   @IsIn(['ASAAS', 'MERCADO_PAGO', 'EFI', 'STRIPE', 'BANCO_INTER', 'SICOOB', 'SICREDI', 'BANCO_BRASIL'])
   provider!: PaymentProviderType;
