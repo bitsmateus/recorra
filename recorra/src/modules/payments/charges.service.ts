@@ -145,8 +145,19 @@ export class ChargesService {
     return this.prisma.invoice.update({ where: { id: invoiceId }, data: { contestada } });
   }
 
-  /** Importa clientes e cobrancas existentes de um gateway (ex.: Asaas) para o Recorrai. */
-  async importarDoGateway(tenantId: string, accountId: string) {
+  /**
+   * Importa clientes e cobranças existentes de um gateway (ex.: Asaas) para o Recorrai.
+   *
+   * Por padrão traz só cobranças **a receber** (PENDENTE/VENCIDA) — cobranças já pagas
+   * (e canceladas/estornadas) NÃO entram na sincronização geral. Para trazer as pagas de
+   * um cliente específico, use `{ somentePagas: true, customerId }` (ação na tela do cliente).
+   */
+  async importarDoGateway(
+    tenantId: string,
+    accountId: string,
+    opts: { somentePagas?: boolean; incluirPagas?: boolean; customerId?: string } = {},
+  ) {
+    const { somentePagas = false, incluirPagas = false, customerId: escopoCustomerId } = opts;
     const account = await this.prisma.paymentProviderAccount.findFirst({ where: { id: accountId, tenantId } });
     if (!account) throw new NotFoundException("Conta de gateway nao encontrada");
     const provider = await this.factory.forAccount(accountId);
@@ -154,38 +165,56 @@ export class ChargesService {
       throw new BadRequestException("Este gateway ainda nao suporta importacao");
     }
 
+    // Filtro de status: só pagas / todas / apenas a receber (padrão).
+    const statusPermitido = (s: string) => {
+      if (somentePagas) return s === "PAGA";
+      if (incluirPagas) return true;
+      return s === "PENDENTE" || s === "VENCIDA";
+    };
+
     const result = { clientes: 0, clientesAtualizados: 0, faturas: 0, faturasAtualizadas: 0, ignorados: 0 };
     const extToCustomerId = new Map<string, string>();
 
     try {
-      const clientes = await provider.listCustomers();
-    for (const c of clientes) {
-      const doc = onlyDigits(c.doc);
-      if (!doc) { result.ignorados++; continue; }
-      const existing = await this.prisma.customer.findUnique({ where: { tenantId_doc: { tenantId, doc } } });
-      const data = {
-        nome: c.nome?.trim() || doc,
-        email: c.email?.trim() || null,
-        telefone: c.telefone || null,
-        cidade: c.cidade != null ? String(c.cidade) : null,
-        uf: c.uf != null ? String(c.uf).toUpperCase().slice(0, 2) : null,
-        externalId: c.externalId,
-      };
-      if (existing) {
-        const upd = await this.prisma.customer.update({ where: { id: existing.id }, data });
-        extToCustomerId.set(c.externalId, upd.id);
-        result.clientesAtualizados++;
+      if (escopoCustomerId) {
+        // Escopo em um único cliente (ex.: sincronizar as pagas dele): não reimporta a base toda.
+        const cust = await this.prisma.customer.findFirst({ where: { id: escopoCustomerId, tenantId } });
+        if (!cust) throw new NotFoundException("Cliente nao encontrado");
+        if (!cust.externalId) throw new BadRequestException("Este cliente nao tem vinculo com o gateway. Importe pelo gateway primeiro.");
+        extToCustomerId.set(cust.externalId, cust.id);
       } else {
-        const created = await this.prisma.customer.create({ data: { tenantId, doc, ...data } });
-        extToCustomerId.set(c.externalId, created.id);
-        result.clientes++;
+        const clientes = await provider.listCustomers();
+        for (const c of clientes) {
+          const doc = onlyDigits(c.doc);
+          if (!doc) { result.ignorados++; continue; }
+          const existing = await this.prisma.customer.findUnique({ where: { tenantId_doc: { tenantId, doc } } });
+          const data = {
+            nome: c.nome?.trim() || doc,
+            email: c.email?.trim() || null,
+            telefone: c.telefone || null,
+            cidade: c.cidade != null ? String(c.cidade) : null,
+            uf: c.uf != null ? String(c.uf).toUpperCase().slice(0, 2) : null,
+            externalId: c.externalId,
+          };
+          if (existing) {
+            const upd = await this.prisma.customer.update({ where: { id: existing.id }, data });
+            extToCustomerId.set(c.externalId, upd.id);
+            result.clientesAtualizados++;
+          } else {
+            const created = await this.prisma.customer.create({ data: { tenantId, doc, ...data } });
+            extToCustomerId.set(c.externalId, created.id);
+            result.clientes++;
+          }
+        }
       }
-    }
 
     const pagamentos = await provider.listPayments();
     for (const p of pagamentos) {
       const customerId = extToCustomerId.get(p.customerExternalId);
-      if (!customerId) { result.ignorados++; continue; }
+      // Sem cliente correspondente (só conta como ignorado na sync geral, não na escopada).
+      if (!customerId) { if (!escopoCustomerId) result.ignorados++; continue; }
+      // Pula pelo status (ex.: pagas na sync geral).
+      if (!statusPermitido(String(p.status))) continue;
       const existing = await this.prisma.invoice.findFirst({ where: { tenantId, provider: account.provider, externalId: p.externalId } });
       const data = {
         valor: p.valor,

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Phone, Mail, MapPin, Plus, X } from 'lucide-react';
+import { ArrowLeft, Phone, Mail, MapPin, Plus, X, RefreshCw } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Metric, RiskBadge, brl } from '@/components/ui';
 
@@ -40,6 +40,7 @@ export default function ClienteDetalhePage() {
   const [d, setD] = useState<Detalhe | null>(null);
   const [erro, setErro] = useState('');
   const [cobrar, setCobrar] = useState(false);
+  const [syncPagas, setSyncPagas] = useState(false);
 
   function carregar() { api<Detalhe>(`/clientes/${id}/detalhe`).then(setD).catch((e) => setErro(e.message)); }
   useEffect(() => { carregar(); }, [id]);
@@ -67,7 +68,10 @@ export default function ClienteDetalhePage() {
           </div>
           <div className="flex flex-col items-end gap-2">
             <RiskBadge faixa={d.risco?.faixa} />
-            <button onClick={() => setCobrar(true)} className="flex items-center gap-2 rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover"><Plus size={16} /> Gerar cobrança</button>
+            <div className="flex flex-wrap justify-end gap-2">
+              <button onClick={() => setSyncPagas(true)} title="Buscar no gateway as cobranças já pagas deste cliente" className="flex items-center gap-2 rounded border border-line px-4 py-2 text-sm hover:bg-canvas"><RefreshCw size={16} /> Sincronizar pagas</button>
+              <button onClick={() => setCobrar(true)} className="flex items-center gap-2 rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover"><Plus size={16} /> Gerar cobrança</button>
+            </div>
           </div>
         </div>
       </div>
@@ -145,6 +149,52 @@ export default function ClienteDetalhePage() {
       )}
 
       {cobrar && <ChargeModal customerId={c.id} valorSugerido={c.valorPlano} onClose={() => setCobrar(false)} onSaved={() => { setCobrar(false); carregar(); }} />}
+      {syncPagas && <SyncPagasModal customerId={c.id} onClose={() => setSyncPagas(false)} onDone={() => { setSyncPagas(false); carregar(); }} />}
+    </div>
+  );
+}
+
+function SyncPagasModal({ customerId, onClose, onDone }: { customerId: string; onClose: () => void; onDone: () => void }) {
+  const [gateways, setGateways] = useState<Gateway[]>([]);
+  const [accountId, setAccountId] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  useEffect(() => { api<Gateway[]>('/config/gateways').then((gs) => { setGateways(gs); setAccountId(gs[0]?.id || ''); }).catch(() => setGateways([])); }, []);
+
+  async function sincronizar() {
+    if (!accountId) return setMsg('Selecione um gateway.');
+    setBusy(true); setMsg('Buscando cobranças pagas no gateway... pode levar alguns segundos.');
+    try {
+      const r = await api<{ faturas: number; faturasAtualizadas: number }>('/cobrancas/importar-gateway', { method: 'POST', body: { accountId, somentePagas: true, customerId } });
+      setMsg(`✓ ${r.faturas} cobranças pagas importadas, ${r.faturasAtualizadas} atualizadas.`);
+      setTimeout(onDone, 1300);
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro ao sincronizar'); setBusy(false); }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-ink">Sincronizar cobranças pagas</h2>
+          <button onClick={onClose} className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>
+        </div>
+        <p className="mb-3 text-sm text-muted">Traz do gateway as cobranças <b>já pagas</b> deste cliente. A sincronização geral não importa cobranças pagas — use esta ação quando quiser o histórico de pagamentos dele.</p>
+        {gateways.length === 0 ? (
+          <p className="text-sm text-warning">Nenhum gateway configurado. Configure em Integrações para importar.</p>
+        ) : (
+          <label className="block text-sm"><span className="mb-1 block text-xs text-muted">Gateway de origem</span>
+            <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary">
+              {gateways.map((g) => <option key={g.id} value={g.id}>{g.apelido || g.provider}{g.ambiente ? ` · ${g.ambiente}` : ''}</option>)}
+            </select>
+          </label>
+        )}
+        {msg && <p className="mt-3 text-sm text-primary">{msg}</p>}
+        <div className="mt-5 flex justify-end gap-2">
+          <button onClick={onClose} className="rounded border border-line px-4 py-2 text-sm hover:bg-canvas">Fechar</button>
+          <button onClick={sincronizar} disabled={busy || gateways.length === 0} className="rounded bg-primary px-5 py-2 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-60">{busy ? 'Sincronizando...' : 'Sincronizar pagas'}</button>
+        </div>
+      </div>
     </div>
   );
 }

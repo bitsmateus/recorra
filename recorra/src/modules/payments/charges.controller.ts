@@ -117,8 +117,13 @@ export class ChargesController {
 
   @Post('importar-gateway')
   @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
-  importarGateway(@TenantId() tenantId: string, @Body('accountId') accountId: string) {
-    return this.charges.importarDoGateway(tenantId, accountId);
+  importarGateway(
+    @TenantId() tenantId: string,
+    @Body('accountId') accountId: string,
+    @Body('somentePagas') somentePagas?: boolean,
+    @Body('customerId') customerId?: string,
+  ) {
+    return this.charges.importarDoGateway(tenantId, accountId, { somentePagas: !!somentePagas, customerId });
   }
 
   @Post('lote')
