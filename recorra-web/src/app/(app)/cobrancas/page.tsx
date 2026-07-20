@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Zap, Layers, Download, Pencil, Trash2, X, Filter, Plus, FileSpreadsheet, FileDown, ChevronDown, Receipt, Copy, ExternalLink, Check } from 'lucide-react';
+import { Zap, Layers, Download, Pencil, Trash2, X, Filter, Plus, FileSpreadsheet, FileDown, ChevronDown, ChevronUp, ArrowUpDown, Receipt, Copy, ExternalLink, Check } from 'lucide-react';
 import { ImportWizard } from '@/components/ImportWizard';
 import { api } from '@/lib/api';
 import { PageTitle, brl } from '@/components/ui';
@@ -154,6 +154,23 @@ export default function CobrancasPage() {
   const toggleTodos = () => setSelecionados(todosMarcados ? new Set() : new Set(idsVisiveis));
   const geradasSelecionadas = invoices.filter((i) => selecionados.has(i.id) && i.externalId).length;
 
+  // Ordenação clicável por Valor / Vencimento (aplicada nas cobranças já carregadas).
+  const [ordenacao, setOrdenacao] = useState<{ campo: 'valor' | 'vencimento' | null; dir: 'asc' | 'desc' }>({ campo: null, dir: 'asc' });
+  function ordenarPor(campo: 'valor' | 'vencimento') {
+    setOrdenacao((o) => (o.campo === campo ? { campo, dir: o.dir === 'asc' ? 'desc' : 'asc' } : { campo, dir: 'asc' }));
+  }
+  const seta = (campo: 'valor' | 'vencimento') =>
+    ordenacao.campo === campo
+      ? (ordenacao.dir === 'asc' ? <ChevronUp size={13} /> : <ChevronDown size={13} />)
+      : <ArrowUpDown size={12} className="opacity-40" />;
+  const invoicesOrdenadas = ordenacao.campo
+    ? [...invoices].sort((a, b) => {
+        const va = ordenacao.campo === 'valor' ? Number(a.valor) : new Date(a.vencimento).getTime();
+        const vb = ordenacao.campo === 'valor' ? Number(b.valor) : new Date(b.vencimento).getTime();
+        return (va - vb) * (ordenacao.dir === 'asc' ? 1 : -1);
+      })
+    : invoices;
+
   return (
     <div>
       <PageTitle title="Cobranças" subtitle="Faturas e geração de Pix/boleto nos gateways" />
@@ -230,8 +247,8 @@ export default function CobrancasPage() {
             <tr>
               <th className="w-10 px-4 py-3"><input type="checkbox" checked={todosMarcados} onChange={toggleTodos} className="h-4 w-4 cursor-pointer accent-primary" aria-label="Selecionar todas" /></th>
               <th className="px-4 py-3 font-medium">Cliente</th>
-              <th className="px-4 py-3 font-medium">Valor</th>
-              <th className="px-4 py-3 font-medium">Vencimento</th>
+              <th className="px-4 py-3 font-medium"><button onClick={() => ordenarPor('valor')} className="flex items-center gap-1 uppercase hover:text-ink" title="Ordenar por valor">Valor {seta('valor')}</button></th>
+              <th className="px-4 py-3 font-medium"><button onClick={() => ordenarPor('vencimento')} className="flex items-center gap-1 uppercase hover:text-ink" title="Ordenar por vencimento">Vencimento {seta('vencimento')}</button></th>
               <th className="px-4 py-3 font-medium">Método</th>
               <th className="px-4 py-3 font-medium">Status</th>
               <th className="px-4 py-3 font-medium">Cobrança</th>
@@ -239,7 +256,7 @@ export default function CobrancasPage() {
             </tr>
           </thead>
           <tbody>
-            {invoices.map((inv) => (
+            {invoicesOrdenadas.map((inv) => (
               <tr key={inv.id} className={`border-b border-line last:border-0 ${selecionados.has(inv.id) ? 'bg-primary-tint/40' : ''}`}>
                 <td className="px-4 py-3"><input type="checkbox" checked={selecionados.has(inv.id)} onChange={() => toggleSel(inv.id)} className="h-4 w-4 cursor-pointer accent-primary" aria-label={`Selecionar cobrança de ${inv.customer?.nome || 'cliente'}`} /></td>
                 <td className="px-4 py-3 font-medium text-ink">{inv.customer?.nome || '—'}</td>
