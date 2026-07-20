@@ -59,15 +59,24 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
-      - name: Reimplantar backend
+      # Backend roda em 2 serviços no EasyPanel: 'api' (HTTP) e 'worker' (cron/fila),
+      # ambos a partir da pasta recorra/. 'app' é o frontend (recorra-web/).
+      # Cada Deploy Webhook fica num secret; se ausente, o passo é pulado sem falhar.
+      - name: Reimplantar api (backend HTTP)
         env:
-          HOOK: ${{ secrets.EASYPANEL_DEPLOY_HOOK_BACKEND }}
+          HOOK: ${{ secrets.EASYPANEL_DEPLOY_HOOK_API }}
         run: |
-          if [ -z "$HOOK" ]; then echo "EASYPANEL_DEPLOY_HOOK_BACKEND não configurado — pulando."; exit 0; fi
-          curl -fsS -X POST "$HOOK" && echo "Deploy do backend disparado."
-      - name: Reimplantar frontend
+          if [ -z "$HOOK" ]; then echo "EASYPANEL_DEPLOY_HOOK_API não configurado — pulando."; exit 0; fi
+          curl -fsS -X POST "$HOOK" && echo "Deploy do api disparado."
+      - name: Reimplantar worker (cron/fila)
         env:
-          HOOK: ${{ secrets.EASYPANEL_DEPLOY_HOOK_FRONTEND }}
+          HOOK: ${{ secrets.EASYPANEL_DEPLOY_HOOK_WORKER }}
         run: |
-          if [ -z "$HOOK" ]; then echo "EASYPANEL_DEPLOY_HOOK_FRONTEND não configurado — pulando."; exit 0; fi
-          curl -fsS -X POST "$HOOK" && echo "Deploy do frontend disparado."
+          if [ -z "$HOOK" ]; then echo "EASYPANEL_DEPLOY_HOOK_WORKER não configurado — pulando."; exit 0; fi
+          curl -fsS -X POST "$HOOK" && echo "Deploy do worker disparado."
+      - name: Reimplantar app (frontend)
+        env:
+          HOOK: ${{ secrets.EASYPANEL_DEPLOY_HOOK_APP }}
+        run: |
+          if [ -z "$HOOK" ]; then echo "EASYPANEL_DEPLOY_HOOK_APP não configurado — pulando."; exit 0; fi
+          curl -fsS -X POST "$HOOK" && echo "Deploy do app disparado."
