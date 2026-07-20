@@ -7,6 +7,8 @@ import {
   ChargeStatusResult,
   WebhookParseResult,
   ProviderCredentials,
+  ImportedCustomer,
+  ImportedPayment,
 } from '../payment-provider.interface';
 import { verifyMercadoPagoSignature } from '../webhook-signature';
 
@@ -110,5 +112,92 @@ export class MercadoPagoProvider implements PaymentProvider {
       refunded: 'ESTORNADA',
     };
     return map[mpStatus] ?? 'PENDENTE';
+  }
+
+  supportsImport(): boolean {
+    return true;
+  }
+
+  private metodoDe(paymentMethodId?: string, paymentTypeId?: string): ChargeMethod {
+    if (paymentMethodId === 'pix' || paymentTypeId === 'bank_transfer') return 'PIX';
+    if (paymentMethodId === 'bolbradesco' || paymentTypeId === 'ticket') return 'BOLETO';
+    if (paymentTypeId === 'credit_card' || paymentTypeId === 'debit_card') return 'CARTAO';
+    return 'PIX';
+  }
+
+  /**
+   * O Mercado Pago não expõe uma "conta de cliente" estável ligada a cada pagamento —
+   * o pagador vem embutido no pagamento (nome/doc/e-mail). Por isso derivamos os clientes
+   * dos próprios pagamentos, deduplicando por documento (CPF/CNPJ), e usamos o documento
+   * como identificador externo. Assim o vínculo pagamento→cliente fecha na importação.
+   */
+  private docDoPagamento(p: any): string {
+    return String(p?.payer?.identification?.number ?? '').replace(/\D/g, '');
+  }
+
+  private async buscarPagamentos(): Promise<any[]> {
+    const out: any[] = [];
+    let offset = 0;
+    const limit = 100;
+    for (let i = 0; i < 100; i++) {
+      const { data } = await this.http.get('/v1/payments/search', {
+        params: { sort: 'date_created', criteria: 'desc', limit, offset },
+      });
+      const results: any[] = data?.results ?? [];
+      out.push(...results);
+      const total = data?.paging?.total ?? out.length;
+      offset += limit;
+      if (results.length === 0 || offset >= total) break;
+    }
+    return out;
+  }
+
+  async listCustomers(): Promise<ImportedCustomer[]> {
+    const pagamentos = await this.buscarPagamentos();
+    const porDoc = new Map<string, ImportedCustomer>();
+    for (const p of pagamentos) {
+      const doc = this.docDoPagamento(p);
+      if (!doc || porDoc.has(doc)) continue;
+      const nome = [p?.payer?.first_name, p?.payer?.last_name].filter(Boolean).join(' ').trim();
+      porDoc.set(doc, {
+        externalId: doc,
+        nome: nome || p?.payer?.email || doc,
+        doc,
+        email: p?.payer?.email ?? undefined,
+        telefone: p?.payer?.phone?.number ? `${p.payer.phone.area_code ?? ''}${p.payer.phone.number}` : undefined,
+      });
+    }
+    return [...porDoc.values()];
+  }
+
+  private mapPagamento(p: any): ImportedPayment {
+    const tx = p?.point_of_interaction?.transaction_data;
+    return {
+      externalId: String(p.id),
+      customerExternalId: this.docDoPagamento(p),
+      valor: Number(p.transaction_amount),
+      vencimento: new Date(p.date_of_expiration ?? p.date_created),
+      status: this.normalizeStatus(p.status),
+      metodo: this.metodoDe(p.payment_method_id, p.payment_type_id),
+      descricao: p.description ?? undefined,
+      pixCopiaCola: tx?.qr_code ?? undefined,
+      linkPagamento: tx?.ticket_url ?? p?.transaction_details?.external_resource_url ?? undefined,
+      pagoEm: p.date_approved ? new Date(p.date_approved) : undefined,
+    };
+  }
+
+  async listPayments(): Promise<ImportedPayment[]> {
+    const pagamentos = await this.buscarPagamentos();
+    return pagamentos.filter((p) => this.docDoPagamento(p)).map((p) => this.mapPagamento(p));
+  }
+
+  async getChargeDetail(externalId: string): Promise<ImportedPayment | null> {
+    try {
+      const { data: p } = await this.http.get(`/v1/payments/${externalId}`);
+      if (!p?.id) return null;
+      return this.mapPagamento(p);
+    } catch {
+      return null;
+    }
   }
 }
