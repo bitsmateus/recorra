@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
-import { UserPlus, Download, RefreshCw, Eye, Pencil, Trash2, X, Tag, Plus, Check } from 'lucide-react';
+import { UserPlus, Download, RefreshCw, Eye, Pencil, Trash2, X, Tag, Plus, Check, Search } from 'lucide-react';
 import { api } from '@/lib/api';
 import { PageTitle, RiskBadge } from '@/components/ui';
 import { ImportWizard } from '@/components/ImportWizard';
@@ -59,7 +59,11 @@ export default function ClientesPage() {
   const [clientes, setClientes] = useState<Customer[]>([]);
   const [riscos, setRiscos] = useState<Record<string, RiskScore | null>>({});
   const [loading, setLoading] = useState(true);
-  const [filtros, setFiltros] = useState({ q: '', uf: '', plano: '', etiqueta: '', valorMin: '', faixa: '' });
+  // `filtros` = o que está nos campos; `aplicados` = o que de fato filtra a lista.
+  // A busca só roda ao clicar em Filtrar (ou Enter), evitando refetch a cada tecla.
+  const FILTROS_VAZIOS = { q: '', uf: '', plano: '', etiqueta: '', valorMin: '', faixa: '' };
+  const [filtros, setFiltros] = useState(FILTROS_VAZIOS);
+  const [aplicados, setAplicados] = useState(FILTROS_VAZIOS);
   const [modal, setModal] = useState<{ open: boolean; edit?: Customer | null }>({ open: false });
   const [gateways, setGateways] = useState<Gateway[]>([]);
   const [importModal, setImportModal] = useState(false);
@@ -77,7 +81,7 @@ export default function ClientesPage() {
   const carregar = useCallback(async () => {
     setLoading(true);
     const params = new URLSearchParams();
-    Object.entries(filtros).forEach(([k, v]) => v && params.set(k, v));
+    Object.entries(aplicados).forEach(([k, v]) => v && params.set(k, v));
     const list = await api<Customer[]>(`/clientes?${params.toString()}`).catch(() => []);
     setClientes(list);
     setLoading(false);
@@ -86,9 +90,14 @@ export default function ClientesPage() {
       map[c.id] = await api<RiskScore | null>(`/clientes/${c.id}/risco`).catch(() => null);
     }));
     setRiscos(map);
-  }, [filtros]);
+  }, [aplicados]);
 
   useEffect(() => { carregar(); }, [carregar]);
+
+  const aplicarFiltros = () => setAplicados(filtros);
+  const limparFiltros = () => { setFiltros(FILTROS_VAZIOS); setAplicados(FILTROS_VAZIOS); };
+  const filtrosPendentes = JSON.stringify(filtros) !== JSON.stringify(aplicados);
+  const temFiltroAtivo = Object.values(aplicados).some(Boolean);
   // Some da seleção quem foi excluído ou saiu da lista no recarregamento.
   useEffect(() => { setSelecionados((s) => new Set([...s].filter((id) => clientes.some((c) => c.id === id)))); }, [clientes]);
   useEffect(() => {
@@ -148,13 +157,20 @@ export default function ClientesPage() {
         <button onClick={async () => { await api('/clientes/risco/recalcular-todos', { method: 'POST' }).catch(() => {}); carregar(); }} className="flex items-center gap-2 rounded border border-line px-4 py-2 text-sm hover:bg-canvas"><RefreshCw size={16} /> Recalcular risco</button>
       </div>
 
-      <div className="mb-4 grid grid-cols-2 gap-2 md:grid-cols-6">
-        <input placeholder="Buscar" value={filtros.q} onChange={(e) => setFiltros({ ...filtros, q: e.target.value })} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
-        <input placeholder="Plano" value={filtros.plano} onChange={(e) => setFiltros({ ...filtros, plano: e.target.value })} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+      <div className="mb-3 grid grid-cols-2 gap-2 md:grid-cols-6">
+        <input placeholder="Buscar (nome ou CPF/CNPJ)" value={filtros.q} onChange={(e) => setFiltros({ ...filtros, q: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') aplicarFiltros(); }} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+        <input placeholder="Plano" value={filtros.plano} onChange={(e) => setFiltros({ ...filtros, plano: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') aplicarFiltros(); }} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
         <select value={filtros.uf} onChange={(e) => setFiltros({ ...filtros, uf: e.target.value })} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">{UFS.map((u) => <option key={u} value={u}>{u || 'UF'}</option>)}</select>
         <select value={filtros.etiqueta} onChange={(e) => setFiltros({ ...filtros, etiqueta: e.target.value })} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Etiqueta: todas</option>{etiquetas.map((t) => <option key={t.nome} value={t.nome}>{t.nome}</option>)}</select>
-        <input placeholder="Valor mín" value={filtros.valorMin} onChange={(e) => setFiltros({ ...filtros, valorMin: e.target.value })} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+        <input placeholder="Valor mín" value={filtros.valorMin} onChange={(e) => setFiltros({ ...filtros, valorMin: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') aplicarFiltros(); }} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
         <select value={filtros.faixa} onChange={(e) => setFiltros({ ...filtros, faixa: e.target.value })} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Risco: todos</option><option value="BOM">Bom pagador</option><option value="ATENCAO">Atenção</option><option value="RISCO">Risco</option></select>
+      </div>
+
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <button onClick={aplicarFiltros} className="flex items-center gap-2 rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover"><Search size={16} /> Filtrar</button>
+        <button onClick={carregar} title="Recarregar a lista" className="flex items-center gap-2 rounded border border-line px-4 py-2 text-sm hover:bg-canvas"><RefreshCw size={16} /> Atualizar</button>
+        {(temFiltroAtivo || filtrosPendentes) && <button onClick={limparFiltros} className="rounded border border-line px-4 py-2 text-sm hover:bg-canvas">Limpar filtros</button>}
+        {filtrosPendentes && <span className="text-xs text-primary">Filtros alterados — clique em Filtrar para aplicar.</span>}
       </div>
 
       <div className="mb-2 flex items-center gap-3 text-sm text-muted">
