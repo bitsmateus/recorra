@@ -48,3 +48,26 @@ jobs:
       - run: npm run build
         env:
           NEXT_TELEMETRY_DISABLED: '1'
+
+  # Só reimplanta no EasyPanel quando backend e frontend ficaram verdes, e apenas
+  # em push na main (PR não faz deploy). Cada serviço tem seu Deploy Hook, guardado
+  # como secret do repositório. Se o secret não estiver configurado, o passo é pulado
+  # (não falha o CI) — configure os secrets para ligar o deploy automático.
+  deploy:
+    name: Deploy no EasyPanel
+    needs: [backend, frontend]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reimplantar backend
+        env:
+          HOOK: ${{ secrets.EASYPANEL_DEPLOY_HOOK_BACKEND }}
+        run: |
+          if [ -z "$HOOK" ]; then echo "EASYPANEL_DEPLOY_HOOK_BACKEND não configurado — pulando."; exit 0; fi
+          curl -fsS -X POST "$HOOK" && echo "Deploy do backend disparado."
+      - name: Reimplantar frontend
+        env:
+          HOOK: ${{ secrets.EASYPANEL_DEPLOY_HOOK_FRONTEND }}
+        run: |
+          if [ -z "$HOOK" ]; then echo "EASYPANEL_DEPLOY_HOOK_FRONTEND não configurado — pulando."; exit 0; fi
+          curl -fsS -X POST "$HOOK" && echo "Deploy do frontend disparado."
