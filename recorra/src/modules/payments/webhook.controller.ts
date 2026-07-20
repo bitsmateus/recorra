@@ -74,36 +74,73 @@ export class WebhookController {
       return { ok: false };
     }
 
-    if (status === 'PAGA') {
-      const invoice = await this.prisma.invoice.findFirst({
-        where: { tenantId: account.tenantId, provider: account.provider, externalId: parsed.externalId },
-        include: { customer: true },
-      });
-      if (invoice) {
-        await this.prisma.invoice.update({
-          where: { id: invoice.id },
-          data: { status: 'PAGA', pagoEm: pagoEm ?? new Date() },
-        });
+    const invoice = await this.prisma.invoice.findFirst({
+      where: { tenantId: account.tenantId, provider: account.provider, externalId: parsed.externalId },
+      include: { customer: true },
+    });
 
-        await this.prisma.messageDispatch.updateMany({
-          where: { tenantId: account.tenantId, invoiceId: invoice.id, status: 'FILA' },
-          data: { status: 'IGNORADO', erro: 'Pagamento confirmado - regua pausada' },
-        });
-
-        const primeiroNome = invoice.customer.nome.split(' ')[0];
-        await this.prisma.messageDispatch.create({
-          data: {
-            tenantId: account.tenantId,
-            customerId: invoice.customerId,
-            invoiceId: invoice.id,
-            canal: 'WHATSAPP_CLOUD',
-            template: 'confirmacao_pagamento',
-            conteudo: `Recebemos seu pagamento, ${primeiroNome}! Obrigado. Sua fatura esta quitada.`,
-            status: 'FILA',
-            agendadoPara: new Date(),
-          },
-        });
+    // Cobrança que ainda não conhecemos (ex.: mensalidade gerada por uma assinatura
+    // criada no gateway). Cria a fatura em tempo real, desde que o provider saiba
+    // detalhar a cobrança e o cliente já exista aqui. Só cria "a receber" — pagas
+    // seguem entrando apenas pela sincronização manual por cliente.
+    if (!invoice) {
+      if (provider.getChargeDetail && (status === 'PENDENTE' || status === 'VENCIDA')) {
+        try {
+          const det = await provider.getChargeDetail(parsed.externalId);
+          const customer = det
+            ? await this.prisma.customer.findFirst({ where: { tenantId: account.tenantId, externalId: det.customerExternalId } })
+            : null;
+          if (det && customer) {
+            await this.prisma.invoice.create({
+              data: {
+                tenantId: account.tenantId,
+                customerId: customer.id,
+                provider: account.provider,
+                providerAccountId: account.id,
+                externalId: det.externalId,
+                valor: det.valor,
+                vencimento: det.vencimento,
+                status: det.status as any,
+                metodo: det.metodo,
+                descricao: det.descricao || null,
+                linkPagamento: det.linkPagamento || null,
+                boletoUrl: det.boletoUrl || null,
+                pixCopiaCola: det.pixCopiaCola || null,
+                origem: 'webhook-gateway',
+              },
+            });
+          }
+        } catch {
+          // Corrida com outro webhook (unique) ou falha de detalhe: o cron diário cobre depois.
+        }
       }
+      return { ok: true };
+    }
+
+    if (status === 'PAGA') {
+      await this.prisma.invoice.update({
+        where: { id: invoice.id },
+        data: { status: 'PAGA', pagoEm: pagoEm ?? new Date() },
+      });
+
+      await this.prisma.messageDispatch.updateMany({
+        where: { tenantId: account.tenantId, invoiceId: invoice.id, status: 'FILA' },
+        data: { status: 'IGNORADO', erro: 'Pagamento confirmado - regua pausada' },
+      });
+
+      const primeiroNome = invoice.customer.nome.split(' ')[0];
+      await this.prisma.messageDispatch.create({
+        data: {
+          tenantId: account.tenantId,
+          customerId: invoice.customerId,
+          invoiceId: invoice.id,
+          canal: 'WHATSAPP_CLOUD',
+          template: 'confirmacao_pagamento',
+          conteudo: `Recebemos seu pagamento, ${primeiroNome}! Obrigado. Sua fatura esta quitada.`,
+          status: 'FILA',
+          agendadoPara: new Date(),
+        },
+      });
     }
 
     // processadoEm já foi setado atomicamente no claim acima.

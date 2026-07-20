@@ -182,6 +182,27 @@ export class AsaasProvider implements PaymentProvider {
     return out;
   }
 
+  async getChargeDetail(externalId: string): Promise<ImportedPayment | null> {
+    try {
+      const { data: p } = await this.http.get(`/payments/${externalId}`);
+      if (!p?.id) return null;
+      return {
+        externalId: p.id,
+        customerExternalId: p.customer,
+        valor: Number(p.value),
+        vencimento: new Date(p.dueDate),
+        status: this.normalizeStatus(p.status),
+        metodo: this.methodFromBillingType(p.billingType),
+        descricao: p.description ?? undefined,
+        linkPagamento: p.invoiceUrl ?? undefined,
+        boletoUrl: p.bankSlipUrl ?? undefined,
+        pagoEm: p.paymentDate ? new Date(p.paymentDate) : undefined,
+      };
+    } catch {
+      return null;
+    }
+  }
+
   async listPayments(): Promise<ImportedPayment[]> {
     const out: ImportedPayment[] = [];
     let offset = 0;

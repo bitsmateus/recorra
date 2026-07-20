@@ -5,6 +5,7 @@ import { DunningService } from '@/modules/dunning/dunning.service';
 import { DispatchService } from '@/modules/dunning/dispatch.service';
 import { SubscriptionsService } from '@/modules/billing/subscriptions.service';
 import { ReconciliationService } from '@/modules/payments/reconciliation.service';
+import { ChargesService } from '@/modules/payments/charges.service';
 import { BillingSaasService } from '@/modules/platform/billing-saas.service';
 import { DispatchQueue } from '@/queue/dispatch-queue';
 import { CampaignsService } from '@/modules/campaigns/campaigns.service';
@@ -19,6 +20,7 @@ export class SchedulerService {
     private readonly dispatch: DispatchService,
     private readonly subscriptions: SubscriptionsService,
     private readonly reconciliation: ReconciliationService,
+    private readonly charges: ChargesService,
     private readonly billingSaas: BillingSaasService,
     private readonly dispatchQueue: DispatchQueue,
     private readonly campaigns: CampaignsService,
@@ -41,6 +43,30 @@ export class SchedulerService {
       if (r.executadas > 0) this.logger.log(`Campanhas recorrentes: ${r.executadas} executadas`);
     } catch (e) {
       this.logger.error(`Falha nas campanhas recorrentes: ${String(e)}`);
+    }
+  }
+
+  /**
+   * Importação diária dos gateways: puxa cobranças novas "a receber" (ex.: mensalidades
+   * geradas por assinaturas criadas no próprio gateway). É a rede de segurança do webhook
+   * em tempo real. Agnóstico ao gateway — só age nos que suportam importação (hoje, Asaas);
+   * os demais lançam "não suporta importação" e são pulados silenciosamente.
+   */
+  @Cron('0 6 * * *', { timeZone: 'America/Sao_Paulo' })
+  async runGatewayImport() {
+    const contas = await this.prisma.paymentProviderAccount.findMany({
+      where: { ativo: true },
+      select: { id: true, tenantId: true, provider: true },
+    });
+    for (const acc of contas) {
+      try {
+        const r = await this.charges.importarDoGateway(acc.tenantId, acc.id);
+        if (r.faturas > 0 || r.faturasAtualizadas > 0) {
+          this.logger.log(`Import gateway ${acc.provider} (${acc.id}): ${r.faturas} novas, ${r.faturasAtualizadas} atualizadas`);
+        }
+      } catch {
+        // Gateways sem suporte a importação (MP/Stripe/Efí/bancos) caem aqui — ignora.
+      }
     }
   }
 

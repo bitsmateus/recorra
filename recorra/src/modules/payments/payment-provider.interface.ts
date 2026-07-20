@@ -81,6 +81,8 @@ export interface PaymentProvider {
   supportsImport?(): boolean;
   listCustomers?(): Promise<ImportedCustomer[]>;
   listPayments?(): Promise<ImportedPayment[]>;
+  /** Detalha uma única cobrança pelo id externo (usado pelo webhook para criar faturas novas). */
+  getChargeDetail?(externalId: string): Promise<ImportedPayment | null>;
 }
 
 export interface ProviderCredentials {
