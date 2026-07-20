@@ -94,6 +94,12 @@ export default function ClientesPage() {
 
   useEffect(() => { carregar(); }, [carregar]);
 
+  // Busca automática ~450ms após parar de digitar/mexer nos filtros (além do botão Filtrar).
+  useEffect(() => {
+    const t = setTimeout(() => setAplicados(filtros), 450);
+    return () => clearTimeout(t);
+  }, [filtros]);
+
   const aplicarFiltros = () => setAplicados(filtros);
   const limparFiltros = () => { setFiltros(FILTROS_VAZIOS); setAplicados(FILTROS_VAZIOS); };
   const filtrosPendentes = JSON.stringify(filtros) !== JSON.stringify(aplicados);
@@ -170,7 +176,7 @@ export default function ClientesPage() {
         <button onClick={aplicarFiltros} className="flex items-center gap-2 rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover"><Search size={16} /> Filtrar</button>
         <button onClick={carregar} title="Recarregar a lista" className="flex items-center gap-2 rounded border border-line px-4 py-2 text-sm hover:bg-canvas"><RefreshCw size={16} /> Atualizar</button>
         {(temFiltroAtivo || filtrosPendentes) && <button onClick={limparFiltros} className="rounded border border-line px-4 py-2 text-sm hover:bg-canvas">Limpar filtros</button>}
-        {filtrosPendentes && <span className="text-xs text-primary">Filtros alterados — clique em Filtrar para aplicar.</span>}
+        {filtrosPendentes && <span className="text-xs text-muted">Buscando…</span>}
       </div>
 
       <div className="mb-2 flex items-center gap-3 text-sm text-muted">

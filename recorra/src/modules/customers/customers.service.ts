@@ -93,7 +93,16 @@ export class CustomersService {
   async segment(tenantId: string, f: SegmentFilter) {
     const where: Prisma.CustomerWhereInput = { tenantId };
     if (f.ativo !== undefined) where.ativo = f.ativo;
-    if (f.q) where.OR = [{ nome: { contains: f.q, mode: 'insensitive' } }, { doc: { contains: onlyDigits(f.q) } }];
+    if (f.q?.trim()) {
+      // Busca por nome (case-insensitive) e, só quando o termo tem dígitos, por documento.
+      // Sem esse guard, onlyDigits('brava') === '' e { doc: { contains: '' } } casaria com
+      // todos os clientes, anulando o filtro por nome.
+      const termo = f.q.trim();
+      const digitos = onlyDigits(termo);
+      const or: Prisma.CustomerWhereInput[] = [{ nome: { contains: termo, mode: 'insensitive' } }];
+      if (digitos) or.push({ doc: { contains: digitos } });
+      where.OR = or;
+    }
     if (f.tags?.length) where.tags = { hasEvery: f.tags.map((t) => t.toLowerCase()) };
     if (f.etiqueta) where.tags = { has: f.etiqueta.toLowerCase() };
     if (f.plano) where.plano = f.plano;
