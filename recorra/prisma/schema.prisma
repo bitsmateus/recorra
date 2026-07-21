@@ -831,6 +831,11 @@ model Campaign {
   tenantId String
   nome     String
 
+  // A "Cobrança automática" do tenant: uma campanha especial (uma por tenant) que
+  // representa o motor diário. Não é editada/disparada como as demais — só ligada
+  // ou pausada; o disparo em si continua no runForTenant (motor de régua).
+  automatico Boolean @default(false)
+
   tipoEnvio CampaignTipoEnvio @default(MENSAGEM)
   ruleId    String?
   mensagem  String?

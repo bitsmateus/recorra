@@ -50,6 +50,18 @@ export class CampaignsController {
     return this.campaigns.excluirSegmento(tenantId, id);
   }
 
+  // Cobrança automática (o motor diário como campanha) — antes de :id.
+  @Get('automatica')
+  automatica(@TenantId() tenantId: string) {
+    return this.campaigns.getAutomatica(tenantId);
+  }
+
+  @Post('automatica/status')
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
+  statusAutomatica(@TenantId() tenantId: string, @Body('status') status: 'ATIVA' | 'PAUSADA') {
+    return this.campaigns.setStatusAutomatica(tenantId, status);
+  }
+
   @Get(':id')
   get(@TenantId() tenantId: string, @Param('id') id: string) {
     return this.campaigns.get(tenantId, id);

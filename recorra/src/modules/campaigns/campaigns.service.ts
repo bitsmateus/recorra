@@ -108,7 +108,8 @@ export class CampaignsService {
   }
 
   async list(tenantId: string, filtros: { q?: string; status?: string; tipoEnvio?: string; ruleId?: string; agendamento?: string; de?: string; ate?: string; etiqueta?: string; canal?: string } = {}) {
-    const where: any = { tenantId };
+    // A campanha automática não aparece na lista comum — ela tem controle próprio.
+    const where: any = { tenantId, automatico: false };
     if (filtros.q) where.nome = { contains: filtros.q.trim(), mode: 'insensitive' };
     if (filtros.status) where.status = filtros.status;
     if (filtros.tipoEnvio) where.tipoEnvio = filtros.tipoEnvio;
@@ -133,6 +134,40 @@ export class CampaignsService {
       ...c,
       entrega: c.runs[0] ? await this.resumoEntrega(c.runs[0].id) : null,
     })));
+  }
+
+  // ---------- Cobrança automática (o motor diário, como campanha) ----------
+
+  /**
+   * Garante que exista a campanha "Cobrança automática" do tenant (uma só).
+   * Provisão idempotente — cria ligada por padrão, então o comportamento é
+   * idêntico ao de hoje. O disparo real continua no runForTenant (motor de régua);
+   * esta campanha só serve para representá-lo e permitir ligar/pausar.
+   */
+  async garantirCampanhaAutomatica(tenantId: string) {
+    const existente = await this.prisma.campaign.findFirst({ where: { tenantId, automatico: true } });
+    if (existente) return existente;
+    try {
+      return await this.prisma.campaign.create({
+        data: {
+          tenantId, automatico: true, nome: 'Cobrança automática',
+          tipoEnvio: 'REGUA', agendamento: 'SEMPRE_ATIVA', status: 'ATIVA', ativa: true,
+          publicoDinamico: true, filtroTodos: true,
+        },
+      });
+    } catch {
+      // Corrida entre dois processos: o índice único garante 1 por tenant — relê.
+      return this.prisma.campaign.findFirstOrThrow({ where: { tenantId, automatico: true } });
+    }
+  }
+
+  getAutomatica(tenantId: string) {
+    return this.garantirCampanhaAutomatica(tenantId);
+  }
+
+  async setStatusAutomatica(tenantId: string, status: 'ATIVA' | 'PAUSADA') {
+    const auto = await this.garantirCampanhaAutomatica(tenantId);
+    return this.prisma.campaign.update({ where: { id: auto.id }, data: { status, ativa: status === 'ATIVA' } });
   }
 
   async get(tenantId: string, id: string) {
@@ -480,6 +515,7 @@ export class CampaignsService {
   async executar(tenantId: string, id: string) {
     const camp = await this.prisma.campaign.findFirst({ where: { id, tenantId }, include: { rule: { include: { steps: { where: { ativo: true }, orderBy: { ordem: 'asc' } } } } } });
     if (!camp) throw new NotFoundException('Campanha não encontrada');
+    if (camp.automatico) throw new BadRequestException('A cobrança automática roda sozinha todo dia — use ligar/pausar em vez de disparar.');
     // Campanha "uma vez" dispara uma única vez. Para reenviar, o cliente duplica e dispara a cópia.
     if (camp.agendamento === 'UMA_VEZ') {
       const jaRodou = await this.prisma.campaignRun.findFirst({ where: { campaignId: camp.id, tenantId }, select: { id: true } });

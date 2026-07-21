@@ -146,6 +146,15 @@ export default function CampanhasPage() {
   const canaisFiltro = canaisConfigurados(canais);
   const setF = (k: string, v: string) => setFiltros((s) => ({ ...s, [k]: v }));
 
+  const [automatica, setAutomatica] = useState<{ id: string; status: string } | null>(null);
+  useEffect(() => { api<{ id: string; status: string }>('/campanhas/automatica').then(setAutomatica).catch(() => setAutomatica(null)); }, []);
+  async function toggleAutomatica() {
+    if (!automatica) return;
+    const novo = automatica.status === 'ATIVA' ? 'PAUSADA' : 'ATIVA';
+    setAutomatica({ ...automatica, status: novo }); // otimista
+    await api('/campanhas/automatica/status', { method: 'POST', body: { status: novo } }).catch(() => setAutomatica(automatica));
+  }
+
   const carregar = useCallback(async (silencioso = false) => {
     if (!silencioso) setLoading(true);
     const params = new URLSearchParams();
@@ -195,9 +204,22 @@ export default function CampanhasPage() {
         <button onClick={() => setModal({ open: true, edit: null })} className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover"><Plus size={16} /> Nova campanha</button>
       </div>
       <div className="mb-4 flex items-start gap-2 rounded-lg border border-line bg-canvas px-4 py-3 text-sm">
-        <Radio size={16} className="mt-0.5 shrink-0 text-primary" />
-        <div className="text-muted">
-          <b className="text-ink">Cobrança automática</b> já roda todo dia por trás: pega quem está inadimplente e aplica a régua da faixa de risco de cada cliente — sem você precisar disparar. As campanhas abaixo são os envios que <b className="text-ink">você</b> monta e dispara para um público escolhido. A régua define <b className="text-ink">como</b> comunicar; a campanha define <b className="text-ink">quem</b> e <b className="text-ink">quando</b>.
+        <Radio size={16} className={`mt-0.5 shrink-0 ${automatica?.status === 'PAUSADA' ? 'text-muted' : 'text-primary'}`} />
+        <div className="flex-1 text-muted">
+          <div className="flex flex-wrap items-center gap-2">
+            <b className="text-ink">Cobrança automática</b>
+            {automatica && (automatica.status === 'ATIVA'
+              ? <span className="rounded-full bg-success-tint px-2 py-0.5 text-xs font-medium text-success">Ligada</span>
+              : <span className="rounded-full bg-warning-tint px-2 py-0.5 text-xs font-medium text-[#854F0B]">Pausada</span>)}
+            {automatica && (
+              <button onClick={toggleAutomatica} className="ml-auto rounded border border-line px-3 py-1 text-xs font-medium hover:bg-surface">
+                {automatica.status === 'ATIVA' ? 'Pausar cobrança automática' : 'Religar cobrança automática'}
+              </button>
+            )}
+          </div>
+          <p className="mt-1">
+            Roda todo dia por trás: pega quem está inadimplente e aplica a régua da faixa de risco de cada cliente — sem você precisar disparar. {automatica?.status === 'PAUSADA' && <b className="text-[#854F0B]">Agora está pausada: ninguém será cobrado automaticamente até religar.</b>} As campanhas abaixo são os envios que <b className="text-ink">você</b> monta e dispara. A régua define <b className="text-ink">como</b> comunicar; a campanha define <b className="text-ink">quem</b> e <b className="text-ink">quando</b>.
+          </p>
         </div>
       </div>
       <div className="mb-4 flex gap-1 border-b border-line">

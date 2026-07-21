@@ -155,6 +155,13 @@ export class SchedulerService implements OnApplicationBootstrap {
     this.logger.log(`Regua diaria: ${tenants.length} tenants`);
     for (const t of tenants) {
       try {
+        // A cobrança automática é uma campanha (ligada por padrão). Se o cliente a
+        // pausar, o motor não roda para ele. O disparo em si segue no runForTenant.
+        const auto = await this.campaigns.garantirCampanhaAutomatica(t.id);
+        if (auto.status !== 'ATIVA') {
+          this.logger.log(`Tenant ${t.id}: cobranca automatica pausada, pulando`);
+          continue;
+        }
         const r = await this.dunning.runForTenant(t.id);
         this.logger.log(`Tenant ${t.id}: ${r.enfileirados} disparos enfileirados`);
       } catch (e) {
