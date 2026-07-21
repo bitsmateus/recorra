@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { DunningService } from '@/modules/dunning/dunning.service';
@@ -11,7 +11,7 @@ import { DispatchQueue } from '@/queue/dispatch-queue';
 import { CampaignsService } from '@/modules/campaigns/campaigns.service';
 
 @Injectable()
-export class SchedulerService {
+export class SchedulerService implements OnApplicationBootstrap {
   private readonly logger = new Logger(SchedulerService.name);
 
   constructor(
@@ -25,6 +25,35 @@ export class SchedulerService {
     private readonly dispatchQueue: DispatchQueue,
     private readonly campaigns: CampaignsService,
   ) {}
+
+  /** Ao subir o worker, zera o acúmulo de faturas vencidas de uma vez (não espera as 3h). */
+  async onApplicationBootstrap() {
+    await this.marcarVencidas();
+  }
+
+  /**
+   * Marca como VENCIDA toda fatura PENDENTE cujo vencimento já passou. Roda cedo,
+   * antes da régua das 9h, para a cobrança enxergar o status certo.
+   *
+   * Independe do gateway (que pode continuar reportando "pendente" numa fatura já
+   * vencida) — e é seguro: a reconciliação só espelha PAGA/VENCIDA e nunca reverte
+   * VENCIDA para PENDENTE. Fatura que vence HOJE continua pendente (só vira vencida
+   * no dia seguinte). Borda em UTC, igual ao vencimento gravado à meia-noite UTC.
+   */
+  @Cron('0 3 * * *', { timeZone: 'America/Sao_Paulo' })
+  async marcarVencidas() {
+    try {
+      const n = new Date();
+      const hojeUtc = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate()));
+      const r = await this.prisma.invoice.updateMany({
+        where: { status: 'PENDENTE', vencimento: { lt: hojeUtc } },
+        data: { status: 'VENCIDA' },
+      });
+      if (r.count > 0) this.logger.log(`Faturas marcadas como vencidas: ${r.count}`);
+    } catch (e) {
+      this.logger.error(`Falha ao marcar vencidas: ${String(e)}`);
+    }
+  }
 
   @Cron('0 2 1 * *', { timeZone: 'America/Sao_Paulo' })
   async runSaasBilling() {

@@ -208,6 +208,11 @@ export class ChargesService {
         }
       }
 
+    // Meia-noite UTC de hoje (igual ao vencimento gravado), para não rebaixar
+    // uma fatura já vencida a PENDENTE só porque o gateway ainda a reporta assim.
+    const nAgora = new Date();
+    const hojeUtc = new Date(Date.UTC(nAgora.getUTCFullYear(), nAgora.getUTCMonth(), nAgora.getUTCDate()));
+
     const pagamentos = await provider.listPayments();
     for (const p of pagamentos) {
       const customerId = extToCustomerId.get(p.customerExternalId);
@@ -215,11 +220,13 @@ export class ChargesService {
       if (!customerId) { if (!escopoCustomerId) result.ignorados++; continue; }
       // Pula pelo status (ex.: pagas na sync geral).
       if (!statusPermitido(String(p.status))) continue;
+      // Vencida pela data manda sobre o "pendente" do gateway.
+      const status = String(p.status) === 'PENDENTE' && p.vencimento && new Date(p.vencimento) < hojeUtc ? 'VENCIDA' : p.status;
       const existing = await this.prisma.invoice.findFirst({ where: { tenantId, provider: account.provider, externalId: p.externalId } });
       const data = {
         valor: p.valor,
         vencimento: p.vencimento,
-        status: p.status as any,
+        status: status as any,
         metodo: p.metodo,
         descricao: p.descricao || null,
         linkPagamento: p.linkPagamento || null,
