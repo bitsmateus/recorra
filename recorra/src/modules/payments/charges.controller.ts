@@ -5,7 +5,7 @@ import { RolesGuard } from '@/common/auth/roles.guard';
 import { Roles } from '@/common/auth/roles.decorator';
 import { TenantId, CurrentUser } from '@/common/auth/current-user.decorator';
 import { AuthUser } from '@/common/auth/jwt.types';
-import { ChargesService } from './charges.service';
+import { ChargesService, InvoiceFiltros } from './charges.service';
 import { ReconciliationService } from './reconciliation.service';
 import { SplitRuleInput } from './payment-provider.interface';
 
@@ -30,21 +30,18 @@ export class ChargesController {
   }
 
   @Get()
-  list(
-    @TenantId() tenantId: string,
-    @Query('status') status?: string,
-    @Query('customerId') customerId?: string,
-    @Query('q') q?: string,
-    @Query('metodo') metodo?: string,
-    @Query('origem') origem?: string,
-    @Query('geracao') geracao?: 'gerada' | 'pendente',
-    @Query('de') de?: string,
-    @Query('ate') ate?: string,
-    @Query('valorMin') valorMin?: string,
-    @Query('valorMax') valorMax?: string,
-    @Query('etiqueta') etiqueta?: string,
-  ) {
-    return this.charges.listInvoices(tenantId, { status, customerId, q, metodo, origem, geracao, de, ate, valorMin, valorMax, etiqueta });
+  list(@TenantId() tenantId: string, @Query() filtros: InvoiceFiltros) {
+    return this.charges.listInvoices(tenantId, filtros);
+  }
+
+  @Get('resumo')
+  resumo(@TenantId() tenantId: string, @Query() filtros: InvoiceFiltros) {
+    return this.charges.resumoInvoices(tenantId, filtros);
+  }
+
+  @Get('exportar')
+  exportar(@TenantId() tenantId: string, @Query() filtros: InvoiceFiltros) {
+    return this.charges.exportInvoices(tenantId, filtros);
   }
 
   @Put(':invoiceId')

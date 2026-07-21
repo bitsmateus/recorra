@@ -11,6 +11,24 @@ import { onlyDigits } from "@/common/util/normalize";
 import { parseDateOrThrow, parseDateFilter, parseNumberFilter } from '@/common/util/parse';
 import * as XLSX from 'xlsx';
 
+export interface InvoiceFiltros {
+  status?: string;
+  customerId?: string;
+  q?: string;
+  metodo?: string;
+  origem?: string;
+  geracao?: 'gerada' | 'pendente';
+  de?: string;
+  ate?: string;
+  valorMin?: string;
+  valorMax?: string;
+  etiqueta?: string;
+  page?: string | number;
+  pageSize?: string | number;
+  sortCampo?: string;
+  sortDir?: string;
+}
+
 @Injectable()
 export class ChargesService {
   constructor(
@@ -312,22 +330,8 @@ export class ChargesService {
     return { excluidas: r.count };
   }
 
-  listInvoices(
-    tenantId: string,
-    filtros: {
-      status?: string;
-      customerId?: string;
-      q?: string;
-      metodo?: string;
-      origem?: string;
-      geracao?: 'gerada' | 'pendente';
-      de?: string;
-      ate?: string;
-      valorMin?: string;
-      valorMax?: string;
-      etiqueta?: string;
-    } = {},
-  ) {
+  /** Monta o `where` das faturas a partir dos filtros — compartilhado por lista/resumo/export. */
+  private buildInvoiceWhere(tenantId: string, filtros: InvoiceFiltros): Prisma.InvoiceWhereInput {
     const where: any = { tenantId };
     if (filtros.status) where.status = filtros.status;
     if (filtros.customerId) where.customerId = filtros.customerId;
@@ -357,12 +361,70 @@ export class ChargesService {
     if (valorMin !== undefined || valorMax !== undefined) {
       where.valor = { ...(valorMin !== undefined ? { gte: valorMin } : {}), ...(valorMax !== undefined ? { lte: valorMax } : {}) };
     }
-    return this.prisma.invoice.findMany({
+    return where;
+  }
+
+  /** Página de faturas (paginação de servidor) + total do filtro. Ordena por valor/vencimento. */
+  async listInvoices(tenantId: string, filtros: InvoiceFiltros = {}) {
+    const where = this.buildInvoiceWhere(tenantId, filtros);
+    const pageSize = Math.min(200, Math.max(1, Number(filtros.pageSize) || 50));
+    const page = Math.max(1, Number(filtros.page) || 1);
+    const campo = filtros.sortCampo === 'valor' ? 'valor' : 'vencimento';
+    const dir = filtros.sortDir === 'desc' ? 'desc' : 'asc';
+    const [items, total] = await Promise.all([
+      this.prisma.invoice.findMany({
+        where,
+        include: { customer: { select: { nome: true, doc: true } } },
+        orderBy: { [campo]: dir },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.invoice.count({ where }),
+    ]);
+    return { items, total, page, pageSize };
+  }
+
+  /** Resumo agregado sobre a base FILTRADA inteira (não só a página). */
+  async resumoInvoices(tenantId: string, filtros: InvoiceFiltros = {}) {
+    const where = this.buildInvoiceWhere(tenantId, filtros);
+    const limite30 = new Date(Date.now() - 30 * 86_400_000);
+    const [agg, porStatusRaw, clientes, critico] = await Promise.all([
+      this.prisma.invoice.aggregate({ where, _sum: { valor: true }, _count: true }),
+      this.prisma.invoice.groupBy({ by: ['status'], where, _sum: { valor: true }, _count: { _all: true } }),
+      this.prisma.invoice.findMany({ where, select: { customerId: true }, distinct: ['customerId'] }),
+      this.prisma.invoice.aggregate({ where: { AND: [where, { status: 'VENCIDA', vencimento: { lt: limite30 } }] }, _sum: { valor: true }, _count: true }),
+    ]);
+    const porStatus: Record<string, { n: number; valor: number }> = {};
+    let emAberto = 0;
+    for (const g of porStatusRaw) {
+      const valor = Number(g._sum.valor ?? 0);
+      porStatus[g.status] = { n: g._count._all, valor };
+      if (g.status === 'PENDENTE' || g.status === 'VENCIDA') emAberto += valor;
+    }
+    const total = agg._count;
+    const soma = Number(agg._sum.valor ?? 0);
+    return {
+      total,
+      soma,
+      emAberto,
+      ticketMedio: total ? soma / total : 0,
+      clientesDistintos: clientes.length,
+      critico: { n: critico._count, valor: Number(critico._sum.valor ?? 0) },
+      porStatus,
+    };
+  }
+
+  /** Exportação da base filtrada inteira (limitada a um teto de segurança). */
+  async exportInvoices(tenantId: string, filtros: InvoiceFiltros = {}) {
+    const where = this.buildInvoiceWhere(tenantId, filtros);
+    const CAP = 20000;
+    const items = await this.prisma.invoice.findMany({
       where,
       include: { customer: { select: { nome: true, doc: true } } },
       orderBy: { vencimento: 'asc' },
-      take: 500,
+      take: CAP,
     });
+    return { items, truncado: items.length >= CAP };
   }
 
   /** Edita campos locais de uma fatura (nao altera a cobranca ja emitida no gateway). */

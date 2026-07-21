@@ -86,10 +86,18 @@ function AjudaStatus() {
   );
 }
 
+interface ResumoCobrancas {
+  total: number; soma: number; emAberto: number; ticketMedio: number; clientesDistintos: number;
+  critico: { n: number; valor: number }; porStatus: Record<string, { n: number; valor: number }>;
+}
+
 export default function CobrancasPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const POR_PAGINA = 50;
-  const [limite, setLimite] = useState(POR_PAGINA);
+  const [total, setTotal] = useState(0);
+  const [pagina, setPagina] = useState(1);
+  const [resumo, setResumo] = useState<ResumoCobrancas | null>(null);
+  const [ordenacao, setOrdenacao] = useState<{ campo: 'valor' | 'vencimento' | null; dir: 'asc' | 'desc' }>({ campo: null, dir: 'asc' });
   const [gateways, setGateways] = useState<Gateway[]>([]);
   const [filtros, setFiltros] = useState(emptyFiltros);
   const [msg, setMsg] = useState('');
@@ -108,18 +116,38 @@ export default function CobrancasPage() {
   const [etiquetas, setEtiquetas] = useState<{ nome: string }[]>([]);
   const setF = (k: string, v: string) => setFiltros((s) => ({ ...s, [k]: v }));
 
-  const load = useCallback(async () => {
+  const paramsFiltros = useCallback(() => {
     const params = new URLSearchParams();
     Object.entries(filtros).forEach(([k, v]) => v && params.set(k, v));
-    const inv = await api<Invoice[]>(`/cobrancas?${params.toString()}`).catch(() => []);
-    setInvoices(inv);
+    return params;
   }, [filtros]);
+
+  // Paginação de SERVIDOR: cada carga traz uma página (skip/take) + o total do filtro.
+  // "Ver mais" acumula a próxima página; o resumo é agregado sobre a base inteira.
+  const load = useCallback(async () => {
+    const p = paramsFiltros();
+    p.set('page', '1'); p.set('pageSize', String(POR_PAGINA));
+    if (ordenacao.campo) { p.set('sortCampo', ordenacao.campo); p.set('sortDir', ordenacao.dir); }
+    const [lista, res] = await Promise.all([
+      api<{ items: Invoice[]; total: number }>(`/cobrancas?${p.toString()}`).catch(() => null),
+      api<ResumoCobrancas>(`/cobrancas/resumo?${paramsFiltros().toString()}`).catch(() => null),
+    ]);
+    if (lista) { setInvoices(lista.items); setTotal(lista.total); setPagina(1); }
+    setResumo(res);
+  }, [paramsFiltros, ordenacao]);
+
+  async function verMais() {
+    const prox = pagina + 1;
+    const p = paramsFiltros();
+    p.set('page', String(prox)); p.set('pageSize', String(POR_PAGINA));
+    if (ordenacao.campo) { p.set('sortCampo', ordenacao.campo); p.set('sortDir', ordenacao.dir); }
+    const r = await api<{ items: Invoice[]; total: number }>(`/cobrancas?${p.toString()}`).catch(() => null);
+    if (r) { setInvoices((prev) => [...prev, ...r.items]); setTotal(r.total); setPagina(prox); }
+  }
 
   useEffect(() => { load(); }, [load]);
   // Some da seleção quem saiu da lista (excluída ou filtrada) no recarregamento.
   useEffect(() => { setSelecionados((s) => new Set([...s].filter((id) => invoices.some((i) => i.id === id)))); }, [invoices]);
-  // Volta para a 1ª "página" quando a lista é recarregada/filtrada.
-  useEffect(() => { setLimite(POR_PAGINA); }, [invoices]);
   useEffect(() => {
     api<Gateway[]>('/config/gateways').then((gws) => {
       setGateways(gws);
@@ -178,8 +206,7 @@ export default function CobrancasPage() {
   const geradasSelecionadas = invoices.filter((i) => selecionados.has(i.id) && i.externalId).length;
   const valorSelecionado = invoices.filter((i) => selecionados.has(i.id)).reduce((s, i) => s + Number(i.valor), 0);
 
-  // Ordenação clicável por Valor / Vencimento (aplicada nas cobranças já carregadas).
-  const [ordenacao, setOrdenacao] = useState<{ campo: 'valor' | 'vencimento' | null; dir: 'asc' | 'desc' }>({ campo: null, dir: 'asc' });
+  // Ordenação clicável por Valor / Vencimento — feita no SERVIDOR (recarrega da 1ª página).
   function ordenarPor(campo: 'valor' | 'vencimento') {
     setOrdenacao((o) => (o.campo === campo ? { campo, dir: o.dir === 'asc' ? 'desc' : 'asc' } : { campo, dir: 'asc' }));
   }
@@ -187,58 +214,27 @@ export default function CobrancasPage() {
     ordenacao.campo === campo
       ? (ordenacao.dir === 'asc' ? <ChevronUp size={13} /> : <ChevronDown size={13} />)
       : <ArrowUpDown size={12} className="opacity-40" />;
-  const invoicesOrdenadas = ordenacao.campo
-    ? [...invoices].sort((a, b) => {
-        const va = ordenacao.campo === 'valor' ? Number(a.valor) : new Date(a.vencimento).getTime();
-        const vb = ordenacao.campo === 'valor' ? Number(b.valor) : new Date(b.vencimento).getTime();
-        return (va - vb) * (ordenacao.dir === 'asc' ? 1 : -1);
-      })
-    : invoices;
 
-  // Mostra só `limite` por vez; "Ver mais" revela mais 50. A seleção/"marcar
-  // todas" opera só sobre o que está na tela (evita marcar centenas escondidas).
-  const paginadas = invoicesOrdenadas.slice(0, limite);
-  const temMais = invoicesOrdenadas.length > paginadas.length;
-
-  // Resumo do resultado FILTRADO (toda a lista carregada, não só os 50 na tela):
-  // soma total, quanto está em aberto e a quebra por status (valor + quantidade).
-  const resumo = invoicesOrdenadas.reduce(
-    (acc, i) => {
-      const v = Number(i.valor) || 0;
-      acc.soma += v;
-      if (i.status === 'PENDENTE' || i.status === 'VENCIDA') acc.emAberto += v;
-      const s = acc.porStatus[i.status] ?? { n: 0, valor: 0 };
-      s.n += 1; s.valor += v;
-      acc.porStatus[i.status] = s;
-      return acc;
-    },
-    { soma: 0, emAberto: 0, porStatus: {} as Record<string, { n: number; valor: number }> },
-  );
+  // "Ver mais" acumula páginas; a seleção/"marcar todas" opera só sobre o carregado.
+  const temMais = invoices.length < total;
   const ORDEM_STATUS = ['VENCIDA', 'PENDENTE', 'PAGA', 'CANCELADA', 'ESTORNADA'];
-  const statusResumo = ORDEM_STATUS.filter((s) => resumo.porStatus[s]);
-  const ticketMedio = invoicesOrdenadas.length ? resumo.soma / invoicesOrdenadas.length : 0;
-  const clientesDistintos = new Set(invoicesOrdenadas.map((i) => i.customer?.doc || i.customer?.nome || i.id)).size;
-  // Atraso crítico: vencidas há mais de 30 dias — o valor mais difícil de recuperar.
-  const limite30 = Date.now() - 30 * 86_400_000;
-  const critico = invoicesOrdenadas.reduce(
-    (acc, i) => {
-      if (i.status === 'VENCIDA' && new Date(i.vencimento).getTime() < limite30) { acc.n += 1; acc.valor += Number(i.valor) || 0; }
-      return acc;
-    },
-    { n: 0, valor: 0 },
-  );
+  const statusResumo = resumo ? ORDEM_STATUS.filter((s) => resumo.porStatus[s]) : [];
 
-  function exportarCsv() {
+  async function exportarCsv() {
+    setMsg('Preparando exportação...');
+    const r = await api<{ items: Invoice[]; truncado: boolean }>(`/cobrancas/exportar?${paramsFiltros().toString()}`).catch(() => null);
+    if (!r) { setMsg('Erro ao exportar.'); return; }
     const headers = ['Cliente', 'Documento', 'Valor', 'Vencimento', 'Método', 'Status', 'Gerada no gateway'];
-    const linhas = invoicesOrdenadas.map((i) => [
+    const linhas = r.items.map((i) => [
       i.customer?.nome || '', i.customer?.doc || '', Number(i.valor).toFixed(2).replace('.', ','),
       new Date(i.vencimento).toLocaleDateString('pt-BR'), i.metodo, i.status, i.externalId ? 'Sim' : 'Não',
     ]);
     const hoje = new Date().toISOString().slice(0, 10);
     baixarArquivo(`cobrancas-${hoje}.csv`, toCsv(headers, linhas));
+    setMsg(r.truncado ? '✓ Exportado (limitado a 20.000 linhas).' : `✓ ${r.items.length} cobrança(s) exportada(s).`);
   }
 
-  const idsVisiveis = paginadas.map((i) => i.id);
+  const idsVisiveis = invoices.map((i) => i.id);
   const todosMarcados = idsVisiveis.length > 0 && idsVisiveis.every((id) => selecionados.has(id));
   const toggleTodos = () => setSelecionados(todosMarcados ? new Set() : new Set(idsVisiveis));
 
@@ -302,22 +298,22 @@ export default function CobrancasPage() {
 
       <div className="mb-3 rounded-lg border border-line bg-surface px-4 py-3">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm text-muted">
-          <span>Total de cobranças: <span className="tabular font-medium text-ink">{invoicesOrdenadas.length}{invoices.length >= 500 ? '+' : ''}</span>{temMais && <> · mostrando <span className="tabular font-medium text-ink">{paginadas.length}</span></>}{invoices.length >= 500 && <span className="ml-1 text-xs text-warning" title="A API traz no máximo 500 por vez — refine os filtros para ver o restante">(limite de 500 — refine os filtros)</span>}</span>
-          {invoicesOrdenadas.length > 0 && (
-            <button onClick={exportarCsv} className="ml-auto flex items-center gap-1.5 rounded border border-line px-2.5 py-1 text-xs font-medium hover:bg-canvas" title="Baixar o resultado filtrado em CSV (abre no Excel)">
-              <FileDown size={14} /> Exportar ({invoicesOrdenadas.length})
+          <span>Total de cobranças: <span className="tabular font-medium text-ink">{total}</span>{temMais && <> · mostrando <span className="tabular font-medium text-ink">{invoices.length}</span></>}</span>
+          {total > 0 && (
+            <button onClick={exportarCsv} className="ml-auto flex items-center gap-1.5 rounded border border-line px-2.5 py-1 text-xs font-medium hover:bg-canvas" title="Baixar a base filtrada inteira em CSV (abre no Excel)">
+              <FileDown size={14} /> Exportar ({total})
             </button>
           )}
         </div>
-        {invoicesOrdenadas.length > 0 && (
+        {resumo && resumo.total > 0 && (
           <div className="mt-2 flex flex-wrap items-baseline gap-x-5 gap-y-1 text-sm text-muted">
             <span>Valor total: <span className="tabular font-semibold text-ink">{brl(resumo.soma)}</span></span>
             {resumo.emAberto > 0 && <span>Em aberto: <span className="tabular font-semibold text-danger">{brl(resumo.emAberto)}</span></span>}
-            <span>Ticket médio: <span className="tabular font-medium text-ink">{brl(ticketMedio)}</span></span>
-            <span>Clientes: <span className="tabular font-medium text-ink">{clientesDistintos}</span></span>
-            {critico.n > 0 && (
+            <span>Ticket médio: <span className="tabular font-medium text-ink">{brl(resumo.ticketMedio)}</span></span>
+            <span>Clientes: <span className="tabular font-medium text-ink">{resumo.clientesDistintos}</span></span>
+            {resumo.critico.n > 0 && (
               <span title="Cobranças vencidas há mais de 30 dias — o valor mais difícil de recuperar">
-                Atraso +30d: <span className="tabular font-semibold text-danger">{critico.n}</span> · <span className="tabular font-semibold text-danger">{brl(critico.valor)}</span>
+                Atraso +30d: <span className="tabular font-semibold text-danger">{resumo.critico.n}</span> · <span className="tabular font-semibold text-danger">{brl(resumo.critico.valor)}</span>
               </span>
             )}
           </div>
@@ -327,8 +323,8 @@ export default function CobrancasPage() {
             {statusResumo.map((s) => (
               <span key={s} className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs ${statusColor[s] || 'bg-canvas text-muted'}`}>
                 <span className="font-medium">{s}</span>
-                <span className="tabular opacity-70">{resumo.porStatus[s].n}</span>
-                <span className="tabular font-semibold">{brl(resumo.porStatus[s].valor)}</span>
+                <span className="tabular opacity-70">{resumo?.porStatus[s].n}</span>
+                <span className="tabular font-semibold">{brl(resumo?.porStatus[s].valor ?? 0)}</span>
               </span>
             ))}
           </div>
@@ -358,7 +354,7 @@ export default function CobrancasPage() {
             </tr>
           </thead>
           <tbody>
-            {paginadas.map((inv) => (
+            {invoices.map((inv) => (
               <tr key={inv.id} className={`border-b border-line last:border-0 ${selecionados.has(inv.id) ? 'bg-primary-tint/40' : ''}`}>
                 <td className="px-4 py-3"><input type="checkbox" checked={selecionados.has(inv.id)} onChange={() => toggleSel(inv.id)} className="h-4 w-4 cursor-pointer accent-primary" aria-label={`Selecionar cobrança de ${inv.customer?.nome || 'cliente'}`} /></td>
                 <td className="px-4 py-3 font-medium text-ink">{inv.customer?.nome || '—'}</td>
@@ -388,10 +384,10 @@ export default function CobrancasPage() {
       </div>
       {temMais && (
         <div className="mt-3 flex items-center justify-center gap-3">
-          <button onClick={() => setLimite((n) => n + POR_PAGINA)} className="rounded border border-line px-4 py-2 text-sm font-medium hover:bg-canvas">
-            Ver mais {Math.min(POR_PAGINA, invoicesOrdenadas.length - paginadas.length)}
+          <button onClick={verMais} className="rounded border border-line px-4 py-2 text-sm font-medium hover:bg-canvas">
+            Ver mais {Math.min(POR_PAGINA, total - invoices.length)}
           </button>
-          <button onClick={() => setLimite(invoicesOrdenadas.length)} className="text-sm text-primary hover:underline">Ver todas ({invoicesOrdenadas.length})</button>
+          <span className="text-sm text-muted">{invoices.length} de {total}</span>
         </div>
       )}
 
