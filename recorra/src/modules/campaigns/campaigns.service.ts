@@ -1,14 +1,22 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Campaign, ChannelType, Prisma, RiskBand } from '@prisma/client';
+import { Campaign, ChannelType, Customer, Prisma, RiskBand } from '@prisma/client';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { DispatchService } from '@/modules/dunning/dispatch.service';
 import { PaymentProviderFactory } from '@/modules/payments/payment-provider.factory';
 import { DispatchQueue } from '@/queue/dispatch-queue';
 import { parseDateFilter } from '@/common/util/parse';
+import { channelChain } from '@/modules/dunning/fallback';
 
 /** WhatsApp só envia por template aprovado; texto livre sobra para SMS e e-mail. */
 const WHATSAPP: ChannelType[] = ['WHATSAPP_CLOUD', 'NX_SYSTEMS', 'WHATSAPP_EVOLUTION', 'WHATSAPP_UAZAPI'];
 export const exigeTemplate = (canal?: ChannelType | null) => !!canal && WHATSAPP.includes(canal);
+
+/** Evita estourar o limite de parâmetros do Postgres em públicos grandes. */
+function emLotes<T>(items: T[], tamanho = 2000): T[][] {
+  const lotes: T[][] = [];
+  for (let i = 0; i < items.length; i += tamanho) lotes.push(items.slice(i, i + tamanho));
+  return lotes;
+}
 
 /** Conjunto de filtros de público — compartilhado por prévia, campanha e segmento. */
 export interface PublicoFiltros {
@@ -373,20 +381,33 @@ export class CampaignsService {
       // Risco filtrado no banco pela faixa desnormalizada (sem pós-corte que quebrava a paginação).
       if (camp.filtroFaixa) where.faixaAtual = camp.filtroFaixa;
     }
-    // Teto de segurança alto (execução precisa de todos os alvos). O filtro de risco
-    // agora está no `where`, então não há mais o corte pós-take que descartava contatos.
-    let customers = await this.prisma.customer.findMany({ where, take: 20000, orderBy: { nome: 'asc' } });
+    // Lê todo o público em páginas por cursor. Não pode haver `take` global aqui:
+    // um corte silencioso faria campanhas grandes deixarem clientes aptos de fora.
+    const customers: Customer[] = [];
+    const PAGE_SIZE = 2000;
+    let cursor: string | undefined;
+    while (true) {
+      const page = await this.prisma.customer.findMany({
+        where,
+        orderBy: { id: 'asc' },
+        take: PAGE_SIZE,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      });
+      customers.push(...page);
+      if (page.length < PAGE_SIZE) break;
+      cursor = page[page.length - 1].id;
+    }
     // Remove os excluídos manualmente e adiciona os incluídos manualmente.
     const excl = new Set(camp.excluirIds ?? []);
-    customers = customers.filter((c) => !excl.has(c.id));
-    const jaTem = new Set(customers.map((c) => c.id));
+    let publico = customers.filter((c) => !excl.has(c.id));
+    const jaTem = new Set(publico.map((c) => c.id));
     const faltantes = (camp.incluirIds ?? []).filter((id) => !jaTem.has(id) && !excl.has(id));
     if (faltantes.length) {
       // Include manual respeita `ativo` — não injeta cliente inativo por um id solto.
       const extras = await this.prisma.customer.findMany({ where: { tenantId, id: { in: faltantes }, ativo: true } });
-      customers = [...customers, ...extras];
+      publico = [...publico, ...extras];
     }
-    return customers;
+    return publico;
   }
 
   /** Prévia de público a partir de filtros avulsos (sem salvar campanha). */
@@ -484,11 +505,17 @@ export class CampaignsService {
     // em que ele é alcançável e não deu opt-out — espelhando o executor por passo.
     const canais = (f.canais?.length ? f.canais : [(f.canal ?? 'WHATSAPP_CLOUD')]) as ChannelType[];
 
-    const [invs, scores, optouts] = await Promise.all([
-      ids.length ? this.prisma.invoice.findMany({ where: { tenantId, customerId: { in: ids }, status: { in: ['PENDENTE', 'VENCIDA'] }, gestaoCobranca: 'ATIVA' }, select: { customerId: true, valor: true, status: true } }) : [],
-      ids.length ? this.prisma.riskScore.findMany({ where: { tenantId, customerId: { in: ids } }, orderBy: { calculadoEm: 'desc' }, select: { customerId: true, faixa: true } }) : [],
-      ids.length ? this.prisma.consent.findMany({ where: { customerId: { in: ids }, canal: { in: canais }, status: 'REVOGADO' }, select: { customerId: true, canal: true } }) : [],
-    ]);
+    const invs: { customerId: string; valor: Prisma.Decimal; status: string }[] = [];
+    const scores: { customerId: string; faixa: RiskBand }[] = [];
+    const optouts: { customerId: string; canal: ChannelType }[] = [];
+    for (const lote of emLotes(ids)) {
+      const [i, s, o] = await Promise.all([
+        this.prisma.invoice.findMany({ where: { tenantId, customerId: { in: lote }, status: { in: ['PENDENTE', 'VENCIDA'] }, gestaoCobranca: 'ATIVA' }, select: { customerId: true, valor: true, status: true } }),
+        this.prisma.riskScore.findMany({ where: { tenantId, customerId: { in: lote } }, orderBy: { calculadoEm: 'desc' }, select: { customerId: true, faixa: true } }),
+        this.prisma.consent.findMany({ where: { customerId: { in: lote }, canal: { in: canais }, status: 'REVOGADO' }, select: { customerId: true, canal: true } }),
+      ]);
+      invs.push(...i); scores.push(...s); optouts.push(...o);
+    }
 
     const abertoBy = new Map<string, { valor: number; vencida: number }>();
     for (const i of invs) {
@@ -599,13 +626,19 @@ export class CampaignsService {
     tenantId: string, customers: T[], tipoEnvio: string, canais: ChannelType[],
   ): Promise<T[]> {
     if (!customers.length) return [];
-    const ids = customers.map((c) => c.id);
     const cs = canais.length ? canais : (['WHATSAPP_CLOUD'] as ChannelType[]);
     const isLembrete = tipoEnvio === 'LEMBRETE';
-    const [invs, optouts] = await Promise.all([
-      isLembrete ? this.prisma.invoice.findMany({ where: { tenantId, customerId: { in: ids }, status: { in: ['PENDENTE', 'VENCIDA'] }, gestaoCobranca: 'ATIVA' }, select: { customerId: true } }) : Promise.resolve([] as { customerId: string }[]),
-      this.prisma.consent.findMany({ where: { customerId: { in: ids }, canal: { in: cs }, status: 'REVOGADO' }, select: { customerId: true, canal: true } }),
-    ]);
+    const invs: { customerId: string }[] = [];
+    const optouts: { customerId: string; canal: ChannelType }[] = [];
+    for (const lote of emLotes(customers.map((c) => c.id))) {
+      const [i, o] = await Promise.all([
+        isLembrete
+          ? this.prisma.invoice.findMany({ where: { tenantId, customerId: { in: lote }, status: { in: ['PENDENTE', 'VENCIDA'] }, gestaoCobranca: 'ATIVA' }, select: { customerId: true } })
+          : Promise.resolve([] as { customerId: string }[]),
+        this.prisma.consent.findMany({ where: { customerId: { in: lote }, canal: { in: cs }, status: 'REVOGADO' }, select: { customerId: true, canal: true } }),
+      ]);
+      invs.push(...i); optouts.push(...o);
+    }
     const temFatura = new Set(invs.map((i) => i.customerId));
     const optBy = new Map<string, Set<ChannelType>>();
     for (const o of optouts) { const s = optBy.get(o.customerId) ?? new Set<ChannelType>(); s.add(o.canal); optBy.set(o.customerId, s); }
@@ -743,14 +776,15 @@ export class CampaignsService {
           if (invRegua && /\{\{\s*pix\s*\}\}/i.test(textoPassos)) invRegua = await this.garantirPix(invRegua);
 
           for (const step of camp.rule.steps) {
-            // Opt-out por canal do passo: não enfileira o passo cujo canal o cliente revogou.
-            if (await this.optOut(cliente.id, step.canal)) continue;
             const usaTpl = !!step.templateName;
             const paramsStep = usaTpl ? (step.templateParams ?? []).map((tok) => this.render(tok, cliente, invRegua)) : [];
             const d = await this.prisma.messageDispatch.create({
               data: {
                 tenantId, customerId: cliente.id, invoiceId: invRegua?.id, campaignId: camp.id,
-                canal: step.canal, channelAccountId: step.channelAccountId ?? undefined, cadeiaCanais: step.canaisFallback,
+                canal: step.canal, channelAccountId: step.channelAccountId ?? undefined,
+                // A cadeia precisa conter principal + fallbacks. O worker verifica
+                // o opt-out no envio e escolhe o primeiro canal permitido.
+                cadeiaCanais: channelChain(step.canal, step.canaisFallback) as ChannelType[],
                 template: step.template,
                 templateName: usaTpl ? step.templateName : undefined,
                 templateParams: paramsStep,

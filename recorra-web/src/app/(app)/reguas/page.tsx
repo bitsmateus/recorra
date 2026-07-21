@@ -131,7 +131,7 @@ const LEGENDA: { label: string; cor: string }[] = [
   { label: 'Extrajudicial', cor: COR_EXTRAJUDICIAL },
 ];
 
-export function ReguaTimeline({ steps, compact = false }: { steps: Step[]; compact?: boolean }) {
+function ReguaTimeline({ steps, compact = false }: { steps: Step[]; compact?: boolean }) {
   if (!steps.length) {
     return compact ? null : <p className="text-sm text-muted">Adicione passos para ver a linha do tempo.</p>;
   }

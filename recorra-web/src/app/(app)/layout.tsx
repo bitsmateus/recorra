@@ -4,11 +4,12 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { LayoutDashboard, Users, Plug, LogOut, CreditCard, GitBranch, UserCog, Send, BarChart3, Gauge, HelpCircle, ChevronDown, Megaphone, Wallet, SlidersHorizontal, Radio, Menu, X, Mail, MessageSquare, PanelLeftClose, PanelLeftOpen, Eraser, Moon, Sun } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { Logo, LogoMark } from '@/components/Logo';
 import { getToken, logout } from '@/lib/api';
 
-type Item = { href: string; label: string; icon: React.ComponentType<{ size?: number }> };
-type Grupo = { label: string; icon: React.ComponentType<{ size?: number }>; items: Item[] };
+type Item = { href: string; label: string; icon: LucideIcon };
+type Grupo = { label: string; icon: LucideIcon; items: Item[] };
 
 const grupos: Grupo[] = [
   { label: 'Início', icon: LayoutDashboard, items: [
