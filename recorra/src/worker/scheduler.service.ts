@@ -9,6 +9,7 @@ import { ChargesService } from '@/modules/payments/charges.service';
 import { BillingSaasService } from '@/modules/platform/billing-saas.service';
 import { DispatchQueue } from '@/queue/dispatch-queue';
 import { CampaignsService } from '@/modules/campaigns/campaigns.service';
+import { SyncService } from '@/modules/connectors/sync.service';
 
 @Injectable()
 export class SchedulerService implements OnApplicationBootstrap {
@@ -24,6 +25,7 @@ export class SchedulerService implements OnApplicationBootstrap {
     private readonly billingSaas: BillingSaasService,
     private readonly dispatchQueue: DispatchQueue,
     private readonly campaigns: CampaignsService,
+    private readonly sync: SyncService,
   ) {}
 
   /** Ao subir o worker, zera o acúmulo de faturas vencidas de uma vez (não espera as 3h). */
@@ -95,6 +97,30 @@ export class SchedulerService implements OnApplicationBootstrap {
         }
       } catch {
         // Gateways sem suporte a importação (MP/Stripe/Efí/bancos) caem aqui — ignora.
+      }
+    }
+  }
+
+  /**
+   * Sincronização automática dos ERPs (a cada 4h). Puxa clientes + faturas em
+   * aberto e concilia quem já pagou (some da lista de abertas → baixa e para a
+   * régua). É o que mantém o cliente que NÃO usa gateway com dados frescos, sem
+   * depender de clicar "Sincronizar". Só conectores de pull (CSV/API têm fluxo
+   * próprio); falha de um ERP não afeta os demais.
+   */
+  @Cron('0 */4 * * *', { timeZone: 'America/Sao_Paulo' })
+  async runErpSync() {
+    const integracoes = await this.prisma.sourceIntegration.findMany({
+      where: { ativo: true, sistema: { in: ['IXC', 'SGP', 'HUBSOFT', 'VOALLE', 'MKAUTH'] } },
+      select: { id: true, tenantId: true, sistema: true },
+    });
+    for (const it of integracoes) {
+      try {
+        const r = await this.sync.syncAll(it.tenantId, it.id);
+        this.logger.log(`Sync ERP ${it.sistema} (${it.id}): ${r.clientes} clientes, ${r.faturas} faturas, ${r.quitadas} quitadas`);
+      } catch (e) {
+        this.logger.error(`Falha no sync ERP ${it.sistema} (${it.id}): ${String(e)}`);
+        await this.prisma.sourceIntegration.update({ where: { id: it.id }, data: { status: 'falha' } }).catch(() => {});
       }
     }
   }

@@ -32,6 +32,16 @@ export interface SourceCredentials {
  */
 export interface SourceConnector {
   readonly system: string;
+
+  /**
+   * True só quando `fetchOpenInvoices` garante devolver **todas** as faturas em
+   * aberto (paginação completa). É o que autoriza a conciliação por ausência —
+   * marcar como paga a fatura que sumiu da lista. Se o conector faz uma chamada
+   * única e o ERP pode limitar/paginar o retorno por conta própria, deixe `false`:
+   * a fatura poderia ficar de fora do lote e ser quitada por engano.
+   */
+  readonly snapshotCompleto: boolean;
+
   testConnection(): Promise<boolean>;
   fetchCustomers(sinceCursor?: string): Promise<SourceCustomer[]>;
   fetchOpenInvoices(sinceCursor?: string): Promise<SourceInvoice[]>;

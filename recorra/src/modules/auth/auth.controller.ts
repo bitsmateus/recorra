@@ -1,39 +1,66 @@
-import { Body, Controller, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Post, Req, Res, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { RegisterDto, LoginDto } from './dto/auth.dto';
 import { JwtAuthGuard } from '@/common/auth/jwt-auth.guard';
 import { CurrentUser } from '@/common/auth/current-user.decorator';
 import { AuthUser } from '@/common/auth/jwt.types';
+import { setRefreshCookie, clearRefreshCookie, readRefreshCookie } from '@/common/auth/refresh-cookie';
 
 @Controller('auth')
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
   @Post('register')
-  register(@Body() dto: RegisterDto) {
-    return this.auth.register(dto);
+  async register(@Body() dto: RegisterDto, @Res({ passthrough: true }) res: Response) {
+    const { refreshToken, ...rest } = await this.auth.register(dto);
+    setRefreshCookie(res, refreshToken);
+    return rest;
   }
 
   @Throttle({ default: { ttl: 60_000, limit: 8 } })
   @Post('login')
-  login(@Body() dto: LoginDto) {
-    return this.auth.login(dto);
+  async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
+    const { refreshToken, ...rest } = await this.auth.login(dto);
+    setRefreshCookie(res, refreshToken);
+    return rest;
   }
 
   @Post('google')
-  google(@Body('idToken') idToken: string, @Body('codigo') codigo?: string) {
-    return this.auth.loginGoogle(idToken, codigo);
+  async google(
+    @Body('idToken') idToken: string,
+    @Res({ passthrough: true }) res: Response,
+    @Body('codigo') codigo?: string,
+  ) {
+    const { refreshToken, ...rest } = await this.auth.loginGoogle(idToken, codigo);
+    setRefreshCookie(res, refreshToken);
+    return rest;
   }
 
   @Post('refresh')
-  refresh(@Body('refreshToken') refreshToken: string) {
-    return this.auth.refresh(refreshToken);
+  async refresh(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+    @Body('refreshToken') bodyToken?: string,
+  ) {
+    // Cookie httpOnly primeiro; body como fallback (frontend antigo em cache).
+    const token = readRefreshCookie(req) ?? bodyToken ?? '';
+    const { refreshToken, ...rest } = await this.auth.refresh(token);
+    setRefreshCookie(res, refreshToken);
+    return rest;
   }
 
   @Post('logout')
-  logout(@Body('refreshToken') refreshToken: string) {
-    return this.auth.logout(refreshToken);
+  async logout(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+    @Body('refreshToken') bodyToken?: string,
+  ) {
+    const token = readRefreshCookie(req) ?? bodyToken;
+    if (token) await this.auth.logout(token);
+    clearRefreshCookie(res);
+    return { ok: true };
   }
 
   @Throttle({ default: { ttl: 60_000, limit: 5 } })

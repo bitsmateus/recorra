@@ -157,6 +157,13 @@ export class SubscriptionsService {
   private async autoCharge(tenantId: string, invoiceId: string, metodo: ChargeMethod, splitConfig: unknown) {
     const account = await this.prisma.paymentProviderAccount.findFirst({ where: { tenantId, ativo: true } });
     if (!account) return; // sem gateway configurado: fatura fica sem cobrança até configurar
+    // Idempotência: se a fatura já tem cobrança emitida no gateway, NÃO re-emite.
+    // Re-emitir geraria um novo PIX/boleto e orfanaria o anterior — que continua
+    // pagável, mas deixaria de casar por externalId na conciliação/webhook, e o
+    // cliente que pagasse o slip antigo ficaria como inadimplente. O retry de
+    // assinatura só deve (re)emitir quando a 1ª tentativa falhou (sem externalId).
+    const invoice = await this.prisma.invoice.findFirst({ where: { id: invoiceId, tenantId }, select: { externalId: true } });
+    if (invoice?.externalId) return;
     try {
       const splits = Array.isArray(splitConfig) ? splitConfig : undefined;
       await this.charges.gerarCobranca(tenantId, invoiceId, account.id, metodo, splits as never, 'assinatura');

@@ -21,7 +21,16 @@ import { safeHttpAgents } from '@/common/net/safe-http';
  */
 export class IxcConnector implements SourceConnector {
   readonly system = 'IXC';
+  // Pagina até o fim (listarTudo) → snapshot completo, conciliação por ausência liberada.
+  readonly snapshotCompleto = true;
   private readonly http: AxiosInstance;
+
+  // Sem paginação, o IXC devolveria só a 1ª página (rp) e o restante sumiria —
+  // o que, com a conciliação por ausência, marcaria as faturas não-buscadas como
+  // pagas. Por isso paginamos até o fim; se estourar MAX_PAGES, aborta em vez de
+  // truncar silenciosamente (melhor falhar o sync do que quitar fatura errada).
+  private static readonly RP = 500;
+  private static readonly MAX_PAGES = 200;
 
   constructor(creds: SourceCredentials) {
     this.http = axios.create({
@@ -47,13 +56,30 @@ export class IxcConnector implements SourceConnector {
     }
   }
 
+  /**
+   * Busca todas as páginas de uma listagem do IXC. O IXC pagina por `page`/`rp` e
+   * devolve `total`; percorre até juntar tudo (ou a página vir menor que `rp`).
+   */
+  private async listarTudo(endpoint: string, base: Record<string, string>): Promise<any[]> {
+    const out: any[] = [];
+    for (let page = 1; page <= IxcConnector.MAX_PAGES; page++) {
+      const { data } = await this.http.post(
+        endpoint,
+        { ...base, page: String(page), rp: String(IxcConnector.RP) },
+        { headers: { ixcsoft: 'listar' } },
+      );
+      const rows: any[] = data?.registros ?? [];
+      out.push(...rows);
+      const total = Number(data?.total ?? out.length);
+      if (rows.length < IxcConnector.RP || out.length >= total) return out;
+    }
+    throw new Error(`IXC ${endpoint}: paginação excedeu ${IxcConnector.MAX_PAGES} páginas — abortando para não truncar.`);
+  }
+
   async fetchCustomers(): Promise<SourceCustomer[]> {
-    const { data } = await this.http.post(
-      '/cliente',
-      { qtype: 'cliente.ativo', query: 'S', oper: '=', page: '1', rp: '1000', sortname: 'cliente.id', sortorder: 'asc' },
-      { headers: { ixcsoft: 'listar' } },
-    );
-    const rows: any[] = data?.registros ?? [];
+    const rows = await this.listarTudo('/cliente', {
+      qtype: 'cliente.ativo', query: 'S', oper: '=', sortname: 'cliente.id', sortorder: 'asc',
+    });
     return rows.map((r) => ({
       externalId: String(r.id),
       nome: r.razao ?? r.fantasia ?? '',
@@ -66,12 +92,9 @@ export class IxcConnector implements SourceConnector {
 
   async fetchOpenInvoices(): Promise<SourceInvoice[]> {
     // status 'A' = aberto no contas a receber do IXC
-    const { data } = await this.http.post(
-      '/fn_areceber',
-      { qtype: 'fn_areceber.status', query: 'A', oper: '=', page: '1', rp: '2000', sortname: 'fn_areceber.data_vencimento', sortorder: 'asc' },
-      { headers: { ixcsoft: 'listar' } },
-    );
-    const rows: any[] = data?.registros ?? [];
+    const rows = await this.listarTudo('/fn_areceber', {
+      qtype: 'fn_areceber.status', query: 'A', oper: '=', sortname: 'fn_areceber.data_vencimento', sortorder: 'asc',
+    });
     return rows.map((r) => ({
       externalId: String(r.id),
       customerExternalId: String(r.id_cliente),

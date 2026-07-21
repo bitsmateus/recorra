@@ -22,4 +22,14 @@ describe('computeSplit', () => {
     const s = computeSplit(100, [{ destino: 'a', percentual: 30 }]);
     expect(valorLiquido(100, s)).toBe(70);
   });
+  it('processa valores fixos antes dos percentuais (contrato), mesmo se declarados depois', () => {
+    // Total 100: percentual de 90 declarado antes de um fixo de 30.
+    // Fixos primeiro → fixo recebe 30 integral; percentual (90) capado no restante (70).
+    const s = computeSplit(100, [
+      { destino: 'pct', percentual: 90 },
+      { destino: 'fixo', valorFixo: 30 },
+    ]);
+    expect(s.find((x) => x.destino === 'fixo')?.valor).toBe(30);
+    expect(s.find((x) => x.destino === 'pct')?.valor).toBe(70);
+  });
 });

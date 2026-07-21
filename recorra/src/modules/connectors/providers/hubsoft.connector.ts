@@ -16,6 +16,8 @@ import { onlyDigits, normalizePhoneBR } from '@/common/util/normalize';
  */
 export class HubsoftConnector implements SourceConnector {
   readonly system = 'HUBSOFT';
+  // Chamada única sem paginação confirmada — conciliação por ausência desligada até validar.
+  readonly snapshotCompleto = false;
   private readonly http: AxiosInstance;
   private readonly creds: SourceCredentials;
   private accessToken?: string;

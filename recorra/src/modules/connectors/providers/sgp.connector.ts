@@ -17,6 +17,8 @@ import { onlyDigits, normalizePhoneBR } from '@/common/util/normalize';
  */
 export class SgpConnector implements SourceConnector {
   readonly system = 'SGP';
+  // Chamada única sem paginação confirmada — conciliação por ausência desligada até validar.
+  readonly snapshotCompleto = false;
   private readonly http: AxiosInstance;
   private readonly app: string;
   private readonly token: string;

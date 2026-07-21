@@ -21,7 +21,13 @@ export interface SplitResult {
 export function computeSplit(total: number, regras: SplitRule[]): SplitResult[] {
   const out: SplitResult[] = [];
   let alocado = 0;
-  for (const r of regras) {
+  // Contrato: valores fixos primeiro, percentuais depois (sort estável mantém a
+  // ordem original dentro de cada grupo). Sem isto, um percentual declarado antes
+  // de um fixo consumia o teto primeiro e truncava o fixo — divergindo do doc.
+  const ordenadas = [...regras].sort(
+    (a, b) => (a.valorFixo !== undefined ? 0 : 1) - (b.valorFixo !== undefined ? 0 : 1),
+  );
+  for (const r of ordenadas) {
     let valor = 0;
     if (r.valorFixo !== undefined) valor = r.valorFixo;
     else if (r.percentual !== undefined) valor = round2(total * (r.percentual / 100));

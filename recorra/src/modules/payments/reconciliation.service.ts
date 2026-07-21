@@ -29,8 +29,7 @@ export class ReconciliationService {
         const provider = await this.factory.forAccount(inv.providerAccountId!);
         const st = await provider.getChargeStatus(inv.externalId!);
         if (st.status === 'PAGA') {
-          await this.baixar(tenantId, inv.id, inv.customerId, undefined, st.pagoEm);
-          baixadas++;
+          if (await this.baixar(tenantId, inv.id, inv.customerId, undefined, st.pagoEm)) baixadas++;
         } else if (st.status === 'VENCIDA' && inv.status !== 'VENCIDA') {
           await this.prisma.invoice.update({ where: { id: inv.id }, data: { status: 'VENCIDA' } });
         }
@@ -42,8 +41,14 @@ export class ReconciliationService {
   }
 
   /** Baixa + pausa régua + confirmação (mesma lógica do webhook). */
-  private async baixar(tenantId: string, invoiceId: string, customerId: string, nome?: string, pagoEm?: Date) {
-    await this.prisma.invoice.update({ where: { id: invoiceId }, data: { status: 'PAGA', pagoEm: pagoEm ?? new Date() } });
+  private async baixar(tenantId: string, invoiceId: string, customerId: string, nome?: string, pagoEm?: Date): Promise<boolean> {
+    // Baixa idempotente: se a fatura já foi paga (pelo webhook ou outra execução
+    // da conciliação), não repete a baixa nem a mensagem de confirmação.
+    const baixa = await this.prisma.invoice.updateMany({
+      where: { id: invoiceId, status: { not: 'PAGA' } },
+      data: { status: 'PAGA', pagoEm: pagoEm ?? new Date() },
+    });
+    if (baixa.count === 0) return false;
     await this.prisma.messageDispatch.updateMany({
       where: { tenantId, invoiceId, status: 'FILA' },
       data: { status: 'IGNORADO', erro: 'Pagamento confirmado (conciliação)' },
@@ -62,5 +67,6 @@ export class ReconciliationService {
         agendadoPara: new Date(),
       },
     });
+    return true;
   }
 }

@@ -53,8 +53,9 @@ export default function IntegracoesPage() {
   async function sincronizar(id: string) {
     setMsg('Sincronizando... pode levar alguns segundos.');
     try {
-      const r = await api<{ clientes: number; faturas: number }>(`/integracoes/${id}/sincronizar`, { method: 'POST' });
-      setMsg(`✓ ${r.clientes} clientes e ${r.faturas} faturas sincronizados`);
+      const r = await api<{ clientes: number; faturas: number; quitadas?: number }>(`/integracoes/${id}/sincronizar`, { method: 'POST' });
+      const quit = r.quitadas ? ` · ${r.quitadas} baixada(s) como paga(s)` : '';
+      setMsg(`✓ ${r.clientes} clientes e ${r.faturas} faturas sincronizados${quit}`);
     } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro ao sincronizar'); }
   }
   const [testando, setTestando] = useState<string | null>(null);

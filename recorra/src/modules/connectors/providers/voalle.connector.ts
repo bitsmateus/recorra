@@ -17,6 +17,8 @@ import { onlyDigits, normalizePhoneBR } from '@/common/util/normalize';
  */
 export class VoalleConnector implements SourceConnector {
   readonly system = 'VOALLE';
+  // Chamada única sem paginação confirmada — conciliação por ausência desligada até validar.
+  readonly snapshotCompleto = false;
   private readonly http: AxiosInstance;
   private readonly creds: SourceCredentials;
   private accessToken?: string;

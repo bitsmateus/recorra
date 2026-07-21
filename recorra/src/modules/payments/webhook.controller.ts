@@ -118,10 +118,15 @@ export class WebhookController {
     }
 
     if (status === 'PAGA') {
-      await this.prisma.invoice.update({
-        where: { id: invoice.id },
+      // Baixa idempotente: só o request que EFETIVAMENTE transiciona a fatura
+      // para PAGA dispara os efeitos (pausar régua + confirmação). Sem isto,
+      // eventos duplicados (Asaas manda CONFIRMED e RECEIVED) ou a corrida com a
+      // conciliação criariam uma segunda mensagem de confirmação ao cliente.
+      const baixa = await this.prisma.invoice.updateMany({
+        where: { id: invoice.id, status: { not: 'PAGA' } },
         data: { status: 'PAGA', pagoEm: pagoEm ?? new Date() },
       });
+      if (baixa.count === 0) return { ok: true };
 
       await this.prisma.messageDispatch.updateMany({
         where: { tenantId: account.tenantId, invoiceId: invoice.id, status: 'FILA' },

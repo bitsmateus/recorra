@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, Users, Plug, LogOut, CreditCard, GitBranch, UserCog, Send, BarChart3, Gauge, HelpCircle, ChevronDown, Megaphone, Wallet, SlidersHorizontal, Radio, Menu, X, Mail, MessageSquare } from 'lucide-react';
-import { Logo } from '@/components/Logo';
+import { LayoutDashboard, Users, Plug, LogOut, CreditCard, GitBranch, UserCog, Send, BarChart3, Gauge, HelpCircle, ChevronDown, Megaphone, Wallet, SlidersHorizontal, Radio, Menu, X, Mail, MessageSquare, PanelLeftClose, PanelLeftOpen, Eraser } from 'lucide-react';
+import { Logo, LogoMark } from '@/components/Logo';
 import { getToken, logout } from '@/lib/api';
 
 type Item = { href: string; label: string; icon: React.ComponentType<{ size?: number }> };
@@ -46,10 +46,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // Grupos começam fechados; abrimos automaticamente apenas o da rota atual.
   const [abertos, setAbertos] = useState<Record<string, boolean>>({});
   const [menuAberto, setMenuAberto] = useState(false);
+  const [menuMinimizado, setMenuMinimizado] = useState(false);
 
   useEffect(() => {
     if (!getToken()) router.replace('/login');
-    else setReady(true);
+    else {
+      setMenuMinimizado(localStorage.getItem('recorra_sidebar_minimizada') === '1');
+      setReady(true);
+    }
   }, [router]);
 
   // Fecha o menu mobile ao navegar e abre o grupo da rota ativa.
@@ -76,9 +80,32 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     setAbertos((s) => ({ ...s, [label]: !s[label] }));
   }
 
-  const navContent = (
+  function alternarMenu() {
+    setMenuMinimizado((atual) => {
+      const proximo = !atual;
+      localStorage.setItem('recorra_sidebar_minimizada', proximo ? '1' : '0');
+      return proximo;
+    });
+  }
+
+  async function limparCache() {
+    if (!window.confirm('Limpar o cache e as preferências locais do Recorrai? Sua sessão será mantida.')) return;
+    const token = localStorage.getItem('recorra_token');
+    const refresh = localStorage.getItem('recorra_refresh');
+    localStorage.clear();
+    sessionStorage.clear();
+    if (token) localStorage.setItem('recorra_token', token);
+    if (refresh) localStorage.setItem('recorra_refresh', refresh);
+    if ('caches' in window) {
+      const nomes = await caches.keys();
+      await Promise.all(nomes.map((nome) => caches.delete(nome)));
+    }
+    window.location.reload();
+  }
+
+  const navContent = (compacto = false) => (
     <>
-      <nav className="flex-1 space-y-1 overflow-y-auto p-3">
+      <nav className={`flex-1 space-y-1 overflow-y-auto ${compacto ? 'p-2' : 'p-3'}`}>
         {grupos.map((g) => {
           const aberto = abertos[g.label];
           const GIcon = g.icon;
@@ -89,18 +116,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             const Icon = it.icon;
             const active = pathname.startsWith(it.href);
             return (
-              <Link key={it.href} href={it.href} className={`flex items-center gap-3 rounded px-3 py-2 text-sm transition ${active ? 'bg-primary-tint font-medium text-primary' : 'text-muted hover:bg-canvas'}`}>
+              <Link key={it.href} href={it.href} title={compacto ? it.label : undefined} className={`flex items-center rounded py-2 text-sm transition ${compacto ? 'justify-center px-2' : 'gap-3 px-3'} ${active ? 'bg-primary-tint font-medium text-primary' : 'text-muted hover:bg-canvas'}`}>
                 <Icon size={18} />
-                {it.label}
+                {!compacto && it.label}
               </Link>
             );
           }
           return (
             <div key={g.label} className="pt-1">
-              <button onClick={() => toggle(g.label)} className="flex w-full items-center gap-2 rounded px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted hover:bg-canvas">
+              <button onClick={() => toggle(g.label)} title={compacto ? g.label : undefined} className={`flex w-full items-center rounded py-2 text-xs font-semibold uppercase tracking-wide text-muted hover:bg-canvas ${compacto ? 'justify-center px-2' : 'gap-2 px-3'}`}>
                 <GIcon size={15} />
-                <span className="flex-1 text-left">{g.label}</span>
-                <ChevronDown size={14} className={`transition ${aberto ? '' : '-rotate-90'}`} />
+                {!compacto && <><span className="flex-1 text-left">{g.label}</span><ChevronDown size={14} className={`transition ${aberto ? '' : '-rotate-90'}`} /></>}
               </button>
               {aberto && (
                 <div className="mt-0.5 space-y-0.5">
@@ -108,9 +134,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                     const Icon = it.icon;
                     const active = pathname.startsWith(it.href);
                     return (
-                      <Link key={it.href} href={it.href} className={`flex items-center gap-3 rounded py-2 pl-8 pr-3 text-sm transition ${active ? 'bg-primary-tint font-medium text-primary' : 'text-muted hover:bg-canvas'}`}>
+                      <Link key={it.href} href={it.href} title={compacto ? it.label : undefined} className={`flex items-center rounded py-2 text-sm transition ${compacto ? 'justify-center px-2' : 'gap-3 pl-8 pr-3'} ${active ? 'bg-primary-tint font-medium text-primary' : 'text-muted hover:bg-canvas'}`}>
                         <Icon size={16} />
-                        {it.label}
+                        {!compacto && it.label}
                       </Link>
                     );
                   })}
@@ -120,21 +146,23 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           );
         })}
       </nav>
-      <button onClick={sair} className="m-3 flex items-center gap-3 rounded px-3 py-2 text-sm text-muted transition hover:bg-canvas">
-        <LogOut size={18} />
-        Sair
-      </button>
+      <div className={`border-t border-line ${compacto ? 'p-2' : 'p-3'}`}>
+        <button onClick={limparCache} title={compacto ? 'Limpar cache' : undefined} className={`mb-1 flex w-full items-center rounded py-2 text-sm text-muted transition hover:bg-canvas ${compacto ? 'justify-center px-2' : 'gap-3 px-3'}`}><Eraser size={18} />{!compacto && 'Limpar cache'}</button>
+        <button onClick={sair} title={compacto ? 'Sair' : undefined} className={`flex w-full items-center rounded py-2 text-sm text-muted transition hover:bg-canvas ${compacto ? 'justify-center px-2' : 'gap-3 px-3'}`}><LogOut size={18} />{!compacto && 'Sair'}</button>
+      </div>
     </>
   );
 
   return (
     <div className="flex min-h-screen bg-canvas">
       {/* Sidebar fixa (desktop) */}
-      <aside className="hidden w-60 flex-col border-r border-line bg-surface md:flex print:hidden">
-        <div className="border-b border-line px-5 py-4">
-          <Logo size={30} />
+      <aside className={`hidden flex-col border-r border-line bg-surface transition-[width] duration-200 md:flex print:hidden ${menuMinimizado ? 'w-16' : 'w-60'}`}>
+        <div className={`flex items-center border-b border-line py-4 ${menuMinimizado ? 'justify-center px-2' : 'justify-between px-5'}`}>
+          {menuMinimizado ? <LogoMark size={30} /> : <Logo size={30} />}
+          {!menuMinimizado && <button onClick={alternarMenu} title="Minimizar menu" className="rounded p-1.5 text-muted hover:bg-canvas hover:text-primary"><PanelLeftClose size={18} /></button>}
         </div>
-        {navContent}
+        {navContent(menuMinimizado)}
+        {menuMinimizado && <button onClick={alternarMenu} title="Expandir menu" className="m-2 flex items-center justify-center rounded p-2 text-muted hover:bg-canvas hover:text-primary"><PanelLeftOpen size={18} /></button>}
       </aside>
 
       {/* Drawer + overlay (mobile) */}
@@ -148,7 +176,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <X size={20} />
           </button>
         </div>
-        {navContent}
+        {navContent(false)}
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">

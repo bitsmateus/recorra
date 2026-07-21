@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Zap, Layers, Download, Pencil, Trash2, X, Filter, Plus, FileSpreadsheet, FileDown, ChevronDown, ChevronUp, ArrowUpDown, Receipt, Copy, ExternalLink, Check, HelpCircle, RefreshCw } from 'lucide-react';
+import { Download, Pencil, Trash2, X, Filter, Plus, FileSpreadsheet, FileDown, ChevronDown, ChevronUp, ArrowUpDown, Receipt, Copy, ExternalLink, Check, HelpCircle, RefreshCw } from 'lucide-react';
 import { ImportWizard } from '@/components/ImportWizard';
 import { api } from '@/lib/api';
 import { PageTitle, brl } from '@/components/ui';
@@ -84,15 +84,12 @@ function AjudaStatus() {
 export default function CobrancasPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [gateways, setGateways] = useState<Gateway[]>([]);
-  const [accountId, setAccountId] = useState('');
-  const [metodoGerar, setMetodoGerar] = useState('PIX');
   const [filtros, setFiltros] = useState(emptyFiltros);
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
   const [editar, setEditar] = useState<Invoice | null>(null);
   const [excluir, setExcluir] = useState<Invoice | null>(null);
   const [confirmarImport, setConfirmarImport] = useState(false);
-  const [importLookback, setImportLookback] = useState('30');
   const [confirmarLimparPagas, setConfirmarLimparPagas] = useState(false);
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
   const [confirmarLote, setConfirmarLote] = useState(false);
@@ -117,28 +114,9 @@ export default function CobrancasPage() {
   useEffect(() => {
     api<Gateway[]>('/config/gateways').then((gws) => {
       setGateways(gws);
-      setAccountId((cur) => cur || (gws[0]?.id ?? ''));
-      const janela = gws[0]?.importLookbackDays;
-      setImportLookback(janela == null ? 'all' : String(janela));
     }).catch(() => setGateways([]));
     api<{ nome: string }[]>('/clientes/etiquetas').then(setEtiquetas).catch(() => setEtiquetas([]));
   }, []);
-
-  async function gerar(id: string) {
-    if (!accountId) return setMsg('Configure um gateway primeiro (Integrações).');
-    setMsg('Gerando...');
-    await api(`/cobrancas/${id}/gerar`, { method: 'POST', body: { accountId, metodo: metodoGerar } }).catch((e) => setMsg(e.message));
-    setMsg('✓ Cobrança gerada');
-    load();
-  }
-
-  async function gerarLote() {
-    if (!accountId) return setMsg('Configure um gateway primeiro.');
-    setBusy(true); setMsg('Gerando em lote...');
-    const r = await api<{ geradas: number; total: number }>('/cobrancas/lote', { method: 'POST', body: { accountId, metodo: metodoGerar } }).catch(() => ({ geradas: 0, total: 0 }));
-    setMsg(`✓ ${r.geradas}/${r.total} cobranças geradas`);
-    setBusy(false); load();
-  }
 
   async function reavaliarStatus() {
     setMsg('Reavaliando situações...');
@@ -155,23 +133,6 @@ export default function CobrancasPage() {
     setConfirmarLote(false);
     setMsg(r ? `✓ ${r.excluidas} cobrança(s) excluída(s) do Recorrai.` : 'Erro ao excluir.');
     load();
-  }
-
-  /** Valida antes de perguntar: sem gateway escolhido não há o que confirmar. */
-  function pedirImportacao() {
-    if (!accountId) return setMsg('Selecione um gateway primeiro.');
-    setConfirmarImport(true);
-  }
-
-  async function importarGateway() {
-    setBusy(true); setMsg('Importando do gateway...');
-    try {
-      const lookbackDays = importLookback === 'all' ? null : Number(importLookback);
-      const r = await api<{ clientes: number; clientesAtualizados: number; faturas: number; faturasAtualizadas: number; ativas: number; legado: number }>('/cobrancas/importar-gateway', { method: 'POST', body: { accountId, lookbackDays } });
-      setMsg(`✓ ${r.clientes} clientes novos, ${r.clientesAtualizados} atualizados · ${r.faturas} faturas novas, ${r.faturasAtualizadas} atualizadas · ${r.ativas} ativas e ${r.legado} em legado`);
-      load();
-    } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro na importação'); }
-    setBusy(false);
   }
 
   async function limparPagasImportadas() {
@@ -232,24 +193,6 @@ export default function CobrancasPage() {
     <div>
       <PageTitle title="Cobranças" subtitle="Faturas e geração de Pix/boleto nos gateways" />
 
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <select value={accountId} onChange={(e) => {
-          const id = e.target.value;
-          setAccountId(id);
-          const janela = gateways.find((g) => g.id === id)?.importLookbackDays;
-          setImportLookback(janela == null ? 'all' : String(janela));
-        }} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
-          {gateways.length === 0 && <option value="">Nenhum gateway</option>}
-          {gateways.map((g) => <option key={g.id} value={g.id}>{g.apelido || g.provider} ({g.ambiente})</option>)}
-        </select>
-        <select value={metodoGerar} onChange={(e) => setMetodoGerar(e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
-          <option value="PIX">Pix</option>
-          <option value="BOLETO">Boleto</option>
-          <option value="CARTAO">Cartão</option>
-        </select>
-        <button onClick={gerarLote} disabled={busy} className="flex items-center gap-2 rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-60"><Layers size={16} /> Gerar em lote</button>
-      </div>
-
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <button onClick={() => setCriar(true)} className="flex items-center gap-2 rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover"><Plus size={16} /> Gerar cobrança manual</button>
         <div className="relative">
@@ -259,7 +202,7 @@ export default function CobrancasPage() {
               <div className="fixed inset-0 z-10" onClick={() => setMenuImport(false)} />
               <div className="absolute left-0 z-20 mt-1 w-60 overflow-hidden rounded-lg border border-line bg-surface shadow-lg">
                 <button onClick={() => { setMenuImport(false); setWizard(true); }} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-canvas"><FileSpreadsheet size={15} /> Assistente Excel/CSV</button>
-                <button onClick={() => { setMenuImport(false); pedirImportacao(); }} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-canvas"><Download size={15} /> Importar do gateway</button>
+                <button onClick={() => { setMenuImport(false); gateways.length ? setConfirmarImport(true) : setMsg('Configure um gateway em Integrações primeiro.'); }} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-canvas"><Download size={15} /> Importar do gateway</button>
                 <button onClick={() => { setMenuImport(false); baixarModelo(); }} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-canvas"><FileDown size={15} /> Baixar modelo Excel</button>
                 <div className="border-t border-line" />
                 <button onClick={() => { setMenuImport(false); setConfirmarLimparPagas(true); }} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-danger hover:bg-danger-tint"><Trash2 size={15} /> Limpar pagas importadas</button>
@@ -340,8 +283,7 @@ export default function CobrancasPage() {
                 </td>
                 <td className="px-4 py-3">
                   {inv.externalId ? <span className="text-xs text-success">✓ gerada</span>
-                    : inv.status === 'PAGA' || inv.status === 'CANCELADA' ? <span className="text-xs text-muted">—</span>
-                    : <button onClick={() => gerar(inv.id)} className="flex items-center gap-1 rounded border border-line px-3 py-1 text-xs hover:bg-canvas"><Zap size={13} /> Gerar</button>}
+                    : <span className="text-xs text-muted">não gerada</span>}
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center justify-end gap-1">
@@ -382,33 +324,10 @@ export default function CobrancasPage() {
         />
       )}
       {confirmarImport && (
-        <ConfirmDialog
-          titulo="Importar do gateway"
-          mensagem={<div>
-            <p>Importar clientes e cobranças de <b className="text-ink">{gateways.find((x) => x.id === accountId)?.apelido || gateways.find((x) => x.id === accountId)?.provider || 'gateway'}</b> para o Recorrai?</p>
-            <label className="mt-3 block text-left">
-              <span className="mb-1 flex items-center gap-1 text-xs text-muted">
-                Cobranças vencidas que ficarão ativas
-                <span className="group relative inline-flex">
-                  <button type="button" aria-label="O que é uma cobrança legado?" className="text-muted hover:text-primary"><HelpCircle size={13} /></button>
-                  <span role="tooltip" className="pointer-events-none absolute bottom-6 left-1/2 z-50 hidden w-72 -translate-x-1/2 rounded-lg border border-line bg-surface p-3 text-left text-xs font-normal text-ink shadow-lg group-hover:block group-focus-within:block">
-                    <b>Legado</b> é uma cobrança antiga trazida apenas para histórico. Ela continua visível e pode receber baixa quando for paga, mas não entra em réguas, campanhas automáticas, risco operacional ou total atual em aberto.
-                  </span>
-                </span>
-              </span>
-              <select value={importLookback} onChange={(e) => setImportLookback(e.target.value)} className="w-full rounded border border-line px-3 py-2 text-sm">
-                <option value="0">Somente de hoje em diante</option>
-                <option value="30">Últimos 30 dias (recomendado)</option>
-                <option value="60">Últimos 60 dias</option>
-                <option value="90">Últimos 90 dias</option>
-                <option value="all">Todas as cobranças abertas</option>
-              </select>
-            </label>
-            <p className="mt-2 text-left text-xs text-muted">As mais antigas ficam como legado e não entram em mensagens automáticas.</p>
-          </div>}
-          confirmLabel="Importar"
-          onConfirm={() => { setConfirmarImport(false); importarGateway(); }}
+        <ImportarGatewayModal
+          gateways={gateways}
           onClose={() => setConfirmarImport(false)}
+          onDone={(texto) => { setConfirmarImport(false); setMsg(texto); load(); }}
         />
       )}
       {confirmarLimparPagas && (
@@ -421,6 +340,82 @@ export default function CobrancasPage() {
           onClose={() => setConfirmarLimparPagas(false)}
         />
       )}
+    </div>
+  );
+}
+
+interface ImportPreview {
+  total: { quantidade: number; valor: number };
+  ativas: { quantidade: number; valor: number };
+  legado: { quantidade: number; valor: number };
+}
+
+function ImportarGatewayModal({ gateways, onClose, onDone }: { gateways: Gateway[]; onClose: () => void; onDone: (texto: string) => void }) {
+  const inicial = gateways[0];
+  const [accountId, setAccountId] = useState(inicial?.id ?? '');
+  const [janela, setJanela] = useState(inicial?.importLookbackDays == null ? 'all' : String(inicial.importLookbackDays));
+  const [previa, setPrevia] = useState<ImportPreview | null>(null);
+  const [carregando, setCarregando] = useState(false);
+  const [importando, setImportando] = useState(false);
+  const [erro, setErro] = useState('');
+  const lookbackDays = janela === 'all' ? null : Number(janela);
+
+  const calcularPrevia = useCallback(async () => {
+    if (!accountId) return;
+    setCarregando(true); setPrevia(null); setErro('');
+    try {
+      setPrevia(await api<ImportPreview>('/cobrancas/importar-gateway/previa', { method: 'POST', body: { accountId, lookbackDays } }));
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Não foi possível calcular a prévia.');
+    } finally {
+      setCarregando(false);
+    }
+  }, [accountId, lookbackDays]);
+
+  useEffect(() => { calcularPrevia(); }, [calcularPrevia]);
+
+  async function importar() {
+    if (!previa) return;
+    setImportando(true); setErro('');
+    try {
+      const r = await api<{ clientes: number; clientesAtualizados: number; faturas: number; faturasAtualizadas: number; ativas: number; legado: number }>('/cobrancas/importar-gateway', { method: 'POST', body: { accountId, lookbackDays } });
+      onDone(`✓ ${r.clientes} clientes novos, ${r.clientesAtualizados} atualizados · ${r.faturas} faturas novas, ${r.faturasAtualizadas} atualizadas · ${r.ativas} ativas e ${r.legado} em legado`);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro na importação');
+      setImportando(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget && !importando) onClose(); }}>
+      <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-lg">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-ink">Importar do gateway</h2>
+          <button onClick={onClose} disabled={importando} className="rounded p-1 text-muted hover:bg-canvas disabled:opacity-50"><X size={18} /></button>
+        </div>
+        <div className="space-y-3">
+          <label className="block text-sm"><span className="mb-1 block text-xs text-muted">Gateway</span>
+            <select value={accountId} onChange={(e) => {
+              const id = e.target.value; setAccountId(id);
+              const dias = gateways.find((g) => g.id === id)?.importLookbackDays;
+              setJanela(dias == null ? 'all' : String(dias));
+            }} className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary">
+              {gateways.map((g) => <option key={g.id} value={g.id}>{g.apelido || g.provider} · {g.ambiente}</option>)}
+            </select>
+          </label>
+          <label className="block text-sm"><span className="mb-1 flex items-center gap-1 text-xs text-muted">Cobranças vencidas que ficarão ativas <span className="group relative inline-flex"><HelpCircle size={13} /><span className="pointer-events-none absolute bottom-5 left-0 z-10 hidden w-64 rounded border border-line bg-surface p-2 text-xs font-normal text-ink shadow-lg group-hover:block">Legado continua no histórico e recebe baixa quando pago, mas não participa das mensagens automáticas.</span></span></span>
+            <select value={janela} onChange={(e) => setJanela(e.target.value)} className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary">
+              <option value="0">Somente de hoje em diante</option><option value="30">Últimos 30 dias (recomendado)</option><option value="60">Últimos 60 dias</option><option value="90">Últimos 90 dias</option><option value="all">Todas as cobranças abertas</option>
+            </select>
+          </label>
+        </div>
+        <div className="mt-4 min-h-24 rounded-lg border border-line bg-canvas p-3 text-sm">
+          {carregando && <p className="flex items-center gap-2 text-muted"><RefreshCw size={14} className="animate-spin" /> Buscando cobranças no gateway...</p>}
+          {previa && <div className="space-y-2"><p className="text-muted">Encontradas <b className="text-ink">{previa.total.quantidade}</b> cobranças abertas ({brl(previa.total.valor)}).</p><div className="grid grid-cols-2 gap-2"><div className="rounded bg-success-tint p-2"><b className="text-success">{previa.ativas.quantidade} ativas</b><br /><span className="text-xs text-muted">{brl(previa.ativas.valor)}</span></div><div className="rounded bg-surface p-2"><b className="text-ink">{previa.legado.quantidade} legado</b><br /><span className="text-xs text-muted">{brl(previa.legado.valor)}</span></div></div></div>}
+          {erro && <p className="text-danger">{erro}</p>}
+        </div>
+        <div className="mt-5 flex justify-end gap-2"><button onClick={onClose} disabled={importando} className="rounded border border-line px-4 py-2 text-sm hover:bg-canvas disabled:opacity-50">Cancelar</button><button onClick={importar} disabled={!previa || carregando || importando} className="rounded bg-primary px-5 py-2 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-50">{importando ? 'Importando...' : 'Confirmar importação'}</button></div>
+      </div>
     </div>
   );
 }

@@ -8,6 +8,7 @@ import { BillingModule } from '@/modules/billing/billing.module';
 import { PaymentsModule } from '@/modules/payments/payments.module';
 import { BillingSaasModule } from '@/modules/platform/billing-saas.module';
 import { CampaignsModule } from '@/modules/campaigns/campaigns.module';
+import { ConnectorsModule } from '@/modules/connectors/connectors.module';
 import { SchedulerService } from './scheduler.service';
 import { DispatchQueue } from '@/queue/dispatch-queue';
 import { DispatchWorker } from '@/queue/dispatch.worker';
@@ -23,6 +24,7 @@ import { DispatchWorker } from '@/queue/dispatch.worker';
     PaymentsModule,
     BillingSaasModule,
     CampaignsModule,
+    ConnectorsModule,
   ],
   providers: [SchedulerService, DispatchQueue, DispatchWorker],
 })

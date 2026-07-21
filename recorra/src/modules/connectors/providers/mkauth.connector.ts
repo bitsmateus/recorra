@@ -16,6 +16,8 @@ import { onlyDigits, normalizePhoneBR } from '@/common/util/normalize';
  */
 export class MkAuthConnector implements SourceConnector {
   readonly system = 'MKAUTH';
+  // Chamada única sem paginação confirmada — conciliação por ausência desligada até validar.
+  readonly snapshotCompleto = false;
   private readonly http: AxiosInstance;
 
   constructor(creds: SourceCredentials) {
