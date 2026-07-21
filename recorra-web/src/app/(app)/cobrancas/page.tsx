@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { Download, Pencil, Trash2, X, Filter, Plus, FileSpreadsheet, FileDown, ChevronDown, ChevronUp, ArrowUpDown, Receipt, Copy, ExternalLink, Check, HelpCircle, RefreshCw } from 'lucide-react';
 import { ImportWizard } from '@/components/ImportWizard';
 import { api } from '@/lib/api';
@@ -124,7 +124,13 @@ export default function CobrancasPage() {
 
   // Paginação de SERVIDOR: cada carga traz uma página (skip/take) + o total do filtro.
   // "Ver mais" acumula a próxima página; o resumo é agregado sobre a base inteira.
+  // `seq` invalida respostas obsoletas: toda nova busca (filtro/ordem) incrementa;
+  // uma resposta que chega depois de trocar o contexto é descartada.
+  const seq = useRef(0);
+  const [carregandoMais, setCarregandoMais] = useState(false);
+
   const load = useCallback(async () => {
+    const my = ++seq.current;
     const p = paramsFiltros();
     p.set('page', '1'); p.set('pageSize', String(POR_PAGINA));
     if (ordenacao.campo) { p.set('sortCampo', ordenacao.campo); p.set('sortDir', ordenacao.dir); }
@@ -132,16 +138,22 @@ export default function CobrancasPage() {
       api<{ items: Invoice[]; total: number }>(`/cobrancas?${p.toString()}`).catch(() => null),
       api<ResumoCobrancas>(`/cobrancas/resumo?${paramsFiltros().toString()}`).catch(() => null),
     ]);
+    if (seq.current !== my) return; // superada por outra busca
     if (lista) { setInvoices(lista.items); setTotal(lista.total); setPagina(1); }
     setResumo(res);
   }, [paramsFiltros, ordenacao]);
 
   async function verMais() {
+    if (carregandoMais) return; // evita duplo-clique pedir a mesma página
+    const my = seq.current;
     const prox = pagina + 1;
     const p = paramsFiltros();
     p.set('page', String(prox)); p.set('pageSize', String(POR_PAGINA));
     if (ordenacao.campo) { p.set('sortCampo', ordenacao.campo); p.set('sortDir', ordenacao.dir); }
+    setCarregandoMais(true);
     const r = await api<{ items: Invoice[]; total: number }>(`/cobrancas?${p.toString()}`).catch(() => null);
+    setCarregandoMais(false);
+    if (seq.current !== my) return; // contexto mudou enquanto carregava → descarta
     if (r) { setInvoices((prev) => [...prev, ...r.items]); setTotal(r.total); setPagina(prox); }
   }
 
@@ -384,8 +396,8 @@ export default function CobrancasPage() {
       </div>
       {temMais && (
         <div className="mt-3 flex items-center justify-center gap-3">
-          <button onClick={verMais} className="rounded border border-line px-4 py-2 text-sm font-medium hover:bg-canvas">
-            Ver mais {Math.min(POR_PAGINA, total - invoices.length)}
+          <button onClick={verMais} disabled={carregandoMais} className="rounded border border-line px-4 py-2 text-sm font-medium hover:bg-canvas disabled:opacity-50">
+            {carregandoMais ? 'Carregando…' : `Ver mais ${Math.min(POR_PAGINA, total - invoices.length)}`}
           </button>
           <span className="text-sm text-muted">{invoices.length} de {total}</span>
         </div>

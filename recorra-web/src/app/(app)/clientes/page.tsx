@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { UserPlus, Download, RefreshCw, Eye, Pencil, Trash2, X, Tag, Plus, Check, Search } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -90,10 +90,16 @@ export default function ClientesPage() {
     return params;
   };
 
+  // `seq` descarta respostas obsoletas ao trocar aba/filtro enquanto carrega.
+  const seq = useRef(0);
+  const [carregandoMais, setCarregandoMais] = useState(false);
+
   // Paginação de SERVIDOR: cada carga é uma página; abas e contagens vêm do banco.
   const carregar = useCallback(async () => {
+    const my = ++seq.current;
     setLoading(true);
     const r = await api<{ items: Customer[]; total: number; contagens: { geral: number; aberto: number; incompleto: number } }>(`/clientes?${paramsClientes(1).toString()}`).catch(() => null);
+    if (seq.current !== my) return; // superada
     setLoading(false);
     if (!r) return;
     setClientes(r.items); setTotal(r.total); setContagens(r.contagens); setPagina(1);
@@ -102,8 +108,13 @@ export default function ClientesPage() {
   }, [aplicados, aba]);
 
   async function verMais() {
+    if (carregandoMais) return;
+    const my = seq.current;
     const prox = pagina + 1;
+    setCarregandoMais(true);
     const r = await api<{ items: Customer[]; total: number }>(`/clientes?${paramsClientes(prox).toString()}`).catch(() => null);
+    setCarregandoMais(false);
+    if (seq.current !== my) return; // aba/filtro mudou → descarta
     if (!r) return;
     setClientes((prev) => [...prev, ...r.items]); setTotal(r.total); setPagina(prox);
     fetchRiscos(r.items);
@@ -254,8 +265,8 @@ export default function ClientesPage() {
       </div>
       {temMais && (
         <div className="mt-3 flex items-center justify-center gap-3">
-          <button onClick={verMais} className="rounded border border-line px-4 py-2 text-sm font-medium hover:bg-canvas">
-            Ver mais {Math.min(POR_PAGINA, total - clientes.length)}
+          <button onClick={verMais} disabled={carregandoMais} className="rounded border border-line px-4 py-2 text-sm font-medium hover:bg-canvas disabled:opacity-50">
+            {carregandoMais ? 'Carregando…' : `Ver mais ${Math.min(POR_PAGINA, total - clientes.length)}`}
           </button>
           <span className="text-sm text-muted">{clientes.length} de {total}</span>
         </div>

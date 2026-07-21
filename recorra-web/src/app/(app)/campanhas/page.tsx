@@ -757,7 +757,7 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
 
 interface Participante { id: string; nome: string; doc: string; situacao: string | null; valorAberto: number; faixa: string | null; motivo: string }
 interface Excluido { id: string; nome: string; doc: string; motivo: string }
-interface PublicoPreview { resumo: { participantes: number; excluidos: number; valorAberto: number; truncado?: boolean; limiteExibicao?: number }; participantes: Participante[]; excluidos: Excluido[] }
+interface PublicoPreview { resumo: { participantes: number; excluidos: number; valorAberto: number; participantesTruncados?: boolean; excluidosTruncados?: boolean; limiteExibicao?: number }; participantes: Participante[]; excluidos: Excluido[] }
 
 const tipoLabel = (c: Campaign) => c.tipoEnvio === 'REGUA' ? `Régua: ${c.rule?.nome || '—'}` : c.tipoEnvio === 'LEMBRETE' ? 'Lembrete de cobrança' : 'Mensagem única';
 
@@ -894,7 +894,7 @@ function ContatosModal({ publico, onRemover, onAdicionar, onClose }: { publico: 
             </tbody>
           </table></div>
         </div>
-        {publico?.resumo.truncado && <p className="mt-1 text-xs text-muted">Mostrando os primeiros {publico.resumo.limiteExibicao ?? 300} de {publico.resumo.participantes}. O envio atinge todos.</p>}
+        {publico?.resumo.participantesTruncados && <p className="mt-1 text-xs text-muted">Mostrando os primeiros {publico.resumo.limiteExibicao ?? 300} de {publico.resumo.participantes} que recebem. O envio atinge todos.</p>}
 
         {excluidos.length > 0 && (
           <div className="mt-3 rounded-lg border border-warning/30 bg-warning-tint/40">
@@ -910,6 +910,7 @@ function ContatosModal({ publico, onRemover, onAdicionar, onClose }: { publico: 
                     <span className="text-xs text-muted">{e.motivo}</span>
                   </div>
                 ))}
+                {publico?.resumo.excluidosTruncados && <div className="px-3 py-1.5 text-xs text-muted">Mostrando os primeiros {publico.resumo.limiteExibicao ?? 300} de {publico.resumo.excluidos}.</div>}
               </div>
             )}
           </div>
