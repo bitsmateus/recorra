@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { RedisThrottlerStorage } from '@/common/throttler/redis-throttler-storage';
 import { LoggerModule } from 'nestjs-pino';
 import { env } from '@/config/env';
 import { PrismaModule } from '@/common/prisma/prisma.module';
@@ -54,7 +55,13 @@ import { HealthController } from '@/health.controller';
         },
       },
     }),
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
+    // Rate limit global (120 req/min por IP). Storage no Redis → limite exato
+    // entre réplicas da API e persistente entre restarts, com fail-open se o
+    // Redis cair (ver RedisThrottlerStorage).
+    ThrottlerModule.forRoot({
+      throttlers: [{ ttl: 60_000, limit: 120 }],
+      storage: new RedisThrottlerStorage(),
+    }),
     PrismaModule,
     MailModule,
     AuthModule,
