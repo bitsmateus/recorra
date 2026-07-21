@@ -367,15 +367,17 @@ export class ChargesService {
   /** Página de faturas (paginação de servidor) + total do filtro. Ordena por valor/vencimento. */
   async listInvoices(tenantId: string, filtros: InvoiceFiltros = {}) {
     const where = this.buildInvoiceWhere(tenantId, filtros);
-    const pageSize = Math.min(200, Math.max(1, Number(filtros.pageSize) || 50));
-    const page = Math.max(1, Number(filtros.page) || 1);
+    const pageSize = Math.min(200, Math.max(1, Math.floor(Number(filtros.pageSize)) || 50));
+    const page = Math.max(1, Math.floor(Number(filtros.page)) || 1);
     const campo = filtros.sortCampo === 'valor' ? 'valor' : 'vencimento';
     const dir = filtros.sortDir === 'desc' ? 'desc' : 'asc';
     const [items, total] = await Promise.all([
       this.prisma.invoice.findMany({
         where,
         include: { customer: { select: { nome: true, doc: true } } },
-        orderBy: { [campo]: dir },
+        // Desempate por id: ordenar só por valor/vencimento (não únicos) não é
+        // determinístico entre páginas — o id estabiliza e evita pular/repetir.
+        orderBy: [{ [campo]: dir }, { id: dir }],
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
@@ -387,7 +389,9 @@ export class ChargesService {
   /** Resumo agregado sobre a base FILTRADA inteira (não só a página). */
   async resumoInvoices(tenantId: string, filtros: InvoiceFiltros = {}) {
     const where = this.buildInvoiceWhere(tenantId, filtros);
-    const limite30 = new Date(Date.now() - 30 * 86_400_000);
+    // Início do dia (UTC), como no resto da plataforma — não o instante atual.
+    const n = new Date();
+    const limite30 = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate() - 30));
     const [agg, porStatusRaw, clientes, critico] = await Promise.all([
       this.prisma.invoice.aggregate({ where, _sum: { valor: true }, _count: true }),
       this.prisma.invoice.groupBy({ by: ['status'], where, _sum: { valor: true }, _count: { _all: true } }),
@@ -418,13 +422,15 @@ export class ChargesService {
   async exportInvoices(tenantId: string, filtros: InvoiceFiltros = {}) {
     const where = this.buildInvoiceWhere(tenantId, filtros);
     const CAP = 20000;
-    const items = await this.prisma.invoice.findMany({
+    // Busca CAP+1 para saber se REALMENTE truncou (exatamente CAP não é truncamento).
+    const rows = await this.prisma.invoice.findMany({
       where,
       include: { customer: { select: { nome: true, doc: true } } },
-      orderBy: { vencimento: 'asc' },
-      take: CAP,
+      orderBy: [{ vencimento: 'asc' }, { id: 'asc' }],
+      take: CAP + 1,
     });
-    return { items, truncado: items.length >= CAP };
+    const truncado = rows.length > CAP;
+    return { items: truncado ? rows.slice(0, CAP) : rows, truncado };
   }
 
   /** Edita campos locais de uma fatura (nao altera a cobranca ja emitida no gateway). */

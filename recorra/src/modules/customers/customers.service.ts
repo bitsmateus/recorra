@@ -125,16 +125,19 @@ export class CustomersService {
    */
   async segment(tenantId: string, f: SegmentFilter) {
     const base = this.buildSegmentWhere(tenantId, f);
-    // "Em aberto" = tem alguma fatura não paga (equivale a pagas < total). "Incompleto" = sem e-mail ou telefone.
-    const abertoCond: Prisma.CustomerWhereInput = { invoices: { some: { status: { not: 'PAGA' } } } };
+    // "Em aberto" = tem fatura PENDENTE/VENCIDA em gestão ATIVA (mesma definição do
+    // dashboard/cobranças — não conta CANCELADA/ESTORNADA nem legado). "Incompleto" = sem e-mail ou telefone.
+    const abertoCond: Prisma.CustomerWhereInput = { invoices: { some: { status: { in: ['PENDENTE', 'VENCIDA'] }, gestaoCobranca: 'ATIVA' } } };
     const incompletoCond: Prisma.CustomerWhereInput = { OR: [{ email: null }, { email: '' }, { telefone: null }, { telefone: '' }] };
     const whereAba = f.aba === 'aberto' ? { AND: [base, abertoCond] } : f.aba === 'incompleto' ? { AND: [base, incompletoCond] } : base;
 
-    const pageSize = Math.min(200, Math.max(1, Number(f.pageSize) || 50));
-    const page = Math.max(1, Number(f.page) || 1);
+    const pageSize = Math.min(200, Math.max(1, Math.floor(Number(f.pageSize)) || 50));
+    const page = Math.max(1, Math.floor(Number(f.page)) || 1);
 
     const [customers, geral, aberto, incompleto] = await Promise.all([
-      this.prisma.customer.findMany({ where: whereAba, orderBy: { nome: 'asc' }, skip: (page - 1) * pageSize, take: pageSize }),
+      // Desempate por id: `nome` não é único, então a ordenação por nome sozinha
+      // não é determinística entre páginas (pularia/repetiria no "Ver mais").
+      this.prisma.customer.findMany({ where: whereAba, orderBy: [{ nome: 'asc' }, { id: 'asc' }], skip: (page - 1) * pageSize, take: pageSize }),
       this.prisma.customer.count({ where: base }),
       this.prisma.customer.count({ where: { AND: [base, abertoCond] } }),
       this.prisma.customer.count({ where: { AND: [base, incompletoCond] } }),
