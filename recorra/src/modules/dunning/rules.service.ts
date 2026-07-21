@@ -11,7 +11,12 @@ export class RulesService {
   list(tenantId: string) {
     return this.prisma.dunningRule.findMany({
       where: { tenantId },
-      include: { steps: { orderBy: { ordem: 'asc' } } },
+      include: {
+        steps: { orderBy: { ordem: 'asc' } },
+        // Transparência: quais campanhas usam esta régua (a régua define COMO
+        // comunicar; quem/quando fica na campanha). Somente leitura na tela.
+        campaigns: { select: { id: true, nome: true, status: true }, orderBy: { nome: 'asc' } },
+      },
       orderBy: { createdAt: 'asc' },
     });
   }

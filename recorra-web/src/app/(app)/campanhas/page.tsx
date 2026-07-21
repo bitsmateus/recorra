@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Plus, Play, Pause, BarChart3, Pencil, Trash2, X, Megaphone, ExternalLink, Copy, Filter, Loader2, HelpCircle } from 'lucide-react';
+import { Plus, Play, Pause, BarChart3, Pencil, Trash2, X, Megaphone, ExternalLink, Copy, Filter, Loader2, HelpCircle, Radio } from 'lucide-react';
 import { api } from '@/lib/api';
 import { PageTitle, brl } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -193,6 +193,12 @@ export default function CampanhasPage() {
       <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
         <PageTitle title="Campanhas" subtitle="Único lugar para disparar: monte o público, escolha régua ou mensagem e acompanhe o relatório" />
         <button onClick={() => setModal({ open: true, edit: null })} className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover"><Plus size={16} /> Nova campanha</button>
+      </div>
+      <div className="mb-4 flex items-start gap-2 rounded-lg border border-line bg-canvas px-4 py-3 text-sm">
+        <Radio size={16} className="mt-0.5 shrink-0 text-primary" />
+        <div className="text-muted">
+          <b className="text-ink">Cobrança automática</b> já roda todo dia por trás: pega quem está inadimplente e aplica a régua da faixa de risco de cada cliente — sem você precisar disparar. As campanhas abaixo são os envios que <b className="text-ink">você</b> monta e dispara para um público escolhido. A régua define <b className="text-ink">como</b> comunicar; a campanha define <b className="text-ink">quem</b> e <b className="text-ink">quando</b>.
+        </div>
       </div>
       <div className="mb-4 flex gap-1 border-b border-line">
         {[['', 'Todas'], ['UMA_VEZ', 'Uma vez'], ['MENSAL', 'Todo mês'], ['SEMPRE_ATIVA', 'Sempre ativa']].map(([v, l]) => (

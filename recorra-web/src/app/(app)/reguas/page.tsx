@@ -35,6 +35,7 @@ interface Rule {
   roteamentoPorCusto?: boolean;
   ativo?: boolean;
   steps: Step[];
+  campaigns?: { id: string; nome: string; status: string }[];
 }
 
 const canalLabel: Record<Canal, { label: string; icon: typeof MessageCircle }> = {
@@ -282,6 +283,11 @@ export default function ReguasPage() {
                 <div className="font-medium text-ink">{r.nome}</div>
                 <div className="mt-0.5 text-xs text-muted">
                   {faixaLabel[r.faixaRisco || '']} · {r.steps.length} passos
+                </div>
+                <div className="mt-1 text-xs">
+                  {r.campaigns && r.campaigns.length > 0
+                    ? <span className="text-muted">Usada por <b className="text-ink">{r.campaigns.length}</b> campanha(s): {r.campaigns.map((c) => c.nome).join(', ')}</span>
+                    : <span className="text-muted/70">Nenhuma campanha usa esta régua ainda</span>}
                 </div>
                 <div className="mt-2"><ReguaTimeline steps={r.steps} compact /></div>
               </button>
