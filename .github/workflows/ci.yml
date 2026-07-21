@@ -10,6 +10,15 @@ on:
   pull_request:
 
 jobs:
+  ajuda:
+    name: Central de Ajuda atualizada
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: node scripts/check-help-docs.mjs
+
   backend:
     name: Backend (recorra)
     runs-on: ubuntu-latest
@@ -55,7 +64,7 @@ jobs:
   # (não falha o CI) — configure os secrets para ligar o deploy automático.
   deploy:
     name: Deploy no EasyPanel
-    needs: [backend, frontend]
+    needs: [ajuda, backend, frontend]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:

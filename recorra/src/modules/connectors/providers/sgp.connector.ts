@@ -17,11 +17,16 @@ import { onlyDigits, normalizePhoneBR } from '@/common/util/normalize';
  */
 export class SgpConnector implements SourceConnector {
   readonly system = 'SGP';
-  // Chamada única sem paginação confirmada — conciliação por ausência desligada até validar.
-  readonly snapshotCompleto = false;
+  // Dinâmico: `fetchOpenInvoices` liga isto só quando a paginação chega ao fim.
+  // Se a API ignorar o offset (não dá para garantir completude), fica false e a
+  // conciliação por ausência é pulada naquela rodada — sem quitar fatura por engano.
+  snapshotCompleto = false;
   private readonly http: AxiosInstance;
   private readonly app: string;
   private readonly token: string;
+
+  private static readonly LIMIT = 500;
+  private static readonly MAX_PAGES = 400;
 
   constructor(creds: SourceCredentials) {
     this.http = axios.create({
@@ -47,9 +52,45 @@ export class SgpConnector implements SourceConnector {
     }
   }
 
+  /**
+   * Pagina um endpoint do SGP por `limit`/`offset`, deduplicando por id. Retorna
+   * `completo=true` só se chegou ao fim de forma comprovada (página curta ou
+   * vazia). Se a API não avançar com o offset (devolve sempre a mesma página),
+   * para e marca `completo=false` — o chamador então não confia na completude.
+   */
+  private async paginar(
+    endpoint: string,
+    extra: Record<string, unknown>,
+    extrair: (d: any) => any[],
+  ): Promise<{ rows: any[]; completo: boolean }> {
+    const out: any[] = [];
+    const vistos = new Set<string>();
+    for (let page = 0; page < SgpConnector.MAX_PAGES; page++) {
+      const { data } = await this.http.post(endpoint, {
+        ...this.auth(),
+        ...extra,
+        limit: SgpConnector.LIMIT,
+        offset: page * SgpConnector.LIMIT,
+      });
+      const rows: any[] = extrair(data);
+      if (rows.length === 0) return { rows: out, completo: true };
+
+      let novos = 0;
+      for (const r of rows) {
+        const id = String(r.id ?? r.titulo_id ?? r.cliente_id ?? '');
+        if (id && !vistos.has(id)) { vistos.add(id); out.push(r); novos++; }
+      }
+      // Página curta = último lote → snapshot completo.
+      if (rows.length < SgpConnector.LIMIT) return { rows: out, completo: true };
+      // Página cheia mas sem nada novo = offset ignorado → não garante completude.
+      if (novos === 0) return { rows: out, completo: false };
+    }
+    // Estourou o teto de páginas: tem mais do que conseguimos varrer com segurança.
+    return { rows: out, completo: false };
+  }
+
   async fetchCustomers(): Promise<SourceCustomer[]> {
-    const { data } = await this.http.post('/api/ura/consultacliente', { ...this.auth() });
-    const rows: any[] = data?.clientes ?? data?.dados ?? [];
+    const { rows } = await this.paginar('/api/ura/consultacliente', {}, (d) => d?.clientes ?? d?.dados ?? []);
     return rows.map((r) => ({
       externalId: String(r.id ?? r.cliente_id),
       nome: r.nome ?? r.razaosocial ?? '',
@@ -61,8 +102,8 @@ export class SgpConnector implements SourceConnector {
   }
 
   async fetchOpenInvoices(): Promise<SourceInvoice[]> {
-    const { data } = await this.http.post('/api/ura/titulos', { ...this.auth(), status: 'aberto' });
-    const rows: any[] = data?.titulos ?? data?.dados ?? [];
+    const { rows, completo } = await this.paginar('/api/ura/titulos', { status: 'aberto' }, (d) => d?.titulos ?? d?.dados ?? []);
+    this.snapshotCompleto = completo;
     return rows.map((r) => ({
       externalId: String(r.id ?? r.titulo_id),
       customerExternalId: String(r.cliente_id ?? r.cliente),

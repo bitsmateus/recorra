@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "next dev -p 3001",
     "build": "next build",
+    "docs:check": "node ../scripts/check-help-docs.mjs",
+    "docs:check:staged": "node ../scripts/check-help-docs.mjs --staged",
     "start": "next start -p 3001",
     "lint": "next lint"
   },
