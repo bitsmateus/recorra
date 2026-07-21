@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Plus, Play, Pause, BarChart3, Pencil, Trash2, X, Megaphone, ExternalLink, Copy, Filter, Loader2, HelpCircle } from 'lucide-react';
 import { api } from '@/lib/api';
-import { PageTitle } from '@/components/ui';
+import { PageTitle, brl } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { PreviewButton } from '@/components/MessagePreview';
 
@@ -409,8 +409,7 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
   const varsTemplate = templateSel ? templateVars(templateSel.corpo) : [];
   const [templateParams, setTemplateParams] = useState<string[]>(edit?.templateParams || []);
   const setParam = (i: number, v: string) => setTemplateParams((p) => { const n = [...p]; n[i] = v; return n; });
-  const [previa, setPrevia] = useState<number | null>(null);
-  const [previaContatos, setPreviaContatos] = useState<{ id: string; nome: string; doc: string }[]>([]);
+  const [publico, setPublico] = useState<PublicoPreview | null>(null);
   const [incluir, setIncluir] = useState<string[]>(edit?.incluirIds || []);
   const [excluir, setExcluir] = useState<string[]>(edit?.excluirIds || []);
   const [verContatos, setVerContatos] = useState(false);
@@ -441,17 +440,18 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
 
   useEffect(() => {
     const t = setTimeout(() => {
-      api<{ total: number; contatos: { id: string; nome: string; doc: string }[] }>('/campanhas/previa', { method: 'POST', body: {
+      api<PublicoPreview>('/campanhas/participantes', { method: 'POST', body: {
         filtroTodos: f.filtroTodos, filtroEtiqueta: f.filtroEtiqueta || undefined,
         filtroValorMin: f.filtroValorMin ? Number(f.filtroValorMin) : undefined,
         filtroValorMax: f.filtroValorMax ? Number(f.filtroValorMax) : undefined,
         filtroFaixa: f.filtroFaixa || undefined,
         filtroStatus: f.filtroStatus || undefined,
+        tipoEnvio: f.tipoEnvio, canal: f.canal || undefined,
         incluirIds: incluir, excluirIds: excluir,
-      } }).then((r) => { setPrevia(r.total); setPreviaContatos(r.contatos || []); }).catch(() => setPrevia(null));
+      } }).then(setPublico).catch(() => setPublico(null));
     }, 300);
     return () => clearTimeout(t);
-  }, [f.filtroTodos, f.filtroEtiqueta, f.filtroValorMin, f.filtroValorMax, f.filtroFaixa, f.filtroStatus, incluir, excluir]);
+  }, [f.filtroTodos, f.filtroEtiqueta, f.filtroValorMin, f.filtroValorMax, f.filtroFaixa, f.filtroStatus, f.tipoEnvio, f.canal, incluir, excluir]);
 
   const comTemplate = (f.tipoEnvio === 'MENSAGEM' || f.tipoEnvio === 'LEMBRETE') && isWhats;
 
@@ -586,7 +586,13 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
         </div>
 
         <div className="mb-4">
-          <div className="mb-1 flex items-center gap-2"><span className="text-xs font-semibold text-muted">Para quem (público)</span>{previa != null && <span className="rounded-full bg-primary-tint px-2 py-0.5 text-xs text-primary">{previa} contato(s)</span>}<button type="button" onClick={() => setVerContatos(true)} className="text-xs font-medium text-primary hover:underline">Ver / editar contatos</button></div>
+          <div className="mb-1 flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold text-muted">Para quem (público)</span>
+            {publico && <span className="rounded-full bg-primary-tint px-2 py-0.5 text-xs font-medium text-primary">{publico.resumo.participantes} recebem</span>}
+            {publico && publico.resumo.excluidos > 0 && <span className="rounded-full bg-warning-tint px-2 py-0.5 text-xs font-medium text-[#854F0B]" title="Passam nos filtros mas seriam pulados (opt-out, sem canal, sem fatura)">{publico.resumo.excluidos} pulados</span>}
+            {publico && publico.resumo.valorAberto > 0 && <span className="text-xs text-muted">{brl(publico.resumo.valorAberto)} em aberto</span>}
+            <button type="button" onClick={() => setVerContatos(true)} className="text-xs font-medium text-primary hover:underline">Ver participantes</button>
+          </div>
           <label className="mb-2 flex items-center gap-2 text-sm"><input type="checkbox" checked={f.filtroTodos} onChange={(e) => set('filtroTodos', e.target.checked)} /> Todos os contatos</label>
           {!f.filtroTodos && (
             <div className="grid grid-cols-2 gap-2">
@@ -640,7 +646,7 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
           <p className="mt-1 text-xs text-muted">Espaça os envios em vez de disparar tudo de uma vez. Deixe 0 para enviar o mais rápido possível.</p>
         </div>
 
-        {verContatos && <ContatosModal contatos={previaContatos} total={previa ?? 0} onRemover={(id) => { setExcluir((p) => [...new Set([...p, id])]); setIncluir((p) => p.filter((x) => x !== id)); }} onAdicionar={(id) => { setIncluir((p) => [...new Set([...p, id])]); setExcluir((p) => p.filter((x) => x !== id)); }} onClose={() => setVerContatos(false)} />}
+        {verContatos && <ContatosModal publico={publico} onRemover={(id) => { setExcluir((p) => [...new Set([...p, id])]); setIncluir((p) => p.filter((x) => x !== id)); }} onAdicionar={(id) => { setIncluir((p) => [...new Set([...p, id])]); setExcluir((p) => p.filter((x) => x !== id)); }} onClose={() => setVerContatos(false)} />}
         {msg && <p className="mb-2 text-sm text-danger">{msg}</p>}
         <div className="flex justify-end gap-2">
           <button onClick={onClose} className="rounded border border-line px-4 py-2 text-sm hover:bg-canvas">Cancelar</button>
@@ -651,10 +657,18 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
   );
 }
 
-function ContatosModal({ contatos, total, onRemover, onAdicionar, onClose }: { contatos: { id: string; nome: string; doc: string }[]; total: number; onRemover: (id: string) => void; onAdicionar: (id: string) => void; onClose: () => void }) {
+interface Participante { id: string; nome: string; doc: string; situacao: string | null; valorAberto: number; faixa: string | null; motivo: string }
+interface Excluido { id: string; nome: string; doc: string; motivo: string }
+interface PublicoPreview { resumo: { participantes: number; excluidos: number; valorAberto: number }; participantes: Participante[]; excluidos: Excluido[] }
+
+const FAIXA_LABEL: Record<string, string> = { BOM: 'Bom pagador', ATENCAO: 'Atenção', RISCO: 'Risco' };
+const situacaoBadge: Record<string, string> = { VENCIDA: 'bg-danger-tint text-[#A32D2D]', PENDENTE: 'bg-warning-tint text-[#854F0B]' };
+
+function ContatosModal({ publico, onRemover, onAdicionar, onClose }: { publico: PublicoPreview | null; onRemover: (id: string) => void; onAdicionar: (id: string) => void; onClose: () => void }) {
   const [busca, setBusca] = useState('');
   const [resultado, setResultado] = useState<{ id: string; nome: string; doc: string }[]>([]);
   const [q, setQ] = useState('');
+  const [verExcluidos, setVerExcluidos] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -664,16 +678,22 @@ function ContatosModal({ contatos, total, onRemover, onAdicionar, onClose }: { c
     return () => clearTimeout(t);
   }, [busca]);
 
-  const idsAtuais = new Set(contatos.map((c) => c.id));
-  const filtrados = contatos.filter((c) => !q || c.nome.toLowerCase().includes(q.toLowerCase()) || c.doc.includes(q));
+  const participantes = publico?.participantes ?? [];
+  const excluidos = publico?.excluidos ?? [];
+  const idsAtuais = new Set(participantes.map((c) => c.id));
+  const filtrados = participantes.filter((c) => !q || c.nome.toLowerCase().includes(q.toLowerCase()) || c.doc.includes(q));
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+      <div className="flex max-h-[88vh] w-full max-w-2xl flex-col rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
         <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-base font-semibold text-ink">Contatos do público <span className="text-sm font-normal text-muted">({total})</span></h3>
+          <h3 className="text-base font-semibold text-ink">Quem vai receber <span className="text-sm font-normal text-muted">({publico?.resumo.participantes ?? 0})</span></h3>
           <button onClick={onClose} className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>
         </div>
+
+        {publico && publico.resumo.valorAberto > 0 && (
+          <p className="mb-3 text-sm text-muted">Somam <b className="text-ink">{brl(publico.resumo.valorAberto)}</b> em aberto.</p>
+        )}
 
         <div className="mb-3 rounded-lg border border-line p-2">
           <span className="mb-1 block text-xs font-medium text-muted">Adicionar contato manualmente</span>
@@ -692,19 +712,45 @@ function ContatosModal({ contatos, total, onRemover, onAdicionar, onClose }: { c
 
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filtrar a lista abaixo" className="mb-2 w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
         <div className="flex-1 overflow-auto rounded-lg border border-line">
-          <div className="w-full overflow-x-auto"><table className="w-full min-w-[640px] text-sm">
+          <div className="w-full overflow-x-auto"><table className="w-full min-w-[720px] text-sm">
+            <thead className="sticky top-0 border-b border-line bg-canvas text-left text-xs uppercase text-muted">
+              <tr><th className="px-3 py-2 font-medium">Cliente</th><th className="px-3 py-2 font-medium">Situação</th><th className="px-3 py-2 font-medium">Em aberto</th><th className="px-3 py-2 font-medium">Risco</th><th className="px-3 py-2 font-medium">Motivo</th><th className="px-3 py-2"></th></tr>
+            </thead>
             <tbody>
               {filtrados.map((c) => (
                 <tr key={c.id} className="border-b border-line last:border-0">
-                  <td className="px-3 py-2 text-ink">{c.nome}</td>
-                  <td className="tabular px-3 py-2 text-muted">{c.doc}</td>
-                  <td className="px-3 py-2 text-right"><button onClick={() => onRemover(c.id)} className="rounded p-1 text-muted hover:bg-danger-tint hover:text-danger"><Trash2 size={14} /></button></td>
+                  <td className="px-3 py-2"><span className="text-ink">{c.nome}</span><br /><span className="tabular text-xs text-muted">{c.doc}</span></td>
+                  <td className="px-3 py-2">{c.situacao ? <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${situacaoBadge[c.situacao] || 'bg-canvas text-muted'}`}>{c.situacao}</span> : <span className="text-muted">—</span>}</td>
+                  <td className="tabular px-3 py-2 text-muted">{c.valorAberto > 0 ? brl(c.valorAberto) : '—'}</td>
+                  <td className="px-3 py-2 text-muted">{c.faixa ? FAIXA_LABEL[c.faixa] || c.faixa : '—'}</td>
+                  <td className="px-3 py-2 text-xs text-muted">{c.motivo}</td>
+                  <td className="px-3 py-2 text-right"><button onClick={() => onRemover(c.id)} title="Remover do público" className="rounded p-1 text-muted hover:bg-danger-tint hover:text-danger"><Trash2 size={14} /></button></td>
                 </tr>
               ))}
-              {filtrados.length === 0 && <tr><td colSpan={3} className="px-3 py-4 text-center text-muted">Nenhum contato.</td></tr>}
+              {filtrados.length === 0 && <tr><td colSpan={6} className="px-3 py-4 text-center text-muted">{publico ? 'Nenhum participante.' : 'Carregando...'}</td></tr>}
             </tbody>
           </table></div>
         </div>
+
+        {excluidos.length > 0 && (
+          <div className="mt-3 rounded-lg border border-warning/30 bg-warning-tint/40">
+            <button onClick={() => setVerExcluidos((v) => !v)} className="flex w-full items-center justify-between px-3 py-2 text-left text-sm font-medium text-[#854F0B]">
+              <span>{excluidos.length} pulado(s) — passam nos filtros mas não recebem</span>
+              <span className="text-xs">{verExcluidos ? 'ocultar' : 'ver por quê'}</span>
+            </button>
+            {verExcluidos && (
+              <div className="max-h-40 overflow-auto border-t border-warning/30">
+                {excluidos.map((e) => (
+                  <div key={e.id} className="flex items-center justify-between px-3 py-1.5 text-sm">
+                    <span className="text-ink">{e.nome}</span>
+                    <span className="text-xs text-muted">{e.motivo}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="mt-3 flex justify-end">
           <button onClick={onClose} className="rounded bg-primary px-5 py-2 text-sm font-medium text-white hover:bg-primary-hover">Concluir</button>
         </div>

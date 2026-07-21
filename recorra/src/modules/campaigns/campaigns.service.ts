@@ -10,6 +10,13 @@ import { parseDateFilter } from '@/common/util/parse';
 const WHATSAPP: ChannelType[] = ['WHATSAPP_CLOUD', 'NX_SYSTEMS', 'WHATSAPP_EVOLUTION', 'WHATSAPP_UAZAPI'];
 export const exigeTemplate = (canal?: ChannelType | null) => !!canal && WHATSAPP.includes(canal);
 
+/** Canais que precisam de telefone no cadastro (WhatsApp e SMS). */
+const EXIGE_TELEFONE: ChannelType[] = [...WHATSAPP, 'SMS'];
+const CANAL_LABEL: Record<string, string> = {
+  WHATSAPP_CLOUD: 'WhatsApp', WHATSAPP_EVOLUTION: 'WhatsApp', WHATSAPP_UAZAPI: 'WhatsApp',
+  NX_SYSTEMS: 'WhatsApp', EMAIL: 'E-mail', SMS: 'SMS', HTTP_GENERIC: 'HTTP',
+};
+
 /** Valores aceitos no filtro de público por situação da cobrança. */
 export const SITUACOES_PUBLICO = ['VENCIDA', 'PENDENTE', 'ABERTO', 'EM_DIA'] as const;
 
@@ -284,6 +291,80 @@ export class CampaignsService {
     const camp = await this.get(tenantId, id);
     const pub = await this.resolverPublico(tenantId, camp);
     return { total: pub.length, amostra: pub.slice(0, 10).map((c) => ({ nome: c.nome, doc: c.doc })) };
+  }
+
+  /**
+   * "Ver participantes" detalhado: para os filtros dados, separa quem VAI receber
+   * de quem seria PULADO e por quê (opt-out, sem canal, sem fatura em aberto) —
+   * espelhando a mesma lógica de skip do `executar`, para a prévia ser honesta.
+   * Anexa a cada participante situação/valor em aberto, risco e o motivo da entrada.
+   * Tudo em consultas em lote (independe do tamanho do público).
+   */
+  async participantesPreview(
+    tenantId: string,
+    f: {
+      filtroTodos?: boolean; filtroEtiqueta?: string | null; filtroValorMin?: number | null; filtroValorMax?: number | null;
+      filtroFaixa?: RiskBand | null; filtroStatus?: string | null; incluirIds?: string[]; excluirIds?: string[];
+      tipoEnvio?: string; canal?: ChannelType | null;
+    },
+  ) {
+    const customers = await this.resolverPublico(tenantId, {
+      filtroTodos: !!f.filtroTodos, filtroEtiqueta: f.filtroEtiqueta || null,
+      filtroValorMin: f.filtroValorMin ?? null, filtroValorMax: f.filtroValorMax ?? null,
+      filtroFaixa: f.filtroFaixa || null, filtroStatus: f.filtroStatus || null,
+      incluirIds: f.incluirIds ?? [], excluirIds: f.excluirIds ?? [],
+    });
+    const ids = customers.map((c) => c.id);
+    const canal = (f.canal ?? 'WHATSAPP_CLOUD') as ChannelType;
+    const exigeTelefone = EXIGE_TELEFONE.includes(canal);
+    const exigeEmail = canal === 'EMAIL';
+
+    const [invs, scores, optouts] = await Promise.all([
+      ids.length ? this.prisma.invoice.findMany({ where: { tenantId, customerId: { in: ids }, status: { in: ['PENDENTE', 'VENCIDA'] }, gestaoCobranca: 'ATIVA' }, select: { customerId: true, valor: true, status: true } }) : [],
+      ids.length ? this.prisma.riskScore.findMany({ where: { tenantId, customerId: { in: ids } }, orderBy: { calculadoEm: 'desc' }, select: { customerId: true, faixa: true } }) : [],
+      ids.length ? this.prisma.consent.findMany({ where: { customerId: { in: ids }, canal, status: 'REVOGADO' }, select: { customerId: true } }) : [],
+    ]);
+
+    const abertoBy = new Map<string, { valor: number; vencida: number }>();
+    for (const i of invs) {
+      const a = abertoBy.get(i.customerId) ?? { valor: 0, vencida: 0 };
+      a.valor += Number(i.valor);
+      if (i.status === 'VENCIDA') a.vencida += 1;
+      abertoBy.set(i.customerId, a);
+    }
+    const faixaBy = new Map<string, RiskBand>();
+    for (const s of scores) if (!faixaBy.has(s.customerId)) faixaBy.set(s.customerId, s.faixa);
+    const optSet = new Set(optouts.map((o) => o.customerId));
+    const manualSet = new Set(f.incluirIds ?? []);
+    const canalLabel = CANAL_LABEL[canal] ?? canal;
+
+    const participantes: { id: string; nome: string; doc: string; situacao: string | null; valorAberto: number; faixa: RiskBand | null; motivo: string }[] = [];
+    const excluidos: { id: string; nome: string; doc: string; motivo: string }[] = [];
+    for (const c of customers) {
+      const ab = abertoBy.get(c.id);
+      let motivoExcl: string | null = null;
+      if (optSet.has(c.id)) motivoExcl = `Opt-out no ${canalLabel}`;
+      else if (exigeTelefone && !c.telefone) motivoExcl = 'Sem telefone cadastrado';
+      else if (exigeEmail && !c.email) motivoExcl = 'Sem e-mail cadastrado';
+      else if (f.tipoEnvio === 'LEMBRETE' && !ab) motivoExcl = 'Sem fatura em aberto';
+
+      if (motivoExcl) {
+        excluidos.push({ id: c.id, nome: c.nome, doc: c.doc, motivo: motivoExcl });
+      } else {
+        participantes.push({
+          id: c.id, nome: c.nome, doc: c.doc,
+          situacao: ab ? (ab.vencida > 0 ? 'VENCIDA' : 'PENDENTE') : null,
+          valorAberto: ab?.valor ?? 0,
+          faixa: faixaBy.get(c.id) ?? null,
+          motivo: manualSet.has(c.id) ? 'Adicionado manualmente' : 'Atende aos filtros',
+        });
+      }
+    }
+    return {
+      resumo: { participantes: participantes.length, excluidos: excluidos.length, valorAberto: participantes.reduce((s, p) => s + p.valorAberto, 0) },
+      participantes: participantes.slice(0, 300),
+      excluidos: excluidos.slice(0, 300),
+    };
   }
 
   /** Busca o Pix copia-e-cola no gateway se a fatura ainda não tiver (ex.: importada). */

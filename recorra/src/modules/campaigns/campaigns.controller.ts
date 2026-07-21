@@ -52,6 +52,12 @@ export class CampaignsController {
     return this.campaigns.previaPublico(tenantId, dto);
   }
 
+  /** "Ver participantes": quem recebe (com situação/valor/risco/motivo) e quem é pulado e por quê. */
+  @Post('participantes')
+  participantes(@TenantId() tenantId: string, @Body() dto: { filtroTodos?: boolean; filtroEtiqueta?: string; filtroValorMin?: number; filtroValorMax?: number; filtroFaixa?: any; filtroStatus?: string; incluirIds?: string[]; excluirIds?: string[]; tipoEnvio?: string; canal?: any }) {
+    return this.campaigns.participantesPreview(tenantId, dto);
+  }
+
   @Post()
   @Roles('OWNER', 'ADMIN', 'FINANCEIRO', 'OPERADOR')
   create(@TenantId() tenantId: string, @Body() dto: CampaignInput) {
