@@ -17,7 +17,7 @@ interface Campaign {
   tipoEnvio: 'REGUA' | 'MENSAGEM' | 'LEMBRETE';
   ruleId?: string; rule?: { id: string; nome: string };
   mensagem?: string; emailAssunto?: string; canal?: string; channelAccountId?: string; templateNome?: string; templateParams?: string[]; escopoFatura?: 'TODAS' | 'PROXIMA'; delaySegundos?: number;
-  filtroTodos: boolean; filtroEtiqueta?: string; filtroValorMin?: number; filtroValorMax?: number; filtroFaixa?: string; filtroStatus?: string;
+  filtroTodos: boolean; filtroEtiqueta?: string; filtroValorMin?: number; filtroValorMax?: number; filtroFaixa?: string; filtroStatus?: string; filtroDiasAtraso?: number; filtroPlano?: string; filtroCidade?: string;
   incluirIds?: string[]; excluirIds?: string[];
   publicoDinamico: boolean;
   agendamento: 'UMA_VEZ' | 'MENSAL' | 'SEMPRE_ATIVA'; diaDoMes?: number;
@@ -391,6 +391,9 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
     filtroValorMax: edit?.filtroValorMax ? String(edit.filtroValorMax) : '',
     filtroFaixa: edit?.filtroFaixa || '',
     filtroStatus: edit?.filtroStatus || '',
+    filtroDiasAtraso: edit?.filtroDiasAtraso ? String(edit.filtroDiasAtraso) : '',
+    filtroPlano: edit?.filtroPlano || '',
+    filtroCidade: edit?.filtroCidade || '',
     publicoDinamico: edit?.publicoDinamico ?? true,
     agendamento: edit?.agendamento || 'UMA_VEZ',
     diaDoMes: edit?.diaDoMes ? String(edit.diaDoMes) : '1',
@@ -414,6 +417,36 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
   const [msg, setMsg] = useState('');
   const [saving, setSaving] = useState(false);
   const set = (k: string, v: string | boolean) => setF((s) => ({ ...s, [k]: v }));
+
+  const [segmentos, setSegmentos] = useState<{ id: string; nome: string; filtros: Record<string, unknown> }[]>([]);
+  const [salvandoSeg, setSalvandoSeg] = useState(false);
+  const [nomeSeg, setNomeSeg] = useState('');
+  const carregarSegmentos = useCallback(() => { api<{ id: string; nome: string; filtros: Record<string, unknown> }[]>('/campanhas/segmentos').then(setSegmentos).catch(() => setSegmentos([])); }, []);
+  useEffect(() => { carregarSegmentos(); }, [carregarSegmentos]);
+
+  /** Filtros atuais no formato do segmento/prévia (números onde couber). */
+  function filtrosAtuais() {
+    return {
+      filtroTodos: f.filtroTodos,
+      filtroEtiqueta: f.filtroEtiqueta || null, filtroFaixa: f.filtroFaixa || null, filtroStatus: f.filtroStatus || null,
+      filtroValorMin: f.filtroValorMin ? Number(f.filtroValorMin) : null,
+      filtroValorMax: f.filtroValorMax ? Number(f.filtroValorMax) : null,
+      filtroDiasAtraso: f.filtroDiasAtraso ? Number(f.filtroDiasAtraso) : null,
+      filtroPlano: f.filtroPlano || null, filtroCidade: f.filtroCidade || null,
+    };
+  }
+  function aplicarSegmento(s: { filtros: Record<string, unknown> }) {
+    const fl = s.filtros || {};
+    const txt = (k: string) => (fl[k] == null ? '' : String(fl[k]));
+    setF((cur) => ({ ...cur, filtroTodos: false, filtroEtiqueta: txt('filtroEtiqueta'), filtroFaixa: txt('filtroFaixa'), filtroStatus: txt('filtroStatus'), filtroValorMin: txt('filtroValorMin'), filtroValorMax: txt('filtroValorMax'), filtroDiasAtraso: txt('filtroDiasAtraso'), filtroPlano: txt('filtroPlano'), filtroCidade: txt('filtroCidade') }));
+  }
+  async function salvarSegmento() {
+    const nome = nomeSeg.trim();
+    if (!nome) return;
+    await api('/campanhas/segmentos', { method: 'POST', body: { nome, filtros: filtrosAtuais() } }).catch(() => {});
+    setSalvandoSeg(false); setNomeSeg('');
+    carregarSegmentos();
+  }
 
   useEffect(() => {
     api<Regua[]>('/reguas').then(setReguas).catch(() => setReguas([]));
@@ -444,12 +477,14 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
         filtroValorMax: f.filtroValorMax ? Number(f.filtroValorMax) : undefined,
         filtroFaixa: f.filtroFaixa || undefined,
         filtroStatus: f.filtroStatus || undefined,
+        filtroDiasAtraso: f.filtroDiasAtraso ? Number(f.filtroDiasAtraso) : undefined,
+        filtroPlano: f.filtroPlano || undefined, filtroCidade: f.filtroCidade || undefined,
         tipoEnvio: f.tipoEnvio, canal: f.canal || undefined,
         incluirIds: incluir, excluirIds: excluir,
       } }).then(setPublico).catch(() => setPublico(null));
     }, 300);
     return () => clearTimeout(t);
-  }, [f.filtroTodos, f.filtroEtiqueta, f.filtroValorMin, f.filtroValorMax, f.filtroFaixa, f.filtroStatus, f.tipoEnvio, f.canal, incluir, excluir]);
+  }, [f.filtroTodos, f.filtroEtiqueta, f.filtroValorMin, f.filtroValorMax, f.filtroFaixa, f.filtroStatus, f.filtroDiasAtraso, f.filtroPlano, f.filtroCidade, f.tipoEnvio, f.canal, incluir, excluir]);
 
   const comTemplate = (f.tipoEnvio === 'MENSAGEM' || f.tipoEnvio === 'LEMBRETE') && isWhats;
 
@@ -475,6 +510,9 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
       filtroValorMax: f.filtroValorMax ? Number(f.filtroValorMax) : null,
       filtroFaixa: f.filtroFaixa || null,
       filtroStatus: f.filtroStatus || null,
+      filtroDiasAtraso: f.filtroDiasAtraso ? Number(f.filtroDiasAtraso) : null,
+      filtroPlano: f.filtroPlano || null,
+      filtroCidade: f.filtroCidade || null,
       incluirIds: incluir,
       excluirIds: excluir,
       publicoDinamico: f.publicoDinamico,
@@ -593,19 +631,39 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
           </div>
           <label className="mb-2 flex items-center gap-2 text-sm"><input type="checkbox" checked={f.filtroTodos} onChange={(e) => set('filtroTodos', e.target.checked)} /> Todos os contatos</label>
           {!f.filtroTodos && (
-            <div className="grid grid-cols-2 gap-2">
-              <select value={f.filtroEtiqueta} onChange={(e) => set('filtroEtiqueta', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Etiqueta: qualquer</option>{etiquetas.map((t) => <option key={t.nome} value={t.nome}>{t.nome}</option>)}</select>
-              <select value={f.filtroFaixa} onChange={(e) => set('filtroFaixa', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Risco: qualquer</option><option value="BOM">Bom pagador</option><option value="ATENCAO">Atenção</option><option value="RISCO">Risco</option></select>
-              <input value={f.filtroValorMin} onChange={(e) => set('filtroValorMin', e.target.value)} placeholder="Valor plano mín" className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
-              <input value={f.filtroValorMax} onChange={(e) => set('filtroValorMax', e.target.value)} placeholder="Valor plano máx" className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
-              <select value={f.filtroStatus} onChange={(e) => set('filtroStatus', e.target.value)} className="col-span-2 rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
-                <option value="">Situação da cobrança: qualquer</option>
-                <option value="VENCIDA">Com fatura vencida</option>
-                <option value="PENDENTE">Com fatura a vencer (pendente)</option>
-                <option value="ABERTO">Com fatura em aberto (vencida ou a vencer)</option>
-                <option value="EM_DIA">Em dia (sem faturas em aberto)</option>
-              </select>
-            </div>
+            <>
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <select value="" onChange={(e) => { const s = segmentos.find((x) => x.id === e.target.value); if (s) aplicarSegmento(s); }} className="rounded border border-line px-3 py-1.5 text-xs outline-none focus:border-primary">
+                  <option value="">Carregar segmento salvo…</option>
+                  {segmentos.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                </select>
+                {!salvandoSeg ? (
+                  <button type="button" onClick={() => setSalvandoSeg(true)} className="text-xs font-medium text-primary hover:underline">Salvar filtros como segmento</button>
+                ) : (
+                  <span className="flex items-center gap-1">
+                    <input autoFocus value={nomeSeg} onChange={(e) => setNomeSeg(e.target.value)} placeholder="Nome do segmento" className="rounded border border-line px-2 py-1 text-xs outline-none focus:border-primary" />
+                    <button type="button" onClick={salvarSegmento} className="rounded bg-primary px-2 py-1 text-xs font-medium text-white hover:bg-primary-hover">Salvar</button>
+                    <button type="button" onClick={() => { setSalvandoSeg(false); setNomeSeg(''); }} className="text-xs text-muted hover:text-ink">cancelar</button>
+                  </span>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <select value={f.filtroEtiqueta} onChange={(e) => set('filtroEtiqueta', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Etiqueta: qualquer</option>{etiquetas.map((t) => <option key={t.nome} value={t.nome}>{t.nome}</option>)}</select>
+                <select value={f.filtroFaixa} onChange={(e) => set('filtroFaixa', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Risco: qualquer</option><option value="BOM">Bom pagador</option><option value="ATENCAO">Atenção</option><option value="RISCO">Risco</option></select>
+                <input value={f.filtroValorMin} onChange={(e) => set('filtroValorMin', e.target.value)} placeholder="Valor plano mín" className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+                <input value={f.filtroValorMax} onChange={(e) => set('filtroValorMax', e.target.value)} placeholder="Valor plano máx" className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+                <input value={f.filtroPlano} onChange={(e) => set('filtroPlano', e.target.value)} placeholder="Plano" className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+                <input value={f.filtroCidade} onChange={(e) => set('filtroCidade', e.target.value)} placeholder="Cidade" className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+                <select value={f.filtroStatus} onChange={(e) => set('filtroStatus', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
+                  <option value="">Situação: qualquer</option>
+                  <option value="VENCIDA">Com fatura vencida</option>
+                  <option value="PENDENTE">Com fatura a vencer</option>
+                  <option value="ABERTO">Com fatura em aberto</option>
+                  <option value="EM_DIA">Em dia (sem aberto)</option>
+                </select>
+                <input value={f.filtroDiasAtraso} onChange={(e) => set('filtroDiasAtraso', e.target.value)} inputMode="numeric" placeholder="Atraso mín. (dias)" title="Clientes com fatura vencida há pelo menos N dias" className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+              </div>
+            </>
           )}
         </div>
 

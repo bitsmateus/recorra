@@ -3,7 +3,7 @@ import { JwtAuthGuard } from '@/common/auth/jwt-auth.guard';
 import { RolesGuard } from '@/common/auth/roles.guard';
 import { Roles } from '@/common/auth/roles.decorator';
 import { TenantId } from '@/common/auth/current-user.decorator';
-import { CampaignsService, CampaignInput } from './campaigns.service';
+import { CampaignsService, CampaignInput, PublicoFiltros } from './campaigns.service';
 
 @Controller('campanhas')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -32,6 +32,24 @@ export class CampaignsController {
     return this.campaigns.executarAgendadas();
   }
 
+  // Segmentos salvos — declarados ANTES de :id para 'segmentos' não cair no @Get(':id').
+  @Get('segmentos')
+  listarSegmentos(@TenantId() tenantId: string) {
+    return this.campaigns.listarSegmentos(tenantId);
+  }
+
+  @Post('segmentos')
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO', 'OPERADOR')
+  criarSegmento(@TenantId() tenantId: string, @Body('nome') nome: string, @Body('filtros') filtros: PublicoFiltros) {
+    return this.campaigns.criarSegmento(tenantId, nome, filtros);
+  }
+
+  @Delete('segmentos/:id')
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
+  excluirSegmento(@TenantId() tenantId: string, @Param('id') id: string) {
+    return this.campaigns.excluirSegmento(tenantId, id);
+  }
+
   @Get(':id')
   get(@TenantId() tenantId: string, @Param('id') id: string) {
     return this.campaigns.get(tenantId, id);
@@ -53,13 +71,13 @@ export class CampaignsController {
   }
 
   @Post('previa')
-  previa(@TenantId() tenantId: string, @Body() dto: { filtroTodos?: boolean; filtroEtiqueta?: string; filtroValorMin?: number; filtroValorMax?: number; filtroFaixa?: any; filtroStatus?: string; incluirIds?: string[]; excluirIds?: string[] }) {
+  previa(@TenantId() tenantId: string, @Body() dto: PublicoFiltros) {
     return this.campaigns.previaPublico(tenantId, dto);
   }
 
   /** "Ver participantes": quem recebe (com situação/valor/risco/motivo) e quem é pulado e por quê. */
   @Post('participantes')
-  participantes(@TenantId() tenantId: string, @Body() dto: { filtroTodos?: boolean; filtroEtiqueta?: string; filtroValorMin?: number; filtroValorMax?: number; filtroFaixa?: any; filtroStatus?: string; incluirIds?: string[]; excluirIds?: string[]; tipoEnvio?: string; canal?: any }) {
+  participantes(@TenantId() tenantId: string, @Body() dto: PublicoFiltros & { tipoEnvio?: string; canal?: any }) {
     return this.campaigns.participantesPreview(tenantId, dto);
   }
 

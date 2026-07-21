@@ -10,6 +10,21 @@ import { parseDateFilter } from '@/common/util/parse';
 const WHATSAPP: ChannelType[] = ['WHATSAPP_CLOUD', 'NX_SYSTEMS', 'WHATSAPP_EVOLUTION', 'WHATSAPP_UAZAPI'];
 export const exigeTemplate = (canal?: ChannelType | null) => !!canal && WHATSAPP.includes(canal);
 
+/** Conjunto de filtros de público — compartilhado por prévia, campanha e segmento. */
+export interface PublicoFiltros {
+  filtroTodos?: boolean;
+  filtroEtiqueta?: string | null;
+  filtroValorMin?: number | null;
+  filtroValorMax?: number | null;
+  filtroFaixa?: RiskBand | null;
+  filtroStatus?: string | null;
+  filtroDiasAtraso?: number | null;
+  filtroPlano?: string | null;
+  filtroCidade?: string | null;
+  incluirIds?: string[];
+  excluirIds?: string[];
+}
+
 /** Canais que precisam de telefone no cadastro (WhatsApp e SMS). */
 const EXIGE_TELEFONE: ChannelType[] = [...WHATSAPP, 'SMS'];
 const CANAL_LABEL: Record<string, string> = {
@@ -56,6 +71,9 @@ export interface CampaignInput {
   filtroValorMax?: number | null;
   filtroFaixa?: RiskBand | null;
   filtroStatus?: string | null;
+  filtroDiasAtraso?: number | null;
+  filtroPlano?: string | null;
+  filtroCidade?: string | null;
   delaySegundos?: number;
   incluirIds?: string[];
   excluirIds?: string[];
@@ -148,6 +166,9 @@ export class CampaignsService {
       filtroValorMax: input.filtroValorMax ?? null,
       filtroFaixa: input.filtroFaixa || null,
       filtroStatus: SITUACOES_PUBLICO.includes(input.filtroStatus as never) ? input.filtroStatus : null,
+      filtroDiasAtraso: input.filtroDiasAtraso != null && input.filtroDiasAtraso > 0 ? Math.floor(input.filtroDiasAtraso) : null,
+      filtroPlano: input.filtroPlano?.trim() || null,
+      filtroCidade: input.filtroCidade?.trim() || null,
       incluirIds: input.incluirIds ?? [],
       excluirIds: input.excluirIds ?? [],
       publicoDinamico: input.publicoDinamico ?? true,
@@ -206,6 +227,9 @@ export class CampaignsService {
         filtroValorMax: c.filtroValorMax,
         filtroFaixa: c.filtroFaixa,
         filtroStatus: c.filtroStatus,
+        filtroDiasAtraso: c.filtroDiasAtraso,
+        filtroPlano: c.filtroPlano,
+        filtroCidade: c.filtroCidade,
         incluirIds: c.incluirIds,
         excluirIds: c.excluirIds,
         publicoDinamico: c.publicoDinamico,
@@ -241,6 +265,7 @@ export class CampaignsService {
   async resolverPublico(tenantId: string, camp: {
     filtroTodos: boolean; filtroEtiqueta: string | null; filtroValorMin: Prisma.Decimal | number | null;
     filtroValorMax: Prisma.Decimal | number | null; filtroFaixa: RiskBand | null; filtroStatus?: string | null;
+    filtroDiasAtraso?: number | null; filtroPlano?: string | null; filtroCidade?: string | null;
     delaySegundos?: number;
   incluirIds?: string[]; excluirIds?: string[];
   }) {
@@ -253,8 +278,18 @@ export class CampaignsService {
           ...(camp.filtroValorMax != null ? { lte: Number(camp.filtroValorMax) } : {}),
         };
       }
-      const situacao = wherePorSituacao(camp.filtroStatus);
-      if (situacao.invoices) where.invoices = situacao.invoices;
+      if (camp.filtroPlano) where.plano = camp.filtroPlano;
+      if (camp.filtroCidade) where.cidade = { equals: camp.filtroCidade, mode: 'insensitive' };
+      // Dias de atraso implica fatura vencida há >= N dias e supera o filtro de
+      // situação na condição de fatura (é o recorte mais específico de "em atraso").
+      if (camp.filtroDiasAtraso != null && camp.filtroDiasAtraso > 0) {
+        const n = new Date();
+        const limite = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate() - camp.filtroDiasAtraso));
+        where.invoices = { some: { status: 'VENCIDA', gestaoCobranca: 'ATIVA', vencimento: { lte: limite } } };
+      } else {
+        const situacao = wherePorSituacao(camp.filtroStatus);
+        if (situacao.invoices) where.invoices = situacao.invoices;
+      }
     }
     let customers = await this.prisma.customer.findMany({ where, take: 5000, orderBy: { nome: 'asc' } });
     if (!camp.filtroTodos && camp.filtroFaixa) {
@@ -277,11 +312,11 @@ export class CampaignsService {
   }
 
   /** Prévia de público a partir de filtros avulsos (sem salvar campanha). */
-  async previaPublico(tenantId: string, f: { filtroTodos?: boolean; filtroEtiqueta?: string | null; filtroValorMin?: number | null; filtroValorMax?: number | null; filtroFaixa?: RiskBand | null; filtroStatus?: string | null; incluirIds?: string[]; excluirIds?: string[] }) {
+  async previaPublico(tenantId: string, f: PublicoFiltros) {
     const pub = await this.resolverPublico(tenantId, {
       filtroTodos: !!f.filtroTodos, filtroEtiqueta: f.filtroEtiqueta || null,
       filtroValorMin: f.filtroValorMin ?? null, filtroValorMax: f.filtroValorMax ?? null, filtroFaixa: f.filtroFaixa || null,
-      filtroStatus: f.filtroStatus || null,
+      filtroStatus: f.filtroStatus || null, filtroDiasAtraso: f.filtroDiasAtraso ?? null, filtroPlano: f.filtroPlano || null, filtroCidade: f.filtroCidade || null,
       incluirIds: f.incluirIds ?? [], excluirIds: f.excluirIds ?? [],
     });
     return { total: pub.length, contatos: pub.slice(0, 2000).map((c) => ({ id: c.id, nome: c.nome, doc: c.doc })) };
@@ -293,6 +328,41 @@ export class CampaignsService {
     return { total: pub.length, amostra: pub.slice(0, 10).map((c) => ({ nome: c.nome, doc: c.doc })) };
   }
 
+  // ---------- Segmentos salvos (audiências reutilizáveis) ----------
+
+  private limparFiltros(f: PublicoFiltros): Prisma.InputJsonValue {
+    return {
+      filtroTodos: !!f.filtroTodos,
+      filtroEtiqueta: f.filtroEtiqueta || null,
+      filtroFaixa: f.filtroFaixa || null,
+      filtroStatus: f.filtroStatus || null,
+      filtroValorMin: f.filtroValorMin ?? null,
+      filtroValorMax: f.filtroValorMax ?? null,
+      filtroDiasAtraso: f.filtroDiasAtraso ?? null,
+      filtroPlano: f.filtroPlano || null,
+      filtroCidade: f.filtroCidade || null,
+    };
+  }
+
+  listarSegmentos(tenantId: string) {
+    return this.prisma.audienceSegment.findMany({ where: { tenantId }, orderBy: { nome: 'asc' } });
+  }
+
+  async criarSegmento(tenantId: string, nome: string, filtros: PublicoFiltros) {
+    const n = nome?.trim();
+    if (!n) throw new BadRequestException('Nome do segmento é obrigatório');
+    return this.prisma.audienceSegment.upsert({
+      where: { tenantId_nome: { tenantId, nome: n } },
+      create: { tenantId, nome: n, filtros: this.limparFiltros(filtros ?? {}) },
+      update: { filtros: this.limparFiltros(filtros ?? {}) },
+    });
+  }
+
+  async excluirSegmento(tenantId: string, id: string) {
+    await this.prisma.audienceSegment.deleteMany({ where: { id, tenantId } });
+    return { ok: true };
+  }
+
   /** "Ver participantes" de uma campanha JÁ salva — usado na revisão antes de disparar. */
   async participantesCampanha(tenantId: string, id: string) {
     const camp = await this.get(tenantId, id);
@@ -301,6 +371,7 @@ export class CampaignsService {
       filtroValorMin: camp.filtroValorMin != null ? Number(camp.filtroValorMin) : null,
       filtroValorMax: camp.filtroValorMax != null ? Number(camp.filtroValorMax) : null,
       filtroFaixa: camp.filtroFaixa, filtroStatus: camp.filtroStatus,
+      filtroDiasAtraso: camp.filtroDiasAtraso, filtroPlano: camp.filtroPlano, filtroCidade: camp.filtroCidade,
       incluirIds: camp.incluirIds, excluirIds: camp.excluirIds,
       tipoEnvio: camp.tipoEnvio, canal: camp.canal,
     });
@@ -313,18 +384,12 @@ export class CampaignsService {
    * Anexa a cada participante situação/valor em aberto, risco e o motivo da entrada.
    * Tudo em consultas em lote (independe do tamanho do público).
    */
-  async participantesPreview(
-    tenantId: string,
-    f: {
-      filtroTodos?: boolean; filtroEtiqueta?: string | null; filtroValorMin?: number | null; filtroValorMax?: number | null;
-      filtroFaixa?: RiskBand | null; filtroStatus?: string | null; incluirIds?: string[]; excluirIds?: string[];
-      tipoEnvio?: string; canal?: ChannelType | null;
-    },
-  ) {
+  async participantesPreview(tenantId: string, f: PublicoFiltros & { tipoEnvio?: string; canal?: ChannelType | null }) {
     const customers = await this.resolverPublico(tenantId, {
       filtroTodos: !!f.filtroTodos, filtroEtiqueta: f.filtroEtiqueta || null,
       filtroValorMin: f.filtroValorMin ?? null, filtroValorMax: f.filtroValorMax ?? null,
       filtroFaixa: f.filtroFaixa || null, filtroStatus: f.filtroStatus || null,
+      filtroDiasAtraso: f.filtroDiasAtraso ?? null, filtroPlano: f.filtroPlano || null, filtroCidade: f.filtroCidade || null,
       incluirIds: f.incluirIds ?? [], excluirIds: f.excluirIds ?? [],
     });
     const ids = customers.map((c) => c.id);

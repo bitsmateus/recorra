@@ -166,6 +166,7 @@ model Tenant {
   customers          Customer[]
   tags               Tag[]
   campaigns          Campaign[]
+  audienceSegments   AudienceSegment[]
   paymentAccounts    PaymentProviderAccount[]
   channelAccounts    ChannelAccount[]
   sourceIntegrations SourceIntegration[]
@@ -847,6 +848,9 @@ model Campaign {
   filtroValorMax Decimal?  @db.Decimal(12, 2)
   filtroFaixa    RiskBand?
   filtroStatus   String?   // situação da cobrança: VENCIDA | PENDENTE | ABERTO | EM_DIA
+  filtroDiasAtraso Int?    // clientes com fatura vencida há >= N dias
+  filtroPlano    String?
+  filtroCidade   String?
   incluirIds     String[]  @default([])
   excluirIds     String[]  @default([])
 
@@ -866,6 +870,23 @@ model Campaign {
 
   @@index([tenantId])
   @@map("campaigns")
+}
+
+/// Segmento salvo: um conjunto de filtros de público nomeado e reutilizável
+/// entre campanhas. `filtros` guarda o mesmo formato dos filtros da campanha.
+model AudienceSegment {
+  id        String   @id @default(cuid())
+  tenantId  String
+  nome      String
+  filtros   Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, nome])
+  @@index([tenantId])
+  @@map("audience_segments")
 }
 
 /// Modelo de e-mail reutilizável do tenant (assunto + corpo com variáveis {{...}}).
