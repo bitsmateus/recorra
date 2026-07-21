@@ -1,3 +1,17 @@
+/**
+ * Regra de vencimento alinhada ao resto do sistema: uma fatura que vence HOJE
+ * ainda é pendente — só conta como vencida a partir do dia seguinte. Compara por
+ * dia (borda UTC), não pelo instante atual. Data inválida → não classifica como
+ * vencida (evita marcar tudo por um campo faltante do ERP).
+ */
+export function venceuAntesDeHoje(vencimento: Date): boolean {
+  if (Number.isNaN(vencimento.getTime())) return false;
+  const h = new Date();
+  const hojeUtc = Date.UTC(h.getUTCFullYear(), h.getUTCMonth(), h.getUTCDate());
+  const vUtc = Date.UTC(vencimento.getUTCFullYear(), vencimento.getUTCMonth(), vencimento.getUTCDate());
+  return vUtc < hojeUtc;
+}
+
 /** Cliente normalizado vindo de um sistema de origem (ERP). */
 export interface SourceCustomer {
   externalId: string;

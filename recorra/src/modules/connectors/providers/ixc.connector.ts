@@ -4,6 +4,7 @@ import {
   SourceCustomer,
   SourceInvoice,
   SourceCredentials,
+  venceuAntesDeHoje,
 } from '../source-connector.interface';
 import { onlyDigits } from '@/common/util/normalize';
 import { safeHttpAgents } from '@/common/net/safe-http';
@@ -109,7 +110,8 @@ export class IxcConnector implements SourceConnector {
 
   private mapStatus(status: string, vencimento: string): string {
     if (status === 'R') return 'PAGA';
-    if (new Date(vencimento) < new Date()) return 'VENCIDA';
+    // Vence hoje ainda é pendente (borda por dia), igual à regra global.
+    if (venceuAntesDeHoje(new Date(vencimento))) return 'VENCIDA';
     return 'PENDENTE';
   }
 

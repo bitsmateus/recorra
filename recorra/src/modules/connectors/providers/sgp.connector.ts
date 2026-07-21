@@ -5,6 +5,7 @@ import {
   SourceCustomer,
   SourceInvoice,
   SourceCredentials,
+  venceuAntesDeHoje,
 } from '../source-connector.interface';
 import { onlyDigits, normalizePhoneBR } from '@/common/util/normalize';
 
@@ -104,15 +105,20 @@ export class SgpConnector implements SourceConnector {
   async fetchOpenInvoices(): Promise<SourceInvoice[]> {
     const { rows, completo } = await this.paginar('/api/ura/titulos', { status: 'aberto' }, (d) => d?.titulos ?? d?.dados ?? []);
     this.snapshotCompleto = completo;
-    return rows.map((r) => ({
-      externalId: String(r.id ?? r.titulo_id),
-      customerExternalId: String(r.cliente_id ?? r.cliente),
-      valor: Number(r.valor ?? 0),
-      vencimento: new Date(r.vencimento ?? r.data_vencimento),
-      status: r.pago ? 'PAGA' : new Date(r.vencimento) < new Date() ? 'VENCIDA' : 'PENDENTE',
-      pixCopiaCola: r.pix ?? r.pix_copia_cola ?? undefined,
-      boletoLinha: r.linhadigitavel ?? r.linha_digitavel ?? undefined,
-      boletoUrl: r.linkboleto ?? r.url_boleto ?? undefined,
-    }));
+    return rows.map((r) => {
+      const vencimento = new Date(r.vencimento ?? r.data_vencimento);
+      return {
+        externalId: String(r.id ?? r.titulo_id),
+        customerExternalId: String(r.cliente_id ?? r.cliente),
+        valor: Number(r.valor ?? 0),
+        vencimento,
+        // Usa o mesmo `vencimento` resolvido (não só r.vencimento) e a borda por
+        // DIA: vence hoje ainda é pendente; só vira vencida a partir de amanhã.
+        status: r.pago ? 'PAGA' : venceuAntesDeHoje(vencimento) ? 'VENCIDA' : 'PENDENTE',
+        pixCopiaCola: r.pix ?? r.pix_copia_cola ?? undefined,
+        boletoLinha: r.linhadigitavel ?? r.linha_digitavel ?? undefined,
+        boletoUrl: r.linkboleto ?? r.url_boleto ?? undefined,
+      };
+    });
   }
 }
