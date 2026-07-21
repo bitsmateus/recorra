@@ -280,7 +280,7 @@ export const HELP_TOPICS: HelpTopic[] = [
   {
     id: 'cache-menu', section: 'Administração', title: 'Menu lateral e limpeza de cache',
     summary: 'Preferências locais de navegação e recuperação da interface.',
-    steps: ['Use o ícone no cabeçalho lateral para minimizar.', 'No modo compacto, passe o mouse nos ícones para ver os nomes.', 'Use o botão inferior para expandir novamente.', 'Clique em Limpar cache quando a interface exibir informação visual antiga.'],
+    steps: ['Use o ícone no cabeçalho lateral para minimizar.', 'No modo compacto, passe o mouse nos ícones para ver os nomes.', 'Use o botão de expandir sempre visível no topo, abaixo do ícone do Recorrai.', 'Clique em Limpar cache quando a interface exibir informação visual antiga.'],
     rules: [
       'A preferência de menu minimizado fica salva no navegador.',
       'Limpar cache remove preferências, sessão temporária e Cache Storage da aplicação.',

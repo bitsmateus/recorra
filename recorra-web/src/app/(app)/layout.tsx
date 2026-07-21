@@ -157,12 +157,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <div className="flex min-h-screen bg-canvas">
       {/* Sidebar fixa (desktop) */}
       <aside className={`hidden flex-col border-r border-line bg-surface transition-[width] duration-200 md:flex print:hidden ${menuMinimizado ? 'w-16' : 'w-60'}`}>
-        <div className={`flex items-center border-b border-line py-4 ${menuMinimizado ? 'justify-center px-2' : 'justify-between px-5'}`}>
-          {menuMinimizado ? <LogoMark size={30} /> : <Logo size={30} />}
+        <div className={`flex items-center border-b border-line ${menuMinimizado ? 'flex-col justify-center gap-2 px-2 py-3' : 'justify-between px-5 py-4'}`}>
+          {menuMinimizado ? <LogoMark size={28} /> : <Logo size={30} />}
           {!menuMinimizado && <button onClick={alternarMenu} title="Minimizar menu" className="rounded p-1.5 text-muted hover:bg-canvas hover:text-primary"><PanelLeftClose size={18} /></button>}
+          {menuMinimizado && <button onClick={alternarMenu} title="Expandir menu" aria-label="Expandir menu lateral" className="flex h-8 w-8 items-center justify-center rounded text-muted hover:bg-canvas hover:text-primary"><PanelLeftOpen size={18} /></button>}
         </div>
         {navContent(menuMinimizado)}
-        {menuMinimizado && <button onClick={alternarMenu} title="Expandir menu" className="m-2 flex items-center justify-center rounded p-2 text-muted hover:bg-canvas hover:text-primary"><PanelLeftOpen size={18} /></button>}
       </aside>
 
       {/* Drawer + overlay (mobile) */}

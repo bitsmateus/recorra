@@ -10,6 +10,28 @@ import { parseDateFilter } from '@/common/util/parse';
 const WHATSAPP: ChannelType[] = ['WHATSAPP_CLOUD', 'NX_SYSTEMS', 'WHATSAPP_EVOLUTION', 'WHATSAPP_UAZAPI'];
 export const exigeTemplate = (canal?: ChannelType | null) => !!canal && WHATSAPP.includes(canal);
 
+/** Valores aceitos no filtro de público por situação da cobrança. */
+export const SITUACOES_PUBLICO = ['VENCIDA', 'PENDENTE', 'ABERTO', 'EM_DIA'] as const;
+
+/**
+ * Fragmento de `where` que filtra o cliente pela situação das cobranças dele.
+ * Só considera faturas em gestão ATIVA (legado não conta para segmentação).
+ *  - VENCIDA/PENDENTE: tem ao menos uma fatura naquela situação.
+ *  - ABERTO: tem fatura pendente OU vencida.
+ *  - EM_DIA: não tem nenhuma fatura em aberto.
+ * Valor inválido/ausente → sem filtro.
+ */
+export function wherePorSituacao(valor?: string | null): Prisma.CustomerWhereInput {
+  const emAberto: Prisma.InvoiceWhereInput = { status: { in: ['PENDENTE', 'VENCIDA'] }, gestaoCobranca: 'ATIVA' };
+  switch (valor) {
+    case 'VENCIDA': return { invoices: { some: { status: 'VENCIDA', gestaoCobranca: 'ATIVA' } } };
+    case 'PENDENTE': return { invoices: { some: { status: 'PENDENTE', gestaoCobranca: 'ATIVA' } } };
+    case 'ABERTO': return { invoices: { some: emAberto } };
+    case 'EM_DIA': return { invoices: { none: emAberto } };
+    default: return {};
+  }
+}
+
 export interface CampaignInput {
   nome: string;
   tipoEnvio: 'REGUA' | 'MENSAGEM' | 'LEMBRETE';
@@ -26,6 +48,7 @@ export interface CampaignInput {
   filtroValorMin?: number | null;
   filtroValorMax?: number | null;
   filtroFaixa?: RiskBand | null;
+  filtroStatus?: string | null;
   delaySegundos?: number;
   incluirIds?: string[];
   excluirIds?: string[];
@@ -117,6 +140,7 @@ export class CampaignsService {
       filtroValorMin: input.filtroValorMin ?? null,
       filtroValorMax: input.filtroValorMax ?? null,
       filtroFaixa: input.filtroFaixa || null,
+      filtroStatus: SITUACOES_PUBLICO.includes(input.filtroStatus as never) ? input.filtroStatus : null,
       incluirIds: input.incluirIds ?? [],
       excluirIds: input.excluirIds ?? [],
       publicoDinamico: input.publicoDinamico ?? true,
@@ -174,6 +198,7 @@ export class CampaignsService {
         filtroValorMin: c.filtroValorMin,
         filtroValorMax: c.filtroValorMax,
         filtroFaixa: c.filtroFaixa,
+        filtroStatus: c.filtroStatus,
         incluirIds: c.incluirIds,
         excluirIds: c.excluirIds,
         publicoDinamico: c.publicoDinamico,
@@ -208,7 +233,7 @@ export class CampaignsService {
   /** Resolve o público-alvo da campanha a partir dos filtros. */
   async resolverPublico(tenantId: string, camp: {
     filtroTodos: boolean; filtroEtiqueta: string | null; filtroValorMin: Prisma.Decimal | number | null;
-    filtroValorMax: Prisma.Decimal | number | null; filtroFaixa: RiskBand | null;
+    filtroValorMax: Prisma.Decimal | number | null; filtroFaixa: RiskBand | null; filtroStatus?: string | null;
     delaySegundos?: number;
   incluirIds?: string[]; excluirIds?: string[];
   }) {
@@ -221,6 +246,8 @@ export class CampaignsService {
           ...(camp.filtroValorMax != null ? { lte: Number(camp.filtroValorMax) } : {}),
         };
       }
+      const situacao = wherePorSituacao(camp.filtroStatus);
+      if (situacao.invoices) where.invoices = situacao.invoices;
     }
     let customers = await this.prisma.customer.findMany({ where, take: 5000, orderBy: { nome: 'asc' } });
     if (!camp.filtroTodos && camp.filtroFaixa) {
@@ -243,10 +270,11 @@ export class CampaignsService {
   }
 
   /** Prévia de público a partir de filtros avulsos (sem salvar campanha). */
-  async previaPublico(tenantId: string, f: { filtroTodos?: boolean; filtroEtiqueta?: string | null; filtroValorMin?: number | null; filtroValorMax?: number | null; filtroFaixa?: RiskBand | null; incluirIds?: string[]; excluirIds?: string[] }) {
+  async previaPublico(tenantId: string, f: { filtroTodos?: boolean; filtroEtiqueta?: string | null; filtroValorMin?: number | null; filtroValorMax?: number | null; filtroFaixa?: RiskBand | null; filtroStatus?: string | null; incluirIds?: string[]; excluirIds?: string[] }) {
     const pub = await this.resolverPublico(tenantId, {
       filtroTodos: !!f.filtroTodos, filtroEtiqueta: f.filtroEtiqueta || null,
       filtroValorMin: f.filtroValorMin ?? null, filtroValorMax: f.filtroValorMax ?? null, filtroFaixa: f.filtroFaixa || null,
+      filtroStatus: f.filtroStatus || null,
       incluirIds: f.incluirIds ?? [], excluirIds: f.excluirIds ?? [],
     });
     return { total: pub.length, contatos: pub.slice(0, 2000).map((c) => ({ id: c.id, nome: c.nome, doc: c.doc })) };

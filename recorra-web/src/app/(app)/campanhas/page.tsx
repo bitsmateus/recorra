@@ -17,7 +17,7 @@ interface Campaign {
   tipoEnvio: 'REGUA' | 'MENSAGEM' | 'LEMBRETE';
   ruleId?: string; rule?: { id: string; nome: string };
   mensagem?: string; emailAssunto?: string; canal?: string; channelAccountId?: string; templateNome?: string; templateParams?: string[]; escopoFatura?: 'TODAS' | 'PROXIMA'; delaySegundos?: number;
-  filtroTodos: boolean; filtroEtiqueta?: string; filtroValorMin?: number; filtroValorMax?: number; filtroFaixa?: string;
+  filtroTodos: boolean; filtroEtiqueta?: string; filtroValorMin?: number; filtroValorMax?: number; filtroFaixa?: string; filtroStatus?: string;
   incluirIds?: string[]; excluirIds?: string[];
   publicoDinamico: boolean;
   agendamento: 'UMA_VEZ' | 'MENSAL' | 'SEMPRE_ATIVA'; diaDoMes?: number;
@@ -113,11 +113,19 @@ const agendaLabel = (c: Campaign) => c.agendamento === 'UMA_VEZ' ? 'Uma vez' : c
 /** Campanha de envio único já disparada não dispara de novo — o caminho é duplicar e disparar a cópia. */
 const jaDisparada = (c: Campaign) => c.agendamento === 'UMA_VEZ' && !!c.entrega;
 const dataHora = (s?: string) => s ? new Date(s).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+const SITUACAO_LABEL: Record<string, string> = {
+  VENCIDA: 'com fatura vencida',
+  PENDENTE: 'com fatura a vencer',
+  ABERTO: 'com fatura em aberto',
+  EM_DIA: 'em dia',
+};
+
 const publicoLabel = (c: Campaign) => {
   if (c.filtroTodos) return 'Todos os contatos';
   const p: string[] = [];
   if (c.filtroEtiqueta) p.push(`etiqueta: ${c.filtroEtiqueta}`);
   if (c.filtroFaixa) p.push(`risco: ${c.filtroFaixa}`);
+  if (c.filtroStatus) p.push(`situação: ${SITUACAO_LABEL[c.filtroStatus] ?? c.filtroStatus}`);
   if (c.filtroValorMin || c.filtroValorMax) p.push(`valor ${c.filtroValorMin || 0}–${c.filtroValorMax || '∞'}`);
   return p.length ? p.join(' · ') : 'Sem filtro';
 };
@@ -384,6 +392,7 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
     filtroValorMin: edit?.filtroValorMin ? String(edit.filtroValorMin) : '',
     filtroValorMax: edit?.filtroValorMax ? String(edit.filtroValorMax) : '',
     filtroFaixa: edit?.filtroFaixa || '',
+    filtroStatus: edit?.filtroStatus || '',
     publicoDinamico: edit?.publicoDinamico ?? true,
     agendamento: edit?.agendamento || 'UMA_VEZ',
     diaDoMes: edit?.diaDoMes ? String(edit.diaDoMes) : '1',
@@ -437,11 +446,12 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
         filtroValorMin: f.filtroValorMin ? Number(f.filtroValorMin) : undefined,
         filtroValorMax: f.filtroValorMax ? Number(f.filtroValorMax) : undefined,
         filtroFaixa: f.filtroFaixa || undefined,
+        filtroStatus: f.filtroStatus || undefined,
         incluirIds: incluir, excluirIds: excluir,
       } }).then((r) => { setPrevia(r.total); setPreviaContatos(r.contatos || []); }).catch(() => setPrevia(null));
     }, 300);
     return () => clearTimeout(t);
-  }, [f.filtroTodos, f.filtroEtiqueta, f.filtroValorMin, f.filtroValorMax, f.filtroFaixa, incluir, excluir]);
+  }, [f.filtroTodos, f.filtroEtiqueta, f.filtroValorMin, f.filtroValorMax, f.filtroFaixa, f.filtroStatus, incluir, excluir]);
 
   const comTemplate = (f.tipoEnvio === 'MENSAGEM' || f.tipoEnvio === 'LEMBRETE') && isWhats;
 
@@ -466,6 +476,7 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
       filtroValorMin: f.filtroValorMin ? Number(f.filtroValorMin) : null,
       filtroValorMax: f.filtroValorMax ? Number(f.filtroValorMax) : null,
       filtroFaixa: f.filtroFaixa || null,
+      filtroStatus: f.filtroStatus || null,
       incluirIds: incluir,
       excluirIds: excluir,
       publicoDinamico: f.publicoDinamico,
@@ -583,6 +594,13 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
               <select value={f.filtroFaixa} onChange={(e) => set('filtroFaixa', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Risco: qualquer</option><option value="BOM">Bom pagador</option><option value="ATENCAO">Atenção</option><option value="RISCO">Risco</option></select>
               <input value={f.filtroValorMin} onChange={(e) => set('filtroValorMin', e.target.value)} placeholder="Valor plano mín" className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
               <input value={f.filtroValorMax} onChange={(e) => set('filtroValorMax', e.target.value)} placeholder="Valor plano máx" className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+              <select value={f.filtroStatus} onChange={(e) => set('filtroStatus', e.target.value)} className="col-span-2 rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
+                <option value="">Situação da cobrança: qualquer</option>
+                <option value="VENCIDA">Com fatura vencida</option>
+                <option value="PENDENTE">Com fatura a vencer (pendente)</option>
+                <option value="ABERTO">Com fatura em aberto (vencida ou a vencer)</option>
+                <option value="EM_DIA">Em dia (sem faturas em aberto)</option>
+              </select>
             </div>
           )}
         </div>

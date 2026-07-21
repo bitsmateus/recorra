@@ -846,6 +846,7 @@ model Campaign {
   filtroValorMin Decimal?  @db.Decimal(12, 2)
   filtroValorMax Decimal?  @db.Decimal(12, 2)
   filtroFaixa    RiskBand?
+  filtroStatus   String?   // situação da cobrança: VENCIDA | PENDENTE | ABERTO | EM_DIA
   incluirIds     String[]  @default([])
   excluirIds     String[]  @default([])
 

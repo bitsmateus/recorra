@@ -48,7 +48,7 @@ export class CampaignsController {
   }
 
   @Post('previa')
-  previa(@TenantId() tenantId: string, @Body() dto: { filtroTodos?: boolean; filtroEtiqueta?: string; filtroValorMin?: number; filtroValorMax?: number; filtroFaixa?: any; incluirIds?: string[]; excluirIds?: string[] }) {
+  previa(@TenantId() tenantId: string, @Body() dto: { filtroTodos?: boolean; filtroEtiqueta?: string; filtroValorMin?: number; filtroValorMax?: number; filtroFaixa?: any; filtroStatus?: string; incluirIds?: string[]; excluirIds?: string[] }) {
     return this.campaigns.previaPublico(tenantId, dto);
   }
 
