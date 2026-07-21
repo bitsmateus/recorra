@@ -74,6 +74,8 @@ export default function ClientesPage() {
   const [confirmarExclusao, setConfirmarExclusao] = useState<Customer | null>(null);
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
   const [confirmarLote, setConfirmarLote] = useState(false);
+  const POR_PAGINA = 50;
+  const [limite, setLimite] = useState(POR_PAGINA);
 
   const toggleSel = (id: string) => setSelecionados((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const reloadEtiquetas = useCallback(() => { api<Etiqueta[]>('/clientes/etiquetas').then(setEtiquetas).catch(() => {}); }, []);
@@ -93,6 +95,8 @@ export default function ClientesPage() {
   }, [aplicados]);
 
   useEffect(() => { carregar(); }, [carregar]);
+  // Volta para a 1ª "página" quando troca de aba ou a lista é recarregada/filtrada.
+  useEffect(() => { setLimite(POR_PAGINA); }, [aba, clientes]);
 
   // Busca automática ~450ms após parar de digitar/mexer nos filtros (além do botão Filtrar).
   useEffect(() => {
@@ -129,7 +133,13 @@ export default function ClientesPage() {
 
   const corPorTag = new Map(etiquetas.map((e) => [e.nome, e.cor] as const));
   const visiveis = clientes.filter((c) => (aba === 'aberto' ? situacaoDe(c).key === 'aberto' : aba === 'incompleto' ? cadastroIncompleto(c) : true));
-  const idsVisiveis = visiveis.map((c) => c.id);
+  // Mostra só `limite` por vez; "Ver mais" revela mais 50. As contagens/abas
+  // continuam sobre a lista completa — a paginação é só da exibição.
+  const paginados = visiveis.slice(0, limite);
+  const temMais = visiveis.length > paginados.length;
+  // "Selecionar todos" marca apenas o que está na tela (evita selecionar centenas
+  // de linhas escondidas sem querer, ainda mais com exclusão em massa).
+  const idsVisiveis = paginados.map((c) => c.id);
   const todosMarcados = idsVisiveis.length > 0 && idsVisiveis.every((id) => selecionados.has(id));
   const toggleTodos = () => setSelecionados(todosMarcados ? new Set() : new Set(idsVisiveis));
   const contagem = {
@@ -180,7 +190,7 @@ export default function ClientesPage() {
       </div>
 
       <div className="mb-2 flex items-center gap-3 text-sm text-muted">
-        <span>Total de clientes: <span className="tabular font-medium text-ink">{visiveis.length}</span></span>
+        <span>Total de clientes: <span className="tabular font-medium text-ink">{visiveis.length}</span>{temMais && <> · mostrando <span className="tabular font-medium text-ink">{paginados.length}</span></>}</span>
       </div>
 
       {selecionados.size > 0 && (
@@ -197,7 +207,7 @@ export default function ClientesPage() {
             <tr><th className="w-10 px-4 py-3"><input type="checkbox" checked={todosMarcados} onChange={toggleTodos} className="h-4 w-4 cursor-pointer accent-primary" aria-label="Selecionar todos" /></th><th className="px-4 py-3 font-medium">Cliente</th><th className="px-4 py-3 font-medium">Documento</th><th className="px-4 py-3 font-medium">Situação</th><th className="px-4 py-3 font-medium">Tags</th><th className="px-4 py-3 font-medium">Cobranças</th><th className="px-4 py-3 font-medium">Score / Risco</th><th className="px-4 py-3 font-medium text-right">Ações</th></tr>
           </thead>
           <tbody>
-            {visiveis.map((c) => (
+            {paginados.map((c) => (
               <tr key={c.id} className={`border-b border-line last:border-0 hover:bg-canvas/50 ${selecionados.has(c.id) ? 'bg-primary-tint/40' : ''}`}>
                 <td className="px-4 py-3"><input type="checkbox" checked={selecionados.has(c.id)} onChange={() => toggleSel(c.id)} className="h-4 w-4 cursor-pointer accent-primary" aria-label={`Selecionar ${c.nome}`} /></td>
                 <td className="px-4 py-3">
@@ -237,6 +247,14 @@ export default function ClientesPage() {
           </tbody>
         </table></div>
       </div>
+      {temMais && (
+        <div className="mt-3 flex items-center justify-center gap-3">
+          <button onClick={() => setLimite((n) => n + POR_PAGINA)} className="rounded border border-line px-4 py-2 text-sm font-medium hover:bg-canvas">
+            Ver mais {Math.min(POR_PAGINA, visiveis.length - paginados.length)}
+          </button>
+          <button onClick={() => setLimite(visiveis.length)} className="text-sm text-primary hover:underline">Ver todos ({visiveis.length})</button>
+        </div>
+      )}
       {loading && <p className="mt-3 text-sm text-muted">Carregando...</p>}
 
       {modal.open && <CustomerModal edit={modal.edit} etiquetas={etiquetas} onEtiquetasChange={reloadEtiquetas} onClose={() => setModal({ open: false })} onSaved={() => { setModal({ open: false }); recarregarTudo(); }} />}

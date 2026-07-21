@@ -44,15 +44,18 @@ export class DashboardController {
     const eventos = await this.periodo(tenantId, de, ate);
 
     const [inadimplencia, recuperado, cobrancasAtivas, disparos] = await Promise.all([
-      // Faturas recortam pela data de vencimento: são as cobranças "daquele mês".
-      // Recuperado = das que vencem no período, quais já foram pagas.
+      // Inadimplência recorta pela data de vencimento: são as cobranças
+      // vencidas dentro do período escolhido.
       this.prisma.invoice.aggregate({
         where: { tenantId, status: 'VENCIDA', gestaoCobranca: 'ATIVA', vencimento: venc },
         _sum: { valor: true },
         _count: true,
       }),
+      // Recuperação é um evento do período. Uma fatura antiga paga neste mês
+      // precisa aparecer em "Recuperado no período", por isso o recorte é por
+      // pagoEm (no fuso do tenant), e não pelo vencimento original da fatura.
       this.prisma.invoice.aggregate({
-        where: { tenantId, status: 'PAGA', vencimento: venc },
+        where: { tenantId, status: 'PAGA', pagoEm: eventos },
         _sum: { valor: true },
         _count: true,
       }),
