@@ -470,21 +470,21 @@ export class ChargesService {
   }
 
   /**
-   * Exclusão em massa. Diferente de clientes, aqui não dá para um `deleteMany`
-   * seco: cada fatura pode ter cobrança no gateway para cancelar e gera registro
-   * de auditoria. Então percorre uma a uma pela mesma lógica do delete único.
+   * Exclusão em massa. Por segurança, **só apaga o registro local (escopo
+   * 'recorra')** — nunca cancela no gateway. Cancelar no gateway é irreversível
+   * e afeta o cliente real, então é uma ação deliberada, feita uma a uma pelo
+   * removeInvoice. Isso torna impossível cancelar dezenas de cobranças no
+   * gateway por um clique de engano na limpeza em massa.
    *
-   * Só aceita 'recorra' e 'ambos' (ambos apagam o registro local). Numa seleção
-   * mista, 'ambos' cai para local nas que não foram geradas — o removeInvoice já
-   * trata isso. Uma falha isolada (ex.: gateway fora) não derruba o lote: entra
-   * em `erros` e as demais seguem.
+   * Percorre uma a uma (em vez de deleteMany) para gerar auditoria por fatura.
+   * Uma falha isolada não derruba o lote: entra em `erros` e as demais seguem.
    */
-  async removeMany(tenantId: string, ids: string[], escopo: 'recorra' | 'ambos' = 'recorra', actorId?: string) {
+  async removeMany(tenantId: string, ids: string[], actorId?: string) {
     const alvo = [...new Set(ids)].filter(Boolean);
     const out = { total: alvo.length, excluidas: 0, erros: [] as { id: string; erro: string }[] };
     for (const id of alvo) {
       try {
-        await this.removeInvoice(tenantId, id, escopo, actorId);
+        await this.removeInvoice(tenantId, id, 'recorra', actorId);
         out.excluidas += 1;
       } catch (e) {
         out.erros.push({ id, erro: e instanceof Error ? e.message : String(e) });

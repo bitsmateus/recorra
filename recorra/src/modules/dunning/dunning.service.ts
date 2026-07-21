@@ -4,7 +4,7 @@ import { PrismaService } from '@/common/prisma/prisma.service';
 import { ChannelFactory } from '@/modules/channels/channel.factory';
 import { RiskScoringService } from '@/modules/risk/risk-scoring.service';
 import { renderTemplate, renderPositional, money, dateBR } from './template.util';
-import { isWithinWindow, nextAllowedSlot, withinDailyLimit } from './windows';
+import { isWithinWindow, nextAllowedSlot, withinDailyLimit, zonedSlotToUtc } from './windows';
 import { channelChain } from './fallback';
 import { pickVariant } from './abtest';
 
@@ -113,10 +113,10 @@ export class DunningService {
     const cfg = { inicioHora: rule.janelaInicio, fimHora: rule.janelaFim, diasUteisSomente: rule.diasUteisSomente };
     if (isWithinWindow(hora, diaSemana, cfg)) return agora;
     const slot = nextAllowedSlot(hora, diaSemana, cfg);
-    const d = new Date(agora);
-    d.setDate(d.getDate() + slot.addDias);
-    d.setHours(slot.hora, 0, 0, 0);
-    return d;
+    // Materializa o slot (fuso do tenant) no instante UTC correto — NÃO usar
+    // setHours, que aplicaria o fuso do servidor (UTC no deploy) e enviaria fora
+    // da janela permitida do tenant.
+    return zonedSlotToUtc(agora, timezone, slot.addDias, slot.hora);
   }
 
   private horaLocal(d: Date, timezone: string): { hora: number; diaSemana: number } {

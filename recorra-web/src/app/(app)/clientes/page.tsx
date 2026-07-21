@@ -246,7 +246,7 @@ export default function ClientesPage() {
       {confirmarExclusao && (
         <ConfirmDialog
           titulo="Excluir cliente"
-          mensagem={<>Excluir o cliente <b className="text-ink">{confirmarExclusao.nome}</b>? Isso remove faturas e histórico dele.</>}
+          mensagem={<>Excluir o cliente <b className="text-ink">{confirmarExclusao.nome}</b>? Isso remove as faturas e o histórico dele. <b className="text-ink">Não dá para desfazer.</b></>}
           confirmLabel="Excluir"
           danger
           onConfirm={() => { const c = confirmarExclusao; setConfirmarExclusao(null); excluir(c); }}

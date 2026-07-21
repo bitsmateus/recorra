@@ -86,6 +86,23 @@ export class SubscriptionsService {
     let geradas = 0;
     for (const sub of dueSubs) {
       const vencimento = sub.proximaCobranca ?? ref;
+
+      // Claim otimista: avança o ciclo ANTES de faturar, com guarda no valor
+      // atual de proximaCobranca. Só uma execução/worker vence — as demais veem
+      // count=0 e pulam. Isso elimina a cobrança dupla (por crash entre criar a
+      // fatura e avançar o ciclo, ou por dois workers processando o mesmo ciclo).
+      // Trade-off: um crash logo após o claim perde este ciclo (mal menor que
+      // cobrar em duplicidade); a próxima execução segue do ciclo seguinte.
+      const claim = await this.prisma.subscription.updateMany({
+        where: { id: sub.id, status: 'ATIVA', ativo: true, proximaCobranca: sub.proximaCobranca },
+        data: {
+          proximaCobranca: nextDueDate(sub.diaVenc, sub.ciclo as Ciclo, vencimento),
+          tentativas: 0,
+          ultimaTentativa: new Date(),
+        },
+      });
+      if (claim.count === 0) continue;
+
       const invoice = await this.prisma.invoice.create({
         data: {
           tenantId: sub.tenantId,
@@ -101,16 +118,6 @@ export class SubscriptionsService {
 
       // auto-gera a cobrança no gateway ativo do tenant, se houver
       await this.autoCharge(sub.tenantId, invoice.id, sub.metodo, sub.splitConfig);
-
-      // avança o ciclo e zera tentativas
-      await this.prisma.subscription.update({
-        where: { id: sub.id },
-        data: {
-          proximaCobranca: nextDueDate(sub.diaVenc, sub.ciclo as Ciclo, vencimento),
-          tentativas: 0,
-          ultimaTentativa: new Date(),
-        },
-      });
       geradas++;
     }
     this.logger.log(`Assinaturas processadas: ${geradas}`);
@@ -130,11 +137,14 @@ export class SubscriptionsService {
       if (!vencida) continue;
 
       if (podeRetentar(sub.tentativas, MAX_TENTATIVAS)) {
-        await this.autoCharge(sub.tenantId, vencida.id, sub.metodo, sub.splitConfig);
-        await this.prisma.subscription.update({
-          where: { id: sub.id },
+        // Claim otimista no contador de tentativas: guarda no valor atual para
+        // que dois workers não retentem/incrementem o mesmo ciclo em duplicidade.
+        const claim = await this.prisma.subscription.updateMany({
+          where: { id: sub.id, tentativas: sub.tentativas, status: 'ATIVA', ativo: true },
           data: { tentativas: { increment: 1 }, ultimaTentativa: ref },
         });
+        if (claim.count === 0) continue;
+        await this.autoCharge(sub.tenantId, vencida.id, sub.metodo, sub.splitConfig);
         retentadas++;
       } else {
         await this.prisma.subscription.update({ where: { id: sub.id }, data: { status: 'INADIMPLENTE' } });

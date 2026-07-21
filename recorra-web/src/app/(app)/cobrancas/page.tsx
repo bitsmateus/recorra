@@ -54,19 +54,19 @@ function AjudaStatus() {
     { badge: 'ESTORNADA', txt: 'O pagamento foi devolvido ao cliente.' },
   ];
   return (
-    <div className="relative shrink-0">
-      <button type="button" onClick={() => setAberta((v) => !v)} aria-label="Entenda os status das cobranças" aria-expanded={aberta} className="flex h-9 w-8 items-center justify-center rounded border border-line text-muted hover:border-primary hover:text-primary">
-        <HelpCircle size={16} />
+    <div className="inline-flex shrink-0">
+      <button type="button" onClick={() => setAberta((v) => !v)} aria-label="Entenda os status das cobranças" aria-expanded={aberta} className="flex h-5 w-5 items-center justify-center rounded-full text-muted hover:bg-primary-tint hover:text-primary">
+        <HelpCircle size={14} />
       </button>
       {aberta && (
         <>
-          <button type="button" aria-label="Fechar ajuda" onClick={() => setAberta(false)} className="fixed inset-0 z-30 cursor-default" />
-          <div className="absolute right-0 top-11 z-40 w-[min(34rem,calc(100vw-2rem))] rounded-lg border border-line bg-surface p-4 text-left normal-case shadow-lg">
+          <button type="button" aria-label="Fechar ajuda" onClick={() => setAberta(false)} className="fixed inset-0 z-40 cursor-default bg-black/10" />
+          <div className="fixed left-1/2 top-1/2 z-50 w-[min(20rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-line bg-surface p-4 text-left normal-case shadow-xl">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="flex items-center gap-1.5 text-sm font-medium text-ink"><HelpCircle size={15} className="text-primary" /> Entenda os status</h2>
               <button type="button" onClick={() => setAberta(false)} className="rounded p-1 text-muted hover:bg-canvas hover:text-ink" aria-label="Fechar"><X size={15} /></button>
             </div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <div className="space-y-2">
               {itens.map((it) => (
                 <div key={it.badge} className="flex items-start gap-2 text-xs">
                   <span className={`shrink-0 rounded-full px-2.5 py-1 font-medium ${statusColor[it.badge] || 'bg-canvas text-muted'}`}>{it.badge}</span>
@@ -74,9 +74,6 @@ function AjudaStatus() {
                 </div>
               ))}
             </div>
-            <p className="mt-3 border-t border-line pt-2 text-xs font-normal text-muted">
-              <strong className="text-ink">Cobrança “✓ gerada”</strong> significa que o Pix/boleto já foi criado no gateway e possui meio de pagamento. Caso contrário, use o botão <strong className="text-ink">Gerar</strong>.
-            </p>
           </div>
         </>
       )}
@@ -151,10 +148,12 @@ export default function CobrancasPage() {
     load();
   }
 
-  async function excluirLote(escopo: 'recorra' | 'ambos') {
-    await api('/cobrancas/excluir-lote', { method: 'POST', body: { invoiceIds: [...selecionados], escopo } }).catch(() => {});
+  async function excluirLote() {
+    setMsg('Excluindo...');
+    const r = await api<{ excluidas: number; total: number }>('/cobrancas/excluir-lote', { method: 'POST', body: { invoiceIds: [...selecionados] } }).catch(() => null);
     setSelecionados(new Set());
     setConfirmarLote(false);
+    setMsg(r ? `✓ ${r.excluidas} cobrança(s) excluída(s) do Recorrai.` : 'Erro ao excluir.');
     load();
   }
 
@@ -210,6 +209,7 @@ export default function CobrancasPage() {
   const todosMarcados = idsVisiveis.length > 0 && idsVisiveis.every((id) => selecionados.has(id));
   const toggleTodos = () => setSelecionados(todosMarcados ? new Set() : new Set(idsVisiveis));
   const geradasSelecionadas = invoices.filter((i) => selecionados.has(i.id) && i.externalId).length;
+  const valorSelecionado = invoices.filter((i) => selecionados.has(i.id)).reduce((s, i) => s + Number(i.valor), 0);
 
   // Ordenação clicável por Valor / Vencimento (aplicada nas cobranças já carregadas).
   const [ordenacao, setOrdenacao] = useState<{ campo: 'valor' | 'vencimento' | null; dir: 'asc' | 'desc' }>({ campo: null, dir: 'asc' });
@@ -285,12 +285,9 @@ export default function CobrancasPage() {
         </div>
         <div className="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-7">
           <input placeholder="Cliente / CPF" value={filtros.q} onChange={(e) => setF('q', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary lg:col-span-2" />
-          <div className="flex min-w-0 gap-1">
-            <select value={filtros.status} onChange={(e) => setF('status', e.target.value)} className="min-w-0 flex-1 rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
-              <option value="">Status: todos</option><option value="PENDENTE">Pendente</option><option value="VENCIDA">Vencida</option><option value="PAGA">Paga</option><option value="CANCELADA">Cancelada</option>
-            </select>
-            <AjudaStatus />
-          </div>
+          <select value={filtros.status} onChange={(e) => setF('status', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
+            <option value="">Status: todos</option><option value="PENDENTE">Pendente</option><option value="VENCIDA">Vencida</option><option value="PAGA">Paga</option><option value="CANCELADA">Cancelada</option>
+          </select>
           <select value={filtros.metodo} onChange={(e) => setF('metodo', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
             <option value="">Método: todos</option><option value="PIX">Pix</option><option value="BOLETO">Boleto</option><option value="CARTAO">Cartão</option>
           </select>
@@ -324,7 +321,7 @@ export default function CobrancasPage() {
               <th className="px-4 py-3 font-medium"><button onClick={() => ordenarPor('valor')} className="flex items-center gap-1 uppercase hover:text-ink" title="Ordenar por valor">Valor {seta('valor')}</button></th>
               <th className="px-4 py-3 font-medium"><button onClick={() => ordenarPor('vencimento')} className="flex items-center gap-1 uppercase hover:text-ink" title="Ordenar por vencimento">Vencimento {seta('vencimento')}</button></th>
               <th className="px-4 py-3 font-medium">Método</th>
-              <th className="px-4 py-3 font-medium">Status</th>
+              <th className="px-4 py-3 font-medium"><span className="flex items-center gap-1">Status <AjudaStatus /></span></th>
               <th className="px-4 py-3 font-medium">Cobrança</th>
               <th className="px-4 py-3 font-medium text-right">Ações</th>
             </tr>
@@ -365,7 +362,25 @@ export default function CobrancasPage() {
       {criar && <CriarManualModal gateways={gateways} onClose={() => setCriar(false)} onSaved={() => { setCriar(false); load(); }} />}
       {pagamento && <PagamentoModal inv={pagamento} onClose={() => setPagamento(null)} />}
       {excluir && <ExcluirModal inv={excluir} onClose={() => setExcluir(null)} onEscolha={(escopo) => excluirComEscopo(excluir, escopo)} />}
-      {confirmarLote && <ExcluirLoteModal total={selecionados.size} geradas={geradasSelecionadas} onClose={() => setConfirmarLote(false)} onEscolha={excluirLote} />}
+      {confirmarLote && (
+        <ConfirmDialog
+          titulo={`Excluir ${selecionados.size} cobrança(s)`}
+          danger
+          confirmLabel={`Excluir ${selecionados.size} do Recorrai`}
+          mensagem={
+            <>
+              <p>Isto remove <b className="text-ink">{selecionados.size}</b> cobrança(s) daqui (total <b className="text-ink">{brl(valorSelecionado)}</b>). <b className="text-ink">Não dá para desfazer.</b></p>
+              <p className="mt-2 rounded bg-canvas px-3 py-2 text-xs">
+                {geradasSelecionadas > 0
+                  ? <>🔒 Por segurança, as <b>{geradasSelecionadas}</b> já geradas <b>continuam ativas no gateway</b> — a exclusão em massa nunca cancela lá. Para cancelar no gateway, faça uma a uma pelo botão de excluir da linha.</>
+                  : <>Nenhuma foi gerada no gateway, então só existem aqui no Recorrai.</>}
+              </p>
+            </>
+          }
+          onConfirm={excluirLote}
+          onClose={() => setConfirmarLote(false)}
+        />
+      )}
       {confirmarImport && (
         <ConfirmDialog
           titulo="Importar do gateway"
@@ -501,8 +516,13 @@ function CriarManualModal({ gateways, onClose, onSaved }: { gateways: Gateway[];
   );
 }
 
-function ExcluirModal({ inv, onClose, onEscolha }: { inv: Invoice; onClose: () => void; onEscolha: (escopo: 'recorra' | 'ambos' | 'gateway') => void }) {
+function ExcluirModal({ inv, onClose, onEscolha }: { inv: Invoice; onClose: () => void; onEscolha: (escopo: 'recorra' | 'ambos') => void }) {
   const gerada = !!inv.externalId;
+  // 'menu' escolhe a ação; 'gateway' pede a confirmação digitada do cancelamento irreversível.
+  const [modo, setModo] = useState<'menu' | 'gateway'>('menu');
+  const [digitado, setDigitado] = useState('');
+  const podeCancelar = digitado.trim().toUpperCase() === 'CANCELAR';
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
@@ -511,56 +531,54 @@ function ExcluirModal({ inv, onClose, onEscolha }: { inv: Invoice; onClose: () =
           <button onClick={onClose} className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>
         </div>
         <p className="mb-4 text-sm text-muted">{inv.customer?.nome || '—'} · {brl(Number(inv.valor))} · venc. {new Date(inv.vencimento).toLocaleDateString('pt-BR')}</p>
-        {!gerada && <p className="mb-3 rounded bg-canvas px-3 py-2 text-xs text-muted">Esta cobrança ainda não foi gerada no gateway, então só existe no Recorrai.</p>}
-        <div className="space-y-2">
-          <button onClick={() => onEscolha('recorra')} className="w-full rounded border border-line p-3 text-left hover:border-primary hover:bg-canvas">
-            <div className="text-sm font-medium text-ink">Excluir só no Recorrai</div>
-            <div className="text-xs text-muted">Remove o registro daqui. {gerada ? 'A cobrança continua ativa no gateway.' : ''}</div>
-          </button>
-          {gerada && (
-            <button onClick={() => onEscolha('ambos')} className="w-full rounded border border-line p-3 text-left hover:border-danger hover:bg-danger-tint">
-              <div className="text-sm font-medium text-ink">Excluir em ambas (Recorrai e gateway)</div>
-              <div className="text-xs text-muted">Cancela a cobrança no gateway e apaga o registro daqui.</div>
-            </button>
-          )}
-        </div>
-        <div className="mt-5 flex justify-end">
-          <button onClick={onClose} className="rounded border border-line px-4 py-2 text-sm hover:bg-canvas">Cancelar</button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
-/** Exclusão em massa: mesma escolha de escopo do modal único, agora para N faturas. */
-function ExcluirLoteModal({ total, geradas, onClose, onEscolha }: { total: number; geradas: number; onClose: () => void; onEscolha: (escopo: 'recorra' | 'ambos') => void }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
-        <div className="mb-1 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-ink">Excluir {total} cobrança(s)</h2>
-          <button onClick={onClose} className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>
-        </div>
-        <p className="mb-4 text-sm text-muted">
-          {geradas > 0
-            ? `${geradas} de ${total} já foram geradas no gateway. Escolha o que fazer com elas.`
-            : 'Nenhuma foi gerada no gateway, então só existem no Recorrai.'}
-        </p>
-        <div className="space-y-2">
-          <button onClick={() => onEscolha('recorra')} className="w-full rounded border border-line p-3 text-left hover:border-primary hover:bg-canvas">
-            <div className="text-sm font-medium text-ink">Excluir só no Recorrai</div>
-            <div className="text-xs text-muted">Remove os registros daqui. {geradas > 0 ? 'As geradas continuam ativas no gateway.' : ''}</div>
-          </button>
-          {geradas > 0 && (
-            <button onClick={() => onEscolha('ambos')} className="w-full rounded border border-line p-3 text-left hover:border-danger hover:bg-danger-tint">
-              <div className="text-sm font-medium text-ink">Excluir em ambas (Recorrai e gateway)</div>
-              <div className="text-xs text-muted">Cancela no gateway as que foram geradas e apaga todos os registros daqui.</div>
-            </button>
-          )}
-        </div>
-        <div className="mt-5 flex justify-end">
-          <button onClick={onClose} className="rounded border border-line px-4 py-2 text-sm hover:bg-canvas">Cancelar</button>
-        </div>
+        {modo === 'menu' && (
+          <>
+            {!gerada && <p className="mb-3 rounded bg-canvas px-3 py-2 text-xs text-muted">Esta cobrança ainda não foi gerada no gateway, então só existe no Recorrai.</p>}
+            <div className="space-y-2">
+              <button onClick={() => onEscolha('recorra')} className="w-full rounded border border-line p-3 text-left hover:border-primary hover:bg-canvas">
+                <div className="text-sm font-medium text-ink">Excluir só no Recorrai</div>
+                <div className="text-xs text-muted">Remove o registro daqui. {gerada ? 'A cobrança continua ativa no gateway (dá para reimportar depois).' : ''}</div>
+              </button>
+              {gerada && (
+                <button onClick={() => setModo('gateway')} className="w-full rounded border border-line p-3 text-left hover:border-danger hover:bg-danger-tint">
+                  <div className="text-sm font-medium text-danger">Cancelar também no gateway ⚠️</div>
+                  <div className="text-xs text-muted">Cancela a cobrança no gateway (Asaas/MercadoPago/etc.) e apaga daqui. <b>Irreversível</b> — afeta o cliente real.</div>
+                </button>
+              )}
+            </div>
+            <div className="mt-5 flex justify-end">
+              <button onClick={onClose} className="rounded border border-line px-4 py-2 text-sm hover:bg-canvas">Cancelar</button>
+            </div>
+          </>
+        )}
+
+        {modo === 'gateway' && (
+          <>
+            <div className="mb-4 rounded border border-danger/40 bg-danger-tint px-3 py-2 text-xs text-ink">
+              ⚠️ <b>Ação irreversível.</b> Isto vai <b>cancelar a cobrança no gateway</b> — o cliente não conseguirá mais pagar por ela e não há como reverter. Só faça se tem certeza.
+            </div>
+            <label className="mb-1 block text-xs text-muted">Para confirmar, digite <b className="font-mono text-danger">CANCELAR</b></label>
+            <input
+              autoFocus
+              value={digitado}
+              onChange={(e) => setDigitado(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && podeCancelar) onEscolha('ambos'); }}
+              placeholder="CANCELAR"
+              className="mb-5 w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-danger"
+            />
+            <div className="flex justify-end gap-2">
+              <button onClick={() => { setModo('menu'); setDigitado(''); }} className="rounded border border-line px-4 py-2 text-sm hover:bg-canvas">Voltar</button>
+              <button
+                onClick={() => onEscolha('ambos')}
+                disabled={!podeCancelar}
+                className="rounded bg-danger px-5 py-2 text-sm font-medium text-white hover:bg-danger/90 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Cancelar no gateway
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

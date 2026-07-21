@@ -35,6 +35,43 @@ export function nextAllowedSlot(hora: number, diaSemana: number, cfg: WindowConf
   return { addDias: 1, hora: cfg.inicioHora };
 }
 
+/** Componentes de data/hora de um instante num fuso (via Intl). */
+function tzParts(d: Date, timeZone: string) {
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  });
+  const p: Record<string, string> = {};
+  for (const part of fmt.formatToParts(d)) p[part.type] = part.value;
+  return {
+    year: Number(p.year), month: Number(p.month), day: Number(p.day),
+    hour: p.hour === '24' ? 0 : Number(p.hour), minute: Number(p.minute), second: Number(p.second),
+  };
+}
+
+/** Offset do fuso (ms) no instante `d`: (relógio local do fuso) − UTC. */
+function tzOffsetMs(d: Date, timeZone: string): number {
+  const p = tzParts(d, timeZone);
+  const asUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+  return asUtc - d.getTime();
+}
+
+/**
+ * Instante UTC de "`hora`:00 no fuso do tenant" no dia (hoje-no-fuso + `addDias`).
+ * `nextAllowedSlot` devolve o slot em termos do fuso do tenant; esta função o
+ * materializa no instante absoluto correto — sem isto, gravar via `setHours`
+ * usaria o fuso do servidor (UTC no deploy) e enviaria fora da janela.
+ * Corrige o offset em 2 passes para cobrir bordas de horário de verão.
+ */
+export function zonedSlotToUtc(base: Date, timeZone: string, addDias: number, hora: number): Date {
+  const p = tzParts(base, timeZone);
+  // "relógio de parede" alvo tratado como se fosse UTC (Date.UTC normaliza a virada de mês).
+  const wallAsUtc = Date.UTC(p.year, p.month - 1, p.day + addDias, hora, 0, 0);
+  let inst = wallAsUtc - tzOffsetMs(new Date(wallAsUtc), timeZone);
+  inst = wallAsUtc - tzOffsetMs(new Date(inst), timeZone);
+  return new Date(inst);
+}
+
 /** Verdadeiro se ainda cabe envio no limite diário (0/undefined = sem limite). */
 export function withinDailyLimit(enviadosHoje: number, maxPorDia?: number | null): boolean {
   if (!maxPorDia || maxPorDia <= 0) return true;

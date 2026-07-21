@@ -72,15 +72,16 @@ export class ChargesController {
     return this.charges.removeInvoice(tenantId, invoiceId, escopo ?? 'recorra', actor.id);
   }
 
+  // Exclusão em massa só apaga no Recorrai — nunca no gateway (segurança:
+  // cancelamento no gateway é feito uma a uma, via DELETE :invoiceId?escopo=ambos).
   @Post('excluir-lote')
   @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
   excluirLote(
     @TenantId() tenantId: string,
     @CurrentUser() actor: AuthUser,
     @Body('invoiceIds') invoiceIds?: string[],
-    @Body('escopo') escopo?: 'recorra' | 'ambos',
   ) {
-    return this.charges.removeMany(tenantId, invoiceIds ?? [], escopo ?? 'recorra', actor.id);
+    return this.charges.removeMany(tenantId, invoiceIds ?? [], actor.id);
   }
 
   @Post(':invoiceId/gerar')
