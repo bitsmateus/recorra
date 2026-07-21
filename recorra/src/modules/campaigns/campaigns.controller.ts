@@ -42,6 +42,11 @@ export class CampaignsController {
     return this.campaigns.previewPublico(tenantId, id);
   }
 
+  @Get(':id/participantes')
+  participantesCampanha(@TenantId() tenantId: string, @Param('id') id: string) {
+    return this.campaigns.participantesCampanha(tenantId, id);
+  }
+
   @Get(':id/relatorio')
   relatorio(@TenantId() tenantId: string, @Param('id') id: string) {
     return this.campaigns.relatorio(tenantId, id);

@@ -263,10 +263,8 @@ export default function CampanhasPage() {
       {modal.open && <CampanhaModal edit={modal.edit} onClose={() => setModal({ open: false })} onSaved={() => { setModal({ open: false }); carregar(); }} />}
       {relatorio && <RelatorioModal campanha={relatorio} onClose={() => setRelatorio(null)} />}
       {confirmarDisparo && (
-        <ConfirmDialog
-          titulo="Disparar campanha"
-          mensagem={<>Disparar a campanha <b className="text-ink">{confirmarDisparo.nome}</b> agora? As mensagens vão para a fila de envio.</>}
-          confirmLabel="Disparar agora"
+        <RevisaoDisparoModal
+          campanha={confirmarDisparo}
           onConfirm={() => { const c = confirmarDisparo; setConfirmarDisparo(null); executar(c); }}
           onClose={() => setConfirmarDisparo(null)}
         />
@@ -633,7 +631,19 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
             )}
           </div>
           {f.agendamento !== 'UMA_VEZ' && (
-            <label className="mt-2 flex items-center gap-2 text-xs text-muted"><input type="checkbox" checked={f.publicoDinamico} onChange={(e) => set('publicoDinamico', e.target.checked)} /> Recalcular o público a cada envio (dinâmico)</label>
+            <div className="mt-3">
+              <span className="mb-1 block text-xs font-medium text-muted">Como o público se comporta a cada envio</span>
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => set('publicoDinamico', true)} className={`rounded border p-2 text-left ${f.publicoDinamico ? 'border-primary bg-primary-tint' : 'border-line hover:bg-canvas'}`}>
+                  <div className="text-sm font-medium text-ink">Automático <span className="text-xs font-normal text-muted">(recomendado)</span></div>
+                  <div className="text-xs text-muted">Recalcula os filtros antes de cada envio: quem passou a dever entra, quem pagou sai.</div>
+                </button>
+                <button type="button" onClick={() => set('publicoDinamico', false)} className={`rounded border p-2 text-left ${!f.publicoDinamico ? 'border-primary bg-primary-tint' : 'border-line hover:bg-canvas'}`}>
+                  <div className="text-sm font-medium text-ink">Fixo</div>
+                  <div className="text-xs text-muted">Congela os contatos de agora; os próximos envios vão só para esses (mesmo se pagarem, param de receber).</div>
+                </button>
+              </div>
+            </div>
           )}
         </div>
 
@@ -660,6 +670,71 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
 interface Participante { id: string; nome: string; doc: string; situacao: string | null; valorAberto: number; faixa: string | null; motivo: string }
 interface Excluido { id: string; nome: string; doc: string; motivo: string }
 interface PublicoPreview { resumo: { participantes: number; excluidos: number; valorAberto: number }; participantes: Participante[]; excluidos: Excluido[] }
+
+const tipoLabel = (c: Campaign) => c.tipoEnvio === 'REGUA' ? `Régua: ${c.rule?.nome || '—'}` : c.tipoEnvio === 'LEMBRETE' ? 'Lembrete de cobrança' : 'Mensagem única';
+
+/** Revisão antes de disparar: mostra público final, régua/tipo, agendamento e quem será pulado. */
+function RevisaoDisparoModal({ campanha, onConfirm, onClose }: { campanha: Campaign; onConfirm: () => void; onClose: () => void }) {
+  const [pub, setPub] = useState<PublicoPreview | null>(null);
+  const [carregando, setCarregando] = useState(true);
+  const [verExcluidos, setVerExcluidos] = useState(false);
+
+  useEffect(() => {
+    api<PublicoPreview>(`/campanhas/${campanha.id}/participantes`).then(setPub).catch(() => setPub(null)).finally(() => setCarregando(false));
+  }, [campanha.id]);
+
+  const semNinguem = !!pub && pub.resumo.participantes === 0;
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="flex max-h-[88vh] w-full max-w-lg flex-col rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-1 flex items-center justify-between">
+          <h3 className="text-base font-semibold text-ink">Revisar e disparar</h3>
+          <button onClick={onClose} className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>
+        </div>
+        <p className="mb-3 text-sm text-muted">Confira antes de colocar <b className="text-ink">{campanha.nome}</b> na fila de envio.</p>
+
+        <div className="mb-3 grid grid-cols-2 gap-2 text-sm">
+          <div className="rounded border border-line px-3 py-2"><div className="text-xs text-muted">Como comunica</div><div className="font-medium text-ink">{tipoLabel(campanha)}</div></div>
+          <div className="rounded border border-line px-3 py-2"><div className="text-xs text-muted">Quando</div><div className="font-medium text-ink">{agendaLabel(campanha)}</div></div>
+          {campanha.agendamento !== 'UMA_VEZ' && (
+            <div className="col-span-2 rounded border border-line px-3 py-2"><div className="text-xs text-muted">Público a cada envio</div><div className="font-medium text-ink">{campanha.publicoDinamico ? 'Automático (recalcula os filtros)' : 'Fixo (congela os contatos de agora)'}</div></div>
+          )}
+        </div>
+
+        {carregando && <p className="text-sm text-muted">Calculando o público…</p>}
+        {pub && (
+          <>
+            <div className="mb-2 rounded-lg border border-primary/30 bg-primary-tint px-4 py-3 text-sm">
+              <span className="font-semibold text-primary">{pub.resumo.participantes}</span> <span className="text-ink">vão receber</span>
+              {pub.resumo.valorAberto > 0 && <span className="text-muted"> · {brl(pub.resumo.valorAberto)} em aberto</span>}
+            </div>
+            {pub.resumo.excluidos > 0 && (
+              <div className="mb-2 rounded-lg border border-warning/30 bg-warning-tint/40">
+                <button onClick={() => setVerExcluidos((v) => !v)} className="flex w-full items-center justify-between px-3 py-2 text-left text-sm font-medium text-[#854F0B]">
+                  <span>{pub.resumo.excluidos} não recebem (bloqueados)</span><span className="text-xs">{verExcluidos ? 'ocultar' : 'ver por quê'}</span>
+                </button>
+                {verExcluidos && (
+                  <div className="max-h-40 overflow-auto border-t border-warning/30">
+                    {pub.excluidos.map((e) => (
+                      <div key={e.id} className="flex items-center justify-between px-3 py-1.5 text-sm"><span className="text-ink">{e.nome}</span><span className="text-xs text-muted">{e.motivo}</span></div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            {semNinguem && <p className="mb-2 text-sm text-danger">Ninguém no público atende aos critérios agora — nada seria enviado.</p>}
+          </>
+        )}
+
+        <div className="mt-3 flex justify-end gap-2">
+          <button onClick={onClose} className="rounded border border-line px-4 py-2 text-sm hover:bg-canvas">Cancelar</button>
+          <button onClick={onConfirm} disabled={carregando || semNinguem} className="rounded bg-primary px-5 py-2 text-sm font-medium text-white hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-40">Disparar agora</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const FAIXA_LABEL: Record<string, string> = { BOM: 'Bom pagador', ATENCAO: 'Atenção', RISCO: 'Risco' };
 const situacaoBadge: Record<string, string> = { VENCIDA: 'bg-danger-tint text-[#A32D2D]', PENDENTE: 'bg-warning-tint text-[#854F0B]' };

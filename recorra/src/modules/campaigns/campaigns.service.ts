@@ -293,6 +293,19 @@ export class CampaignsService {
     return { total: pub.length, amostra: pub.slice(0, 10).map((c) => ({ nome: c.nome, doc: c.doc })) };
   }
 
+  /** "Ver participantes" de uma campanha JÁ salva — usado na revisão antes de disparar. */
+  async participantesCampanha(tenantId: string, id: string) {
+    const camp = await this.get(tenantId, id);
+    return this.participantesPreview(tenantId, {
+      filtroTodos: camp.filtroTodos, filtroEtiqueta: camp.filtroEtiqueta,
+      filtroValorMin: camp.filtroValorMin != null ? Number(camp.filtroValorMin) : null,
+      filtroValorMax: camp.filtroValorMax != null ? Number(camp.filtroValorMax) : null,
+      filtroFaixa: camp.filtroFaixa, filtroStatus: camp.filtroStatus,
+      incluirIds: camp.incluirIds, excluirIds: camp.excluirIds,
+      tipoEnvio: camp.tipoEnvio, canal: camp.canal,
+    });
+  }
+
   /**
    * "Ver participantes" detalhado: para os filtros dados, separa quem VAI receber
    * de quem seria PULADO e por quê (opt-out, sem canal, sem fatura em aberto) —
