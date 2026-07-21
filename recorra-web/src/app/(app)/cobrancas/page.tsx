@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Zap, Layers, Download, Pencil, Trash2, X, Filter, Plus, FileSpreadsheet, FileDown, ChevronDown, ChevronUp, ArrowUpDown, Receipt, Copy, ExternalLink, Check } from 'lucide-react';
+import { Zap, Layers, Download, Pencil, Trash2, X, Filter, Plus, FileSpreadsheet, FileDown, ChevronDown, ChevronUp, ArrowUpDown, Receipt, Copy, ExternalLink, Check, HelpCircle } from 'lucide-react';
 import { ImportWizard } from '@/components/ImportWizard';
 import { api } from '@/lib/api';
 import { PageTitle, brl } from '@/components/ui';
@@ -41,6 +41,49 @@ const statusColor: Record<string, string> = {
 };
 
 const emptyFiltros = { q: '', status: '', metodo: '', geracao: '', de: '', ate: '', valorMin: '', valorMax: '', etiqueta: '' };
+
+/** Legenda das situações da cobrança. Dispensável — fica guardado no navegador. */
+function LegendaStatus() {
+  const [oculta, setOculta] = useState(false);
+  useEffect(() => { setOculta(localStorage.getItem('cobrancas_legenda') === 'oculta'); }, []);
+  const ocultar = () => { setOculta(true); localStorage.setItem('cobrancas_legenda', 'oculta'); };
+  const mostrar = () => { setOculta(false); localStorage.removeItem('cobrancas_legenda'); };
+
+  if (oculta) {
+    return (
+      <button onClick={mostrar} className="mb-3 flex items-center gap-1.5 text-xs font-medium text-primary hover:underline">
+        <HelpCircle size={13} /> Entenda as situações das cobranças
+      </button>
+    );
+  }
+
+  const itens: { badge: string; txt: string }[] = [
+    { badge: 'PENDENTE', txt: 'Criada e ainda no prazo — o cliente não pagou, mas também não venceu.' },
+    { badge: 'VENCIDA', txt: 'Passou do vencimento sem pagamento. É o foco da régua de cobrança.' },
+    { badge: 'PAGA', txt: 'O cliente pagou. A baixa é automática quando o gateway confirma.' },
+    { badge: 'CANCELADA', txt: 'Cancelada — não será mais cobrada.' },
+    { badge: 'ESTORNADA', txt: 'O pagamento foi devolvido ao cliente.' },
+  ];
+  return (
+    <div className="mb-4 rounded-lg border border-line bg-surface p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="flex items-center gap-1.5 text-sm font-medium text-ink"><HelpCircle size={15} className="text-primary" /> Entenda as situações</h2>
+        <button onClick={ocultar} className="text-xs text-muted hover:text-ink">Ocultar</button>
+      </div>
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+        {itens.map((it) => (
+          <div key={it.badge} className="flex items-start gap-2 text-xs">
+            <span className={`shrink-0 rounded-full px-2.5 py-1 font-medium ${statusColor[it.badge] || 'bg-canvas text-muted'}`}>{it.badge}</span>
+            <span className="pt-0.5 text-muted">{it.txt}</span>
+          </div>
+        ))}
+      </div>
+      <p className="mt-3 border-t border-line pt-2 text-xs text-muted">
+        <strong className="text-ink">Coluna &quot;Cobrança&quot;: &quot;✓ gerada&quot;</strong> = o Pix/boleto já foi criado no gateway e tem link de pagamento. Sem isso, a fatura existe no Recorrai mas o cliente ainda não tem como pagar — use o botão <strong className="text-ink">Gerar</strong>.
+      </p>
+    </div>
+  );
+}
 
 export default function CobrancasPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -174,6 +217,8 @@ export default function CobrancasPage() {
   return (
     <div>
       <PageTitle title="Cobranças" subtitle="Faturas e geração de Pix/boleto nos gateways" />
+
+      <LegendaStatus />
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
