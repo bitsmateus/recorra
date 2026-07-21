@@ -27,9 +27,14 @@ export class ChannelFactory {
 
   /** Retorna a primeira conta ativa do tenant para o canal pedido. */
   async forTenantChannel(tenantId: string, canal: ChannelType, accountId?: string | null): Promise<MessageChannel> {
-    const account = accountId
+    // Só usa a conta específica se ela FOR do canal pedido — senão (ex.: após um
+    // fallback que trocou o canal) cairia na conta/provedor errado. Sem match, usa
+    // a conta padrão ativa do canal.
+    let account = accountId
       ? await this.prisma.channelAccount.findFirst({ where: { id: accountId, tenantId, ativo: true } })
-      : await this.prisma.channelAccount.findFirst({ where: { tenantId, canal, ativo: true } });
+      : null;
+    if (account && account.canal !== canal) account = null;
+    if (!account) account = await this.prisma.channelAccount.findFirst({ where: { tenantId, canal, ativo: true } });
     if (!account) throw new BadRequestException(`Nenhuma conta ativa para o canal ${canal}`);
     const creds = this.crypto.decryptJson<ChannelCredentials>(account.credentials);
     // A marca do e-mail é do tenant, não da conta: injeta na hora do envio.

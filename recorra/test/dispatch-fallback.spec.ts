@@ -5,6 +5,9 @@ function dispatch(cadeiaCanais = ['WHATSAPP_CLOUD', 'EMAIL', 'SMS']) {
   return {
     id: 'dispatch-1', tenantId: 'tenant-1', customerId: 'customer-1',
     canal: 'WHATSAPP_CLOUD', cadeiaCanais, tentativaFallback: 0,
+    // conta específica do canal ANTERIOR: precisa ser zerada ao trocar de canal,
+    // senão o envio sairia pela conta/provedor errado.
+    channelAccountId: 'conta-whatsapp-1',
     status: 'FILA', templateName: 'cobranca', templateParams: [],
     customer: { telefone: '+5511999999999', email: 'cliente@example.com' },
   };
@@ -22,7 +25,9 @@ describe('DispatchService — fallback e opt-out', () => {
     await expect(service.processOne('dispatch-1')).rejects.toThrow('fallback: opt-out');
     expect(update).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'dispatch-1' },
-      data: expect.objectContaining({ canal: 'EMAIL', tentativaFallback: 1, status: 'FILA' }),
+      // channelAccountId ZERADO: o envio no novo canal usa a conta padrão dele,
+      // não a conta do canal anterior (WhatsApp).
+      data: expect.objectContaining({ canal: 'EMAIL', channelAccountId: null, tentativaFallback: 1, status: 'FILA' }),
     }));
   });
 

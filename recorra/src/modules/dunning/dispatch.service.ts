@@ -123,8 +123,11 @@ export class DispatchService {
       await this.prisma.messageDispatch.update({
         where: { id: d.id },
         // tentativaFallback aponta para a posição do canal escolhido na cadeia,
-        // para os pulados não serem retentados.
-        data: { canal: proximo, tentativaFallback: cadeia.indexOf(proximo), erro: `fallback (${motivos.join('; ')})`, status: 'FILA' },
+        // para os pulados não serem retentados. channelAccountId é ZERADO: a conta
+        // era do canal anterior; sem limpar, o envio sairia pela conta/provedor
+        // errado (forTenantChannel constrói a partir de account.canal). Zerado, o
+        // worker escolhe a conta padrão do novo canal.
+        data: { canal: proximo, channelAccountId: null, tentativaFallback: cadeia.indexOf(proximo), erro: `fallback (${motivos.join('; ')})`, status: 'FILA' },
       });
       this.logger.log(`Fallback do disparo ${d.id}: ${d.canal} -> ${proximo}`);
       return true;
