@@ -302,7 +302,7 @@ export default function CobrancasPage() {
 
       <div className="mb-3 rounded-lg border border-line bg-surface px-4 py-3">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm text-muted">
-          <span>Total de cobranças: <span className="tabular font-medium text-ink">{invoicesOrdenadas.length}</span>{temMais && <> · mostrando <span className="tabular font-medium text-ink">{paginadas.length}</span></>}</span>
+          <span>Total de cobranças: <span className="tabular font-medium text-ink">{invoicesOrdenadas.length}{invoices.length >= 500 ? '+' : ''}</span>{temMais && <> · mostrando <span className="tabular font-medium text-ink">{paginadas.length}</span></>}{invoices.length >= 500 && <span className="ml-1 text-xs text-warning" title="A API traz no máximo 500 por vez — refine os filtros para ver o restante">(limite de 500 — refine os filtros)</span>}</span>
           {invoicesOrdenadas.length > 0 && (
             <button onClick={exportarCsv} className="ml-auto flex items-center gap-1.5 rounded border border-line px-2.5 py-1 text-xs font-medium hover:bg-canvas" title="Baixar o resultado filtrado em CSV (abre no Excel)">
               <FileDown size={14} /> Exportar ({invoicesOrdenadas.length})

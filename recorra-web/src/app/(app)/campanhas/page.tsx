@@ -8,7 +8,7 @@ import { PageTitle, brl } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { PreviewButton } from '@/components/MessagePreview';
 
-interface Regua { id: string; nome: string }
+interface Regua { id: string; nome: string; steps?: { canal: string }[] }
 interface ModeloEmail { id: string; nome: string; assunto: string; corpo: string }
 interface Etiqueta { nome: string }
 interface Run { id: string; totalContatos: number; enviados: number; falhas: number; executadoEm: string }
@@ -508,11 +508,13 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
         filtroDiasAtraso: f.filtroDiasAtraso ? Number(f.filtroDiasAtraso) : undefined,
         filtroPlano: f.filtroPlano || undefined, filtroCidade: f.filtroCidade || undefined,
         tipoEnvio: f.tipoEnvio, canal: f.canal || undefined,
+        // Na Régua, os canais reais são os dos passos (para o opt-out/alcance da prévia bater com o envio).
+        canais: f.tipoEnvio === 'REGUA' ? [...new Set((reguas.find((r) => r.id === f.ruleId)?.steps ?? []).map((s) => s.canal))] : undefined,
         incluirIds: incluir, excluirIds: excluir,
       } }).then(setPublico).catch(() => setPublico(null));
     }, 300);
     return () => clearTimeout(t);
-  }, [f.filtroTodos, f.filtroEtiqueta, f.filtroValorMin, f.filtroValorMax, f.filtroFaixa, f.filtroStatus, f.filtroDiasAtraso, f.filtroPlano, f.filtroCidade, f.tipoEnvio, f.canal, incluir, excluir]);
+  }, [f.filtroTodos, f.filtroEtiqueta, f.filtroValorMin, f.filtroValorMax, f.filtroFaixa, f.filtroStatus, f.filtroDiasAtraso, f.filtroPlano, f.filtroCidade, f.tipoEnvio, f.canal, f.ruleId, reguas, incluir, excluir]);
 
   const comTemplate = (f.tipoEnvio === 'MENSAGEM' || f.tipoEnvio === 'LEMBRETE') && isWhats;
 
@@ -755,7 +757,7 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
 
 interface Participante { id: string; nome: string; doc: string; situacao: string | null; valorAberto: number; faixa: string | null; motivo: string }
 interface Excluido { id: string; nome: string; doc: string; motivo: string }
-interface PublicoPreview { resumo: { participantes: number; excluidos: number; valorAberto: number }; participantes: Participante[]; excluidos: Excluido[] }
+interface PublicoPreview { resumo: { participantes: number; excluidos: number; valorAberto: number; truncado?: boolean; limiteExibicao?: number }; participantes: Participante[]; excluidos: Excluido[] }
 
 const tipoLabel = (c: Campaign) => c.tipoEnvio === 'REGUA' ? `Régua: ${c.rule?.nome || '—'}` : c.tipoEnvio === 'LEMBRETE' ? 'Lembrete de cobrança' : 'Mensagem única';
 
@@ -892,6 +894,7 @@ function ContatosModal({ publico, onRemover, onAdicionar, onClose }: { publico: 
             </tbody>
           </table></div>
         </div>
+        {publico?.resumo.truncado && <p className="mt-1 text-xs text-muted">Mostrando os primeiros {publico.resumo.limiteExibicao ?? 300} de {publico.resumo.participantes}. O envio atinge todos.</p>}
 
         {excluidos.length > 0 && (
           <div className="mt-3 rounded-lg border border-warning/30 bg-warning-tint/40">

@@ -190,7 +190,7 @@ export default function ClientesPage() {
       </div>
 
       <div className="mb-2 flex items-center gap-3 text-sm text-muted">
-        <span>Total de clientes: <span className="tabular font-medium text-ink">{visiveis.length}</span>{temMais && <> · mostrando <span className="tabular font-medium text-ink">{paginados.length}</span></>}</span>
+        <span>Total de clientes: <span className="tabular font-medium text-ink">{visiveis.length}{clientes.length >= 500 ? '+' : ''}</span>{temMais && <> · mostrando <span className="tabular font-medium text-ink">{paginados.length}</span></>}{clientes.length >= 500 && <span className="ml-1 text-xs text-warning" title="A API traz no máximo 500 por vez — refine os filtros para ver o restante">(limite de 500 — refine os filtros)</span>}</span>
       </div>
 
       {selecionados.size > 0 && (
