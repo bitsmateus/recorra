@@ -23,7 +23,7 @@ export class DunningService {
   async runForTenant(tenantId: string, ref: Date = new Date()) {
     const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
     const invoices = await this.prisma.invoice.findMany({
-      where: { tenantId, status: { in: ['PENDENTE', 'VENCIDA'] }, contestada: false },
+      where: { tenantId, status: { in: ['PENDENTE', 'VENCIDA'] }, gestaoCobranca: 'ATIVA', contestada: false },
       include: { customer: true },
     });
 

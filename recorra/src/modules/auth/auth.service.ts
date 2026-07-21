@@ -77,11 +77,18 @@ export class AuthService {
 
   // ---------------- Google SSO ----------------
 
-  async loginGoogle(idToken: string) {
+  async loginGoogle(idToken: string, codigo?: string) {
     const profile = await verifyGoogleIdToken(idToken).catch(() => null);
     if (!profile || !profile.emailVerified) throw new UnauthorizedException('Token Google inválido');
 
     let user = await this.prisma.user.findFirst({ where: { email: profile.email, ativo: true } });
+
+    // 2FA também no SSO: se o usuário existente tem 2FA ativo, o Google não pode
+    // pular o segundo fator (senão o 2FA valeria só no login por senha).
+    if (user?.twoFaEnabled && user.twoFaSecret) {
+      if (!codigo) throw new UnauthorizedException('2FA_REQUIRED');
+      if (!verifyTotp(codigo, user.twoFaSecret)) throw new UnauthorizedException('Código 2FA inválido');
+    }
 
     // Se não existe, cria um novo tenant com este usuário como OWNER (cadastro via Google).
     if (!user) {
@@ -170,19 +177,33 @@ export class AuthService {
     } catch {
       throw new UnauthorizedException('Refresh token inválido');
     }
+    // Um token de acesso não pode ser trocado por uma sessão nova.
+    if (payload.kind === 'access') throw new UnauthorizedException('Refresh token inválido');
 
     const stored = await this.prisma.refreshToken.findUnique({ where: { tokenHash: hashToken(refreshToken) } });
-    if (!stored || stored.revogado || isExpired(stored.expiraEm)) {
+    if (!stored || isExpired(stored.expiraEm)) {
       throw new UnauthorizedException('Sessão expirada');
     }
 
-    // rotaciona: revoga o atual e emite novos
-    await this.prisma.refreshToken.update({ where: { id: stored.id }, data: { revogado: true } });
+    // Rotação atômica: só UM request transiciona revogado false→true. Fecha a
+    // corrida em que dois refreshes concorrentes com o mesmo token passariam.
+    const claim = await this.prisma.refreshToken.updateMany({
+      where: { id: stored.id, revogado: false },
+      data: { revogado: true },
+    });
+    if (claim.count === 0) throw new UnauthorizedException('Sessão expirada');
+
+    // Re-lê o usuário do banco: role/tenant/ativo ATUAIS, nunca os do token.
+    // Sem isso, desativar ou rebaixar um usuário não teria efeito enquanto ele
+    // renovasse a sessão (o token carregava o estado antigo indefinidamente).
+    const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
+    if (!user || !user.ativo) throw new UnauthorizedException('Sessão expirada');
+
     return this.issueTokens({
-      sub: payload.sub,
-      tenantId: payload.tenantId,
-      role: payload.role,
-      email: payload.email,
+      sub: user.id,
+      tenantId: user.tenantId,
+      role: user.role,
+      email: user.email,
     });
   }
 
@@ -225,9 +246,17 @@ export class AuthService {
   // ---------------- Emissão de tokens ----------------
 
   private async issueTokens(payload: JwtPayload) {
+    // Base sem `kind` — cada token recebe o seu, para que o refresh não sirva
+    // como bearer de acesso (ver JwtAuthGuard).
+    const base: JwtPayload = {
+      sub: payload.sub,
+      tenantId: payload.tenantId,
+      role: payload.role,
+      email: payload.email,
+    };
     const [accessToken, refreshToken] = await Promise.all([
-      this.jwt.signAsync(payload, { secret: env.JWT_SECRET, expiresIn: env.JWT_ACCESS_TTL }),
-      this.jwt.signAsync(payload, { secret: env.JWT_SECRET, expiresIn: env.JWT_REFRESH_TTL }),
+      this.jwt.signAsync({ ...base, kind: 'access' }, { secret: env.JWT_SECRET, expiresIn: env.JWT_ACCESS_TTL }),
+      this.jwt.signAsync({ ...base, kind: 'refresh' }, { secret: env.JWT_SECRET, expiresIn: env.JWT_REFRESH_TTL }),
     ]);
     // guarda o hash do refresh para permitir rotação/revogação
     await this.prisma.refreshToken.create({

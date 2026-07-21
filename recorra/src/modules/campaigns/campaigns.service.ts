@@ -314,10 +314,12 @@ export class CampaignsService {
         if (camp.tipoEnvio === 'LEMBRETE') {
           // Puxa as faturas em aberto do cliente e injeta o Pix/boleto/link de cada uma.
           const abertas = await this.prisma.invoice.findMany({
-            where: { tenantId, customerId: cliente.id, status: { in: ['PENDENTE', 'VENCIDA'] } },
+            where: { tenantId, customerId: cliente.id, status: { in: ['PENDENTE', 'VENCIDA'] }, gestaoCobranca: 'ATIVA' },
             orderBy: { vencimento: 'asc' },
           });
-          const alvo = camp.escopoFatura === 'PROXIMA' ? abertas.slice(0, 1) : abertas;
+          const alvo = camp.escopoFatura === 'PROXIMA'
+            ? abertas.sort((a, b) => Math.abs(a.vencimento.getTime() - Date.now()) - Math.abs(b.vencimento.getTime() - Date.now())).slice(0, 1)
+            : abertas;
           if (alvo.length === 0) { ignorados++; continue; }
           // No WhatsApp o conteúdo vem do template; nos demais, do texto livre.
           const usaTpl = !!camp.templateNome;
@@ -359,7 +361,7 @@ export class CampaignsService {
             camp.emailAssunto ?? '',
           ].join(' ');
           let inv = this.temVariavelFatura(textoVars)
-            ? await this.prisma.invoice.findFirst({ where: { tenantId, customerId: cliente.id, status: { in: ['PENDENTE', 'VENCIDA'] } }, orderBy: { vencimento: 'asc' } })
+            ? await this.prisma.invoice.findFirst({ where: { tenantId, customerId: cliente.id, status: { in: ['PENDENTE', 'VENCIDA'] }, gestaoCobranca: 'ATIVA' }, orderBy: { vencimento: 'desc' } })
             : null;
           if (inv && /\{\{\s*pix\s*\}\}/i.test(textoVars)) inv = await this.garantirPix(inv);
           // Canal oficial (WABA): envia template com as variáveis mapeadas por cliente.
@@ -389,7 +391,7 @@ export class CampaignsService {
           // Só busca a fatura quando algum passo precisa de dado de cobrança.
           const textoPassos = camp.rule.steps.map((s) => `${s.template} ${s.emailAssunto ?? ''} ${(s.templateParams ?? []).join(' ')}`).join(' ');
           let invRegua = this.temVariavelFatura(textoPassos)
-            ? await this.prisma.invoice.findFirst({ where: { tenantId, customerId: cliente.id, status: { in: ['PENDENTE', 'VENCIDA'] } }, orderBy: { vencimento: 'asc' } })
+            ? await this.prisma.invoice.findFirst({ where: { tenantId, customerId: cliente.id, status: { in: ['PENDENTE', 'VENCIDA'] }, gestaoCobranca: 'ATIVA' }, orderBy: { vencimento: 'desc' } })
             : null;
           if (invRegua && /\{\{\s*pix\s*\}\}/i.test(textoPassos)) invRegua = await this.garantirPix(invRegua);
 

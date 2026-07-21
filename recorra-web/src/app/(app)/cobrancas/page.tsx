@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Zap, Layers, Download, Pencil, Trash2, X, Filter, Plus, FileSpreadsheet, FileDown, ChevronDown, ChevronUp, ArrowUpDown, Receipt, Copy, ExternalLink, Check, HelpCircle } from 'lucide-react';
+import { Zap, Layers, Download, Pencil, Trash2, X, Filter, Plus, FileSpreadsheet, FileDown, ChevronDown, ChevronUp, ArrowUpDown, Receipt, Copy, ExternalLink, Check, HelpCircle, RefreshCw } from 'lucide-react';
 import { ImportWizard } from '@/components/ImportWizard';
 import { api } from '@/lib/api';
 import { PageTitle, brl } from '@/components/ui';
@@ -20,6 +20,7 @@ interface Invoice {
   valor: number;
   vencimento: string;
   status: string;
+  gestaoCobranca: 'ATIVA' | 'LEGADO' | 'PAUSADA';
   metodo: string;
   descricao?: string;
   origem?: string;
@@ -30,7 +31,7 @@ interface Invoice {
   externalId?: string;
   customer?: { nome: string; doc: string };
 }
-interface Gateway { id: string; provider: string; ambiente: string; apelido?: string }
+interface Gateway { id: string; provider: string; ambiente: string; apelido?: string; importLookbackDays?: number | null }
 
 const statusColor: Record<string, string> = {
   PENDENTE: 'bg-warning-tint text-[#854F0B]',
@@ -96,6 +97,7 @@ export default function CobrancasPage() {
   const [editar, setEditar] = useState<Invoice | null>(null);
   const [excluir, setExcluir] = useState<Invoice | null>(null);
   const [confirmarImport, setConfirmarImport] = useState(false);
+  const [importLookback, setImportLookback] = useState('30');
   const [confirmarLimparPagas, setConfirmarLimparPagas] = useState(false);
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
   const [confirmarLote, setConfirmarLote] = useState(false);
@@ -118,7 +120,12 @@ export default function CobrancasPage() {
   // Some da seleção quem saiu da lista (excluída ou filtrada) no recarregamento.
   useEffect(() => { setSelecionados((s) => new Set([...s].filter((id) => invoices.some((i) => i.id === id)))); }, [invoices]);
   useEffect(() => {
-    api<Gateway[]>('/config/gateways').then((gws) => { setGateways(gws); setAccountId((cur) => cur || (gws[0]?.id ?? '')); }).catch(() => setGateways([]));
+    api<Gateway[]>('/config/gateways').then((gws) => {
+      setGateways(gws);
+      setAccountId((cur) => cur || (gws[0]?.id ?? ''));
+      const janela = gws[0]?.importLookbackDays;
+      setImportLookback(janela == null ? 'all' : String(janela));
+    }).catch(() => setGateways([]));
     api<{ nome: string }[]>('/clientes/etiquetas').then(setEtiquetas).catch(() => setEtiquetas([]));
   }, []);
 
@@ -138,6 +145,14 @@ export default function CobrancasPage() {
     setBusy(false); load();
   }
 
+  async function reavaliarStatus() {
+    setMsg('Reavaliando situações...');
+    const r = await api<{ atualizadas: number }>('/cobrancas/reavaliar-status', { method: 'POST' }).catch(() => null);
+    if (!r) { setMsg('Erro ao reavaliar status.'); return; }
+    setMsg(r.atualizadas > 0 ? `✓ ${r.atualizadas} cobrança(s) atualizada(s) para Vencida.` : '✓ Nada a atualizar — nenhuma pendente já vencida.');
+    load();
+  }
+
   async function excluirLote(escopo: 'recorra' | 'ambos') {
     await api('/cobrancas/excluir-lote', { method: 'POST', body: { invoiceIds: [...selecionados], escopo } }).catch(() => {});
     setSelecionados(new Set());
@@ -154,8 +169,9 @@ export default function CobrancasPage() {
   async function importarGateway() {
     setBusy(true); setMsg('Importando do gateway...');
     try {
-      const r = await api<{ clientes: number; clientesAtualizados: number; faturas: number; faturasAtualizadas: number }>('/cobrancas/importar-gateway', { method: 'POST', body: { accountId } });
-      setMsg(`✓ ${r.clientes} clientes novos, ${r.clientesAtualizados} atualizados · ${r.faturas} faturas novas, ${r.faturasAtualizadas} atualizadas`);
+      const lookbackDays = importLookback === 'all' ? null : Number(importLookback);
+      const r = await api<{ clientes: number; clientesAtualizados: number; faturas: number; faturasAtualizadas: number; ativas: number; legado: number }>('/cobrancas/importar-gateway', { method: 'POST', body: { accountId, lookbackDays } });
+      setMsg(`✓ ${r.clientes} clientes novos, ${r.clientesAtualizados} atualizados · ${r.faturas} faturas novas, ${r.faturasAtualizadas} atualizadas · ${r.ativas} ativas e ${r.legado} em legado`);
       load();
     } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro na importação'); }
     setBusy(false);
@@ -221,7 +237,12 @@ export default function CobrancasPage() {
       <LegendaStatus />
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
+        <select value={accountId} onChange={(e) => {
+          const id = e.target.value;
+          setAccountId(id);
+          const janela = gateways.find((g) => g.id === id)?.importLookbackDays;
+          setImportLookback(janela == null ? 'all' : String(janela));
+        }} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
           {gateways.length === 0 && <option value="">Nenhum gateway</option>}
           {gateways.map((g) => <option key={g.id} value={g.id}>{g.apelido || g.provider} ({g.ambiente})</option>)}
         </select>
@@ -249,6 +270,15 @@ export default function CobrancasPage() {
               </div>
             </>
           )}
+        </div>
+        <div className="flex items-center gap-1">
+          <button onClick={reavaliarStatus} className="flex items-center gap-2 rounded border border-line px-4 py-2 text-sm hover:bg-canvas"><RefreshCw size={15} /> Reavaliar status</button>
+          <span className="group relative inline-block">
+            <button type="button" className="flex h-5 w-5 items-center justify-center rounded-full text-muted hover:text-primary"><HelpCircle size={15} /></button>
+            <span className="pointer-events-none absolute left-0 top-7 z-30 hidden w-72 rounded-lg border border-line bg-surface p-3 text-xs text-ink shadow-lg group-hover:block">
+              Marca como <strong>Vencida</strong> toda cobrança cujo vencimento já passou mas ainda aparece como <strong>Pendente</strong>. Isso normalmente acontece sozinho todo dia — use aqui se notar cobranças antigas ainda em Pendente e quiser corrigir na hora. Não altera cobranças pagas nem canceladas.
+            </span>
+          </span>
         </div>
         {msg && <span className="text-sm text-primary">{msg}</span>}
       </div>
@@ -308,7 +338,10 @@ export default function CobrancasPage() {
                 <td className="tabular px-4 py-3">{brl(Number(inv.valor))}</td>
                 <td className="px-4 py-3 text-muted">{new Date(inv.vencimento).toLocaleDateString('pt-BR')}</td>
                 <td className="px-4 py-3 text-muted">{inv.metodo}</td>
-                <td className="px-4 py-3"><span className={`rounded-full px-2.5 py-1 text-xs font-medium ${statusColor[inv.status] || 'bg-canvas text-muted'}`}>{inv.status}</span></td>
+                <td className="px-4 py-3">
+                  <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${statusColor[inv.status] || 'bg-canvas text-muted'}`}>{inv.status}</span>
+                  {inv.gestaoCobranca === 'LEGADO' && <span className="ml-1 rounded-full bg-canvas px-2.5 py-1 text-xs font-medium text-muted" title="Visível no histórico, fora das cobranças automáticas">LEGADO</span>}
+                </td>
                 <td className="px-4 py-3">
                   {inv.externalId ? <span className="text-xs text-success">✓ gerada</span>
                     : inv.status === 'PAGA' || inv.status === 'CANCELADA' ? <span className="text-xs text-muted">—</span>
@@ -337,7 +370,28 @@ export default function CobrancasPage() {
       {confirmarImport && (
         <ConfirmDialog
           titulo="Importar do gateway"
-          mensagem={<>Importar clientes e cobranças de <b className="text-ink">{gateways.find((x) => x.id === accountId)?.apelido || gateways.find((x) => x.id === accountId)?.provider || 'gateway'}</b> para o Recorrai?</>}
+          mensagem={<div>
+            <p>Importar clientes e cobranças de <b className="text-ink">{gateways.find((x) => x.id === accountId)?.apelido || gateways.find((x) => x.id === accountId)?.provider || 'gateway'}</b> para o Recorrai?</p>
+            <label className="mt-3 block text-left">
+              <span className="mb-1 flex items-center gap-1 text-xs text-muted">
+                Cobranças vencidas que ficarão ativas
+                <span className="group relative inline-flex">
+                  <button type="button" aria-label="O que é uma cobrança legado?" className="text-muted hover:text-primary"><HelpCircle size={13} /></button>
+                  <span role="tooltip" className="pointer-events-none absolute bottom-6 left-1/2 z-50 hidden w-72 -translate-x-1/2 rounded-lg border border-line bg-surface p-3 text-left text-xs font-normal text-ink shadow-lg group-hover:block group-focus-within:block">
+                    <b>Legado</b> é uma cobrança antiga trazida apenas para histórico. Ela continua visível e pode receber baixa quando for paga, mas não entra em réguas, campanhas automáticas, risco operacional ou total atual em aberto.
+                  </span>
+                </span>
+              </span>
+              <select value={importLookback} onChange={(e) => setImportLookback(e.target.value)} className="w-full rounded border border-line px-3 py-2 text-sm">
+                <option value="0">Somente de hoje em diante</option>
+                <option value="30">Últimos 30 dias (recomendado)</option>
+                <option value="60">Últimos 60 dias</option>
+                <option value="90">Últimos 90 dias</option>
+                <option value="all">Todas as cobranças abertas</option>
+              </select>
+            </label>
+            <p className="mt-2 text-left text-xs text-muted">As mais antigas ficam como legado e não entram em mensagens automáticas.</p>
+          </div>}
           confirmLabel="Importar"
           onConfirm={() => { setConfirmarImport(false); importarGateway(); }}
           onClose={() => setConfirmarImport(false)}

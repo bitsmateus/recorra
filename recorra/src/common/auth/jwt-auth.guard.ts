@@ -23,6 +23,12 @@ export class JwtAuthGuard implements CanActivate {
       if (!payload.tenantId || !payload.role) {
         throw new UnauthorizedException('Token sem escopo de tenant');
       }
+      // Um refresh token (30d) NÃO pode ser usado como token de acesso.
+      // Só é aceito no fluxo POST /auth/refresh. Tokens legados sem `kind`
+      // seguem passando como access até expirarem (transição suave).
+      if (payload.kind === 'refresh') {
+        throw new UnauthorizedException('Token inválido ou expirado');
+      }
       // Anexa o usuário autenticado ao request.
       (req as Request & { user: unknown }).user = {
         id: payload.sub,

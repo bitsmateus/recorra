@@ -122,7 +122,7 @@ export class ChargesService {
   ) {
     const where = invoiceIds?.length
       ? { tenantId, id: { in: invoiceIds } }
-      : { tenantId, status: { in: ['PENDENTE', 'VENCIDA'] as InvoiceStatus[] }, externalId: null };
+      : { tenantId, status: { in: ['PENDENTE', 'VENCIDA'] as InvoiceStatus[] }, gestaoCobranca: 'ATIVA' as const, externalId: null };
 
     const faturas = await this.prisma.invoice.findMany({ where, select: { id: true }, take: 500 });
 
@@ -155,7 +155,7 @@ export class ChargesService {
   async importarDoGateway(
     tenantId: string,
     accountId: string,
-    opts: { somentePagas?: boolean; incluirPagas?: boolean; customerId?: string } = {},
+    opts: { somentePagas?: boolean; incluirPagas?: boolean; customerId?: string; lookbackDays?: number | null } = {},
   ) {
     const { somentePagas = false, incluirPagas = false, customerId: escopoCustomerId } = opts;
     const account = await this.prisma.paymentProviderAccount.findFirst({ where: { id: accountId, tenantId } });
@@ -163,6 +163,10 @@ export class ChargesService {
     const provider = await this.factory.forAccount(accountId);
     if (!provider.supportsImport?.() || !provider.listCustomers || !provider.listPayments) {
       throw new BadRequestException("Este gateway ainda nao suporta importacao");
+    }
+    const lookbackDays = this.normalizarLookback(opts.lookbackDays !== undefined ? opts.lookbackDays : account.importLookbackDays);
+    if (opts.lookbackDays !== undefined && !somentePagas && !escopoCustomerId) {
+      await this.prisma.paymentProviderAccount.update({ where: { id: account.id }, data: { importLookbackDays: lookbackDays } });
     }
 
     // Filtro de status: só pagas / todas / apenas a receber (padrão).
@@ -172,7 +176,7 @@ export class ChargesService {
       return s === "PENDENTE" || s === "VENCIDA";
     };
 
-    const result = { clientes: 0, clientesAtualizados: 0, faturas: 0, faturasAtualizadas: 0, ignorados: 0 };
+    const result = { clientes: 0, clientesAtualizados: 0, faturas: 0, faturasAtualizadas: 0, ativas: 0, legado: 0, ignorados: 0 };
     const extToCustomerId = new Map<string, string>();
 
     try {
@@ -227,6 +231,7 @@ export class ChargesService {
         valor: p.valor,
         vencimento: p.vencimento,
         status: status as any,
+        gestaoCobranca: somentePagas || status === 'PAGA' || this.dentroDaJanela(p.vencimento, lookbackDays) ? 'ATIVA' as const : 'LEGADO' as const,
         metodo: p.metodo,
         descricao: p.descricao || null,
         linkPagamento: p.linkPagamento || null,
@@ -238,6 +243,8 @@ export class ChargesService {
         externalId: p.externalId,
         origem: "import-gateway",
       };
+      if (data.gestaoCobranca === 'ATIVA') result.ativas++;
+      else result.legado++;
       if (existing) {
         await this.prisma.invoice.update({ where: { id: existing.id }, data });
         result.faturasAtualizadas++;
@@ -255,6 +262,40 @@ export class ChargesService {
       console.error("[importarDoGateway] falhou:", detail, e?.stack);
       throw new BadRequestException("Falha ao importar do gateway. Verifique as credenciais e tente novamente.");
     }
+  }
+
+  async previaImportacaoGateway(tenantId: string, accountId: string, lookbackDays?: number | null) {
+    const account = await this.prisma.paymentProviderAccount.findFirst({ where: { id: accountId, tenantId } });
+    if (!account) throw new NotFoundException('Conta de gateway nao encontrada');
+    const provider = await this.factory.forAccount(accountId, tenantId);
+    if (!provider.supportsImport?.() || !provider.listPayments) throw new BadRequestException('Este gateway ainda nao suporta importacao');
+    const janela = this.normalizarLookback(lookbackDays !== undefined ? lookbackDays : account.importLookbackDays);
+    const pagamentos = await provider.listPayments();
+    const abertas = pagamentos.filter((p) => p.status === 'PENDENTE' || p.status === 'VENCIDA');
+    const ativas = abertas.filter((p) => this.dentroDaJanela(p.vencimento, janela));
+    const legado = abertas.filter((p) => !this.dentroDaJanela(p.vencimento, janela));
+    const soma = (rows: typeof abertas) => rows.reduce((total, p) => total + Number(p.valor), 0);
+    return {
+      lookbackDays: janela,
+      total: { quantidade: abertas.length, valor: soma(abertas) },
+      ativas: { quantidade: ativas.length, valor: soma(ativas) },
+      legado: { quantidade: legado.length, valor: soma(legado) },
+    };
+  }
+
+  private normalizarLookback(value: number | null | undefined): number | null {
+    if (value === null) return null;
+    const n = Number(value ?? 30);
+    if (!Number.isInteger(n) || n < 0 || n > 3650) throw new BadRequestException('Janela de importacao invalida');
+    return n;
+  }
+
+  private dentroDaJanela(vencimento: Date, lookbackDays: number | null): boolean {
+    if (lookbackDays === null) return true;
+    const agora = new Date();
+    const limite = new Date(Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth(), agora.getUTCDate()));
+    limite.setUTCDate(limite.getUTCDate() - lookbackDays);
+    return new Date(vencimento) >= limite;
   }
 
   /**
@@ -451,5 +492,21 @@ export class ChargesService {
       }
     }
     return out;
+  }
+
+  /**
+   * Reavalia o status pela data: marca como VENCIDA as faturas PENDENTE do tenant
+   * cujo vencimento já passou. Mesma regra do cron diário, mas sob demanda — para
+   * o usuário não esperar a rotina automática. Borda em UTC (igual ao vencimento,
+   * gravado à meia-noite UTC); vence hoje ainda conta como pendente.
+   */
+  async reavaliarStatus(tenantId: string) {
+    const n = new Date();
+    const hojeUtc = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate()));
+    const r = await this.prisma.invoice.updateMany({
+      where: { tenantId, status: 'PENDENTE', vencimento: { lt: hojeUtc } },
+      data: { status: 'VENCIDA' },
+    });
+    return { atualizadas: r.count };
   }
 }

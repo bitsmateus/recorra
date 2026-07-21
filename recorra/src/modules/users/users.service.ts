@@ -93,6 +93,9 @@ export class UsersService {
     // Não deixar o tenant sem nenhum OWNER ativo.
     if (alvo.role === 'OWNER' && role !== 'OWNER') await this.assertNaoUltimoOwner(tenantId, userId);
     const upd = await this.prisma.user.update({ where: { id: userId }, data: { role }, select: { id: true, role: true } });
+    // Encerra as sessões abertas para o novo papel valer imediatamente
+    // (o refresh re-lê o role do banco, mas invalidar já corta o access atual).
+    await this.prisma.refreshToken.deleteMany({ where: { userId } }).catch(() => undefined);
     await this.audit.record({
       tenantId, userId: actor.id, acao: 'user.role.update', entidade: 'User', entidadeId: userId,
       antes: { role: alvo.role }, depois: { role },
@@ -108,6 +111,9 @@ export class UsersService {
     }
     if (alvo.role === 'OWNER' && !ativo) await this.assertNaoUltimoOwner(tenantId, userId);
     const upd = await this.prisma.user.update({ where: { id: userId }, data: { ativo }, select: { id: true, ativo: true } });
+    // Ao desativar, revoga as sessões: o access atual expira em minutos e o
+    // refresh passa a ser rejeitado (refresh() também checa `ativo`).
+    if (!ativo) await this.prisma.refreshToken.deleteMany({ where: { userId } }).catch(() => undefined);
     await this.audit.record({
       tenantId, userId: actor.id, acao: 'user.ativo.update', entidade: 'User', entidadeId: userId,
       antes: { ativo: alvo.ativo }, depois: { ativo },

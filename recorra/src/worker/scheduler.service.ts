@@ -85,11 +85,11 @@ export class SchedulerService implements OnApplicationBootstrap {
   async runGatewayImport() {
     const contas = await this.prisma.paymentProviderAccount.findMany({
       where: { ativo: true },
-      select: { id: true, tenantId: true, provider: true },
+      select: { id: true, tenantId: true, provider: true, importLookbackDays: true },
     });
     for (const acc of contas) {
       try {
-        const r = await this.charges.importarDoGateway(acc.tenantId, acc.id);
+        const r = await this.charges.importarDoGateway(acc.tenantId, acc.id, { lookbackDays: acc.importLookbackDays });
         if (r.faturas > 0 || r.faturasAtualizadas > 0) {
           this.logger.log(`Import gateway ${acc.provider} (${acc.id}): ${r.faturas} novas, ${r.faturasAtualizadas} atualizadas`);
         }

@@ -23,6 +23,12 @@ export class ChargesController {
     return this.reconciliation.reconcileTenant(tenantId);
   }
 
+  @Post('reavaliar-status')
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
+  reavaliarStatus(@TenantId() tenantId: string) {
+    return this.charges.reavaliarStatus(tenantId);
+  }
+
   @Get()
   list(
     @TenantId() tenantId: string,
@@ -122,8 +128,19 @@ export class ChargesController {
     @Body('accountId') accountId: string,
     @Body('somentePagas') somentePagas?: boolean,
     @Body('customerId') customerId?: string,
+    @Body('lookbackDays') lookbackDays?: number | null,
   ) {
-    return this.charges.importarDoGateway(tenantId, accountId, { somentePagas: !!somentePagas, customerId });
+    return this.charges.importarDoGateway(tenantId, accountId, { somentePagas: !!somentePagas, customerId, lookbackDays });
+  }
+
+  @Post('importar-gateway/previa')
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
+  previaImportacaoGateway(
+    @TenantId() tenantId: string,
+    @Body('accountId') accountId: string,
+    @Body('lookbackDays') lookbackDays?: number | null,
+  ) {
+    return this.charges.previaImportacaoGateway(tenantId, accountId, lookbackDays);
   }
 
   @Post('limpar-pagas-importadas')

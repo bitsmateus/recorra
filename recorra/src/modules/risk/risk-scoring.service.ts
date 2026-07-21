@@ -70,7 +70,7 @@ export class RiskScoringService {
   }
 
   async recomputeFeatures(tenantId: string, customerId: string) {
-    const invoices = await this.prisma.invoice.findMany({ where: { tenantId, customerId } });
+    const invoices = await this.prisma.invoice.findMany({ where: { tenantId, customerId, gestaoCobranca: 'ATIVA' } });
     const [enviadas, lidas] = await Promise.all([
       this.prisma.messageDispatch.count({ where: { tenantId, customerId, status: { in: ['ENVIADO', 'ENTREGUE', 'LIDO'] } } }),
       this.prisma.messageDispatch.count({ where: { tenantId, customerId, status: 'LIDO' } }),

@@ -70,6 +70,12 @@ enum InvoiceStatus {
   ESTORNADA
 }
 
+enum InvoiceCollectionStatus {
+  ATIVA
+  LEGADO
+  PAUSADA
+}
+
 enum SubscriptionStatus {
   ATIVA
   INADIMPLENTE
@@ -312,6 +318,8 @@ model PaymentProviderAccount {
   ambiente    String              @default("sandbox")
   credentials String
   ativo       Boolean             @default(true)
+  // Janela de vencidas que participa da cobrança automática. Null = todas.
+  importLookbackDays Int?         @default(30)
   createdAt   DateTime            @default(now())
   updatedAt   DateTime            @updatedAt
 
@@ -389,6 +397,7 @@ model Invoice {
   valor             Decimal              @db.Decimal(12, 2)
   vencimento        DateTime
   status            InvoiceStatus        @default(PENDENTE)
+  gestaoCobranca    InvoiceCollectionStatus @default(ATIVA)
   metodo            ChargeMethod         @default(PIX)
   pixCopiaCola      String?
   boletoLinha       String?
@@ -408,6 +417,7 @@ model Invoice {
 
   @@unique([tenantId, provider, externalId])
   @@index([tenantId, status])
+  @@index([tenantId, gestaoCobranca])
   @@index([tenantId, vencimento])
   @@map("invoices")
 }

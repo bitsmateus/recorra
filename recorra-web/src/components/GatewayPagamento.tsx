@@ -1,13 +1,22 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Pencil, Trash2 } from 'lucide-react';
+import { Pencil, Trash2, RefreshCw, HelpCircle } from 'lucide-react';
 import { api } from '@/lib/api';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 
 interface Row {
   id: string;
+  provider?: string;
+  ambiente?: string;
+  importLookbackDays?: number | null;
   [k: string]: unknown;
+}
+
+interface ImportPreview {
+  total: { quantidade: number; valor: number };
+  ativas: { quantidade: number; valor: number };
+  legado: { quantidade: number; valor: number };
 }
 
 const GATEWAYS = [
@@ -51,11 +60,16 @@ export default function GatewayPagamento() {
   const [editandoId, setEditandoId] = useState<string | null>(null);
   const [testando, setTestando] = useState<string | null>(null);
   const [confirmar, setConfirmar] = useState<Row | null>(null);
+  const [importando, setImportando] = useState<string | null>(null);
+  const [janelas, setJanelas] = useState<Record<string, string>>({});
   const isBanco = BANCOS_PIX.includes(provider);
   const setB = (k: string, v: string) => setBanco((s) => ({ ...s, [k]: v }));
 
   const load = useCallback(() => {
-    api<Row[]>('/config/gateways').then(setRows).catch(() => {});
+    api<Row[]>('/config/gateways').then((data) => {
+      setRows(data);
+      setJanelas((atual) => Object.fromEntries(data.map((r) => [r.id, atual[r.id] ?? (r.importLookbackDays == null ? 'all' : String(r.importLookbackDays))])));
+    }).catch(() => {});
   }, []);
   useEffect(load, [load]);
 
@@ -86,6 +100,33 @@ export default function GatewayPagamento() {
     await api(`/config/gateways/${id}`, { method: 'DELETE' }).catch(() => {});
     if (editandoId === id) cancelarEdicao();
     load();
+  }
+
+  async function importar(r: Row) {
+    const raw = janelas[r.id] ?? '30';
+    const lookbackDays = raw === 'all' ? null : Number(raw);
+    setImportando(r.id);
+    setMsg('Calculando prévia da importação...');
+    try {
+      const previa = await api<ImportPreview>('/cobrancas/importar-gateway/previa', { method: 'POST', body: { accountId: r.id, lookbackDays } });
+      const dinheiro = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+      const ok = window.confirm(
+        `Foram encontradas ${previa.total.quantidade} cobranças abertas (${dinheiro(previa.total.valor)}).\n\n` +
+        `${previa.ativas.quantidade} ficarão ATIVAS e participarão das cobranças automáticas.\n` +
+        `${previa.legado.quantidade} ficarão como LEGADO e não receberão mensagens automáticas.\n\nContinuar?`,
+      );
+      if (!ok) { setMsg('Importação cancelada.'); return; }
+      setMsg('Importando clientes e cobranças...');
+      const res = await api<{ faturas: number; faturasAtualizadas: number; ativas: number; legado: number }>('/cobrancas/importar-gateway', {
+        method: 'POST', body: { accountId: r.id, lookbackDays },
+      });
+      setMsg(`✓ Importação concluída: ${res.faturas} novas, ${res.faturasAtualizadas} atualizadas, ${res.ativas} ativas e ${res.legado} em legado.`);
+      load();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Erro ao importar cobranças');
+    } finally {
+      setImportando(null);
+    }
   }
 
   function onCert(file: File) {
@@ -137,7 +178,8 @@ export default function GatewayPagamento() {
       {rows.length > 0 && (
         <div className="mb-3 space-y-2">
           {rows.map((r) => (
-            <div key={r.id} className="flex items-center justify-between rounded-lg border border-line bg-surface px-4 py-2.5">
+            <div key={r.id} className="rounded-lg border border-line bg-surface px-4 py-3">
+              <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-sm">
                 <span className="font-medium text-ink">{gwLabel(String(r.provider))}</span>
                 <span className="rounded-full bg-primary-tint px-2 py-0.5 text-xs font-medium text-primary">{String(r.ambiente)}</span>
@@ -147,6 +189,34 @@ export default function GatewayPagamento() {
                 <button onClick={() => iniciarEdicao(r)} title="Editar gateway" className="rounded p-1.5 text-muted hover:bg-canvas hover:text-ink"><Pencil size={14} /></button>
                 <button onClick={() => setConfirmar(r)} title="Remover gateway" className="rounded p-1.5 text-muted hover:bg-danger-tint hover:text-danger"><Trash2 size={14} /></button>
               </div>
+              </div>
+              {String(r.provider) === 'ASAAS' && (
+                <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-line pt-3">
+                  <label className="block">
+                    <span className="mb-1 flex items-center gap-1 text-xs text-muted">
+                      Cobranças vencidas que ficarão ativas
+                      <span className="group relative inline-flex">
+                        <button type="button" aria-label="O que é uma cobrança legado?" className="text-muted hover:text-primary"><HelpCircle size={13} /></button>
+                        <span role="tooltip" className="pointer-events-none absolute bottom-6 left-1/2 z-30 hidden w-72 -translate-x-1/2 rounded-lg border border-line bg-surface p-3 text-left text-xs font-normal text-ink shadow-lg group-hover:block group-focus-within:block">
+                          <b>Legado</b> é uma cobrança antiga trazida apenas para histórico. Ela continua visível e pode receber baixa quando for paga, mas não entra em réguas, campanhas automáticas, risco operacional ou total atual em aberto.
+                        </span>
+                      </span>
+                    </span>
+                    <select value={janelas[r.id] ?? '30'} onChange={(e) => setJanelas((s) => ({ ...s, [r.id]: e.target.value }))} className="rounded border border-line px-3 py-1.5 text-xs outline-none focus:border-primary">
+                      <option value="0">Somente de hoje em diante</option>
+                      <option value="30">Últimos 30 dias (recomendado)</option>
+                      <option value="60">Últimos 60 dias</option>
+                      <option value="90">Últimos 90 dias</option>
+                      <option value="all">Todas as cobranças abertas</option>
+                    </select>
+                  </label>
+                  <button onClick={() => importar(r)} disabled={importando === r.id} className="flex items-center gap-1 rounded bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary-hover disabled:opacity-60">
+                    <RefreshCw size={12} className={importando === r.id ? 'animate-spin' : ''} />
+                    {importando === r.id ? 'Importando...' : 'Prévia e importar'}
+                  </button>
+                  <p className="max-w-xl text-xs text-muted">As anteriores ao período ficam visíveis como legado, mas não entram em réguas ou campanhas automáticas.</p>
+                </div>
+              )}
             </div>
           ))}
         </div>

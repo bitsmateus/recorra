@@ -204,9 +204,9 @@ export class CustomersService {
       this.prisma.agreement.findMany({ where: { tenantId, customerId: id }, include: { installments: { orderBy: { numero: "asc" } } }, orderBy: { createdAt: "desc" } }),
       this.prisma.subscription.findMany({ where: { tenantId, customerId: id }, orderBy: { createdAt: "desc" } }),
     ]);
-    const emAberto = faturas.filter((f) => f.status === "PENDENTE" || f.status === "VENCIDA").reduce((s, f) => s + Number(f.valor), 0);
+    const emAberto = faturas.filter((f) => (f.status === "PENDENTE" || f.status === "VENCIDA") && f.gestaoCobranca === 'ATIVA').reduce((s, f) => s + Number(f.valor), 0);
     const pago = faturas.filter((f) => f.status === "PAGA").reduce((s, f) => s + Number(f.valor), 0);
-    const vencidas = faturas.filter((f) => f.status === "VENCIDA").length;
+    const vencidas = faturas.filter((f) => f.status === "VENCIDA" && f.gestaoCobranca === 'ATIVA').length;
     return { customer, risco, features, faturas, disparos, acordos, assinaturas, totais: { emAberto, pago, vencidas } };
   }
 }

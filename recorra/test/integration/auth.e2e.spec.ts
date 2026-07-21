@@ -14,6 +14,8 @@ describe.skipIf(!temDb)('Auth e2e', () => {
   let app: INestApplication;
   const email = `ci_${Date.now()}@teste.com`;
   const senha = 'senhaForte123';
+  let accessToken = '';
+  let refreshToken = '';
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -39,6 +41,47 @@ describe.skipIf(!temDb)('Auth e2e', () => {
       .send({ empresa: 'CI Ltda', nome: 'CI Bot', email, senha });
     expect([201, 200]).toContain(res.status);
     expect(res.body.accessToken).toBeTruthy();
+    expect(res.body.refreshToken).toBeTruthy();
+    accessToken = res.body.accessToken;
+    refreshToken = res.body.refreshToken;
+  });
+
+  it('access token é aceito como bearer em rota protegida', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/clientes')
+      .set('Authorization', `Bearer ${accessToken}`);
+    expect(res.status).not.toBe(401);
+  });
+
+  it('refresh token NÃO é aceito como bearer de acesso (A2)', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/clientes')
+      .set('Authorization', `Bearer ${refreshToken}`);
+    expect(res.status).toBe(401);
+  });
+
+  it('um token de acesso não pode ser trocado por sessão nova (A2)', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/api/auth/refresh')
+      .send({ refreshToken: accessToken });
+    expect(res.status).toBe(401);
+  });
+
+  it('refresh rotaciona e invalida o refresh token anterior (L2)', async () => {
+    const primeiro = await request(app.getHttpServer())
+      .post('/api/auth/refresh')
+      .send({ refreshToken });
+    expect(primeiro.status).toBe(201);
+    expect(primeiro.body.refreshToken).toBeTruthy();
+    expect(primeiro.body.refreshToken).not.toBe(refreshToken);
+
+    // Reusar o refresh token antigo (já rotacionado) deve falhar.
+    const reuso = await request(app.getHttpServer())
+      .post('/api/auth/refresh')
+      .send({ refreshToken });
+    expect(reuso.status).toBe(401);
+
+    refreshToken = primeiro.body.refreshToken;
   });
 
   it('faz login com as credenciais criadas', async () => {

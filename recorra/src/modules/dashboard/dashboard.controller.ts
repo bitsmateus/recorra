@@ -47,7 +47,7 @@ export class DashboardController {
       // Faturas recortam pela data de vencimento: são as cobranças "daquele mês".
       // Recuperado = das que vencem no período, quais já foram pagas.
       this.prisma.invoice.aggregate({
-        where: { tenantId, status: 'VENCIDA', vencimento: venc },
+        where: { tenantId, status: 'VENCIDA', gestaoCobranca: 'ATIVA', vencimento: venc },
         _sum: { valor: true },
         _count: true,
       }),
@@ -56,7 +56,7 @@ export class DashboardController {
         _sum: { valor: true },
         _count: true,
       }),
-      this.prisma.invoice.count({ where: { tenantId, status: { in: ['PENDENTE', 'VENCIDA'] }, vencimento: venc } }),
+      this.prisma.invoice.count({ where: { tenantId, status: { in: ['PENDENTE', 'VENCIDA'] }, gestaoCobranca: 'ATIVA', vencimento: venc } }),
       // Disparos são eventos, não faturas: filtram por quando saíram (fuso do tenant).
       this.prisma.messageDispatch.count({ where: { tenantId, createdAt: eventos } }),
     ]);
@@ -152,7 +152,7 @@ export class DashboardController {
 
     // Mesmo recorte por vencimento do resumo: só as cobranças que vencem no período.
     const faturas = await this.prisma.invoice.findMany({
-      where: { tenantId, status: { in: ['PENDENTE', 'VENCIDA'] }, vencimento: this.periodoVencimento(de, ate) },
+      where: { tenantId, status: { in: ['PENDENTE', 'VENCIDA'] }, gestaoCobranca: 'ATIVA', vencimento: this.periodoVencimento(de, ate) },
       select: { valor: true, vencimento: true, customerId: true, status: true },
     });
 

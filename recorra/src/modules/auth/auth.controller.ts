@@ -22,8 +22,8 @@ export class AuthController {
   }
 
   @Post('google')
-  google(@Body('idToken') idToken: string) {
-    return this.auth.loginGoogle(idToken);
+  google(@Body('idToken') idToken: string, @Body('codigo') codigo?: string) {
+    return this.auth.loginGoogle(idToken, codigo);
   }
 
   @Post('refresh')
