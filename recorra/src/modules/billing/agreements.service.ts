@@ -2,15 +2,8 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { AuditService } from '@/common/audit/audit.service';
 import { valorComDesconto, buildInstallments } from './agreement';
-
-interface CreateAgreementDto {
-  customerId: string;
-  faturaIds: string[]; // faturas vencidas a renegociar
-  descontoPct?: number;
-  parcelas: number;
-  primeiraData?: string; // ISO; default: hoje + 5 dias
-  observacao?: string;
-}
+import { parseDateOrThrow } from '@/common/util/parse';
+import { CreateAgreementDto } from './dto/create-agreement.dto';
 
 /**
  * Negociação/acordo de dívida: agrupa faturas vencidas, aplica desconto e
@@ -46,22 +39,34 @@ export class AgreementsService {
 
   async create(tenantId: string, dto: CreateAgreementDto, actorId?: string) {
     if (!dto.faturaIds?.length) throw new BadRequestException('Informe as faturas a renegociar');
-    if (dto.parcelas < 1) throw new BadRequestException('Número de parcelas inválido');
+    // Defesa em profundidade (o DTO já limita 1..72 via ValidationPipe): evita o
+    // DoS de gerar milhões de faturas numa transação caso o service seja chamado direto.
+    if (!Number.isInteger(dto.parcelas) || dto.parcelas < 1 || dto.parcelas > 72) {
+      throw new BadRequestException('Número de parcelas inválido (1 a 72).');
+    }
     const desconto = dto.descontoPct ?? 0;
     if (desconto < 0 || desconto > AgreementsService.MAX_DESCONTO_PCT) {
       throw new BadRequestException(`Desconto inválido: deve ser entre 0% e ${AgreementsService.MAX_DESCONTO_PCT}%.`);
     }
 
+    // Só renegocia faturas em aberto — não reabrir/cancelar faturas já pagas ou canceladas.
     const faturas = await this.prisma.invoice.findMany({
-      where: { tenantId, id: { in: dto.faturaIds }, customerId: dto.customerId },
+      where: { tenantId, id: { in: dto.faturaIds }, customerId: dto.customerId, status: { in: ['PENDENTE', 'VENCIDA'] } },
     });
     if (!faturas.length) throw new BadRequestException('Faturas não encontradas para este cliente');
+    if (faturas.length !== dto.faturaIds.length) {
+      throw new BadRequestException('Uma ou mais faturas não estão em aberto ou não pertencem ao cliente.');
+    }
 
     const valorOriginal = faturas.reduce((s, f) => s + Number(f.valor), 0);
     const descontoPct = dto.descontoPct ?? 0;
     const valorAcordado = valorComDesconto(valorOriginal, descontoPct);
-    const primeira = dto.primeiraData ? new Date(dto.primeiraData) : this.hojeMais(5);
+    const primeira = dto.primeiraData ? parseDateOrThrow(dto.primeiraData, 'primeiraData') : this.hojeMais(5);
     const parcelas = buildInstallments(valorAcordado, dto.parcelas, primeira);
+    // Parcela não pode ser zero/negativa (ex.: muitas parcelas para valor baixo).
+    if (parcelas.some((p) => p.valor <= 0)) {
+      throw new BadRequestException('Parcelas demais para o valor: geraria parcela de R$ 0,00 ou negativa.');
+    }
 
     // Transação: cria acordo + parcelas + faturas novas; cancela as originais.
     const criado = await this.prisma.$transaction(async (tx) => {
@@ -95,9 +100,9 @@ export class AgreementsService {
         });
       }
 
-      // cancela as faturas renegociadas
+      // cancela as faturas renegociadas — só as que estavam em aberto (já validado acima).
       await tx.invoice.updateMany({
-        where: { tenantId, id: { in: dto.faturaIds } },
+        where: { tenantId, id: { in: dto.faturaIds }, status: { in: ['PENDENTE', 'VENCIDA'] } },
         data: { status: 'CANCELADA' },
       });
 

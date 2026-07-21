@@ -2,6 +2,7 @@ import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '@/common/auth/jwt-auth.guard';
 import { TenantId } from '@/common/auth/current-user.decorator';
 import { PrismaService } from '@/common/prisma/prisma.service';
+import { parseDateFilter } from '@/common/util/parse';
 
 const WHATS = ['WHATSAPP_CLOUD', 'WHATSAPP_EVOLUTION', 'WHATSAPP_UAZAPI'];
 
@@ -31,11 +32,10 @@ export class DispatchesController {
     if (tipoCanal === 'WHATSAPP') where.canal = { in: WHATS };
     else if (tipoCanal) where.canal = tipoCanal;
     if (q) where.customer = { OR: [{ nome: { contains: q, mode: 'insensitive' } }, { telefone: { contains: q.replace(/\D/g, '') } }] };
-    if (de || ate) {
-      where.createdAt = {
-        ...(de ? { gte: new Date(de) } : {}),
-        ...(ate ? { lte: new Date(ate + 'T23:59:59') } : {}),
-      };
+    const deDt = parseDateFilter(de);
+    const ateDt = parseDateFilter(ate ? ate + 'T23:59:59' : undefined);
+    if (deDt || ateDt) {
+      where.createdAt = { ...(deDt ? { gte: deDt } : {}), ...(ateDt ? { lte: ateDt } : {}) };
     }
 
     const take = Math.min(100, Math.max(5, Number(pageSize) || 20));

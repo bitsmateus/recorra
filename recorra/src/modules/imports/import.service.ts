@@ -41,8 +41,7 @@ export class ImportService {
   async importXlsx(tenantId: string, base64: string): Promise<ImportResult> {
     const buf = Buffer.from(base64.replace(/^data:.*;base64,/, ''), 'base64');
     this.assertUploadSize(buf);
-    const wb = XLSX.read(buf, { type: 'buffer' });
-    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const sheet = this.primeiraAba(buf);
     const matrix: string[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' });
     this.assertRowCount(matrix.length);
     if (matrix.length < 2) return { clientes: 0, faturas: 0, erros: [] };
@@ -128,13 +127,29 @@ export class ImportService {
 
   // ===== Importação assistida (com mapeamento de colunas) =====
 
+  /**
+   * Lê o workbook e retorna a primeira aba. Arquivo corrompido/ não-planilha
+   * vira 400 (não 500). `XLSX.read` é lenient com o Buffer, então o parse pode
+   * lançar em conteúdo inválido — daí o try/catch.
+   */
+  private primeiraAba(buf: Buffer, codepage?: number): XLSX.WorkSheet {
+    let wb: XLSX.WorkBook;
+    try {
+      wb = XLSX.read(buf, codepage ? { type: 'buffer', codepage } : { type: 'buffer' });
+    } catch {
+      throw new BadRequestException('Arquivo inválido: não foi possível ler a planilha.');
+    }
+    const sheet = wb.SheetNames.length ? wb.Sheets[wb.SheetNames[0]] : undefined;
+    if (!sheet) throw new BadRequestException('Arquivo inválido: planilha sem abas.');
+    return sheet;
+  }
+
   /** Lê um arquivo (base64 de xlsx/csv/txt) e devolve matriz [header, ...rows]. */
   private lerArquivo(data: string): { header: string[]; rows: string[][] } {
     const raw = data.replace(/^data:.*;base64,/, '');
     const buf = Buffer.from(raw, 'base64');
     this.assertUploadSize(buf);
-    const wb = XLSX.read(buf, { type: 'buffer', codepage: 65001 });
-    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const sheet = this.primeiraAba(buf, 65001);
     const matrix: string[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' });
     this.assertRowCount(matrix.length);
     if (!matrix.length) return { header: [], rows: [] };

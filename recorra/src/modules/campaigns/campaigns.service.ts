@@ -4,6 +4,7 @@ import { PrismaService } from '@/common/prisma/prisma.service';
 import { DispatchService } from '@/modules/dunning/dispatch.service';
 import { PaymentProviderFactory } from '@/modules/payments/payment-provider.factory';
 import { DispatchQueue } from '@/queue/dispatch-queue';
+import { parseDateFilter } from '@/common/util/parse';
 
 /** WhatsApp só envia por template aprovado; texto livre sobra para SMS e e-mail. */
 const WHATSAPP: ChannelType[] = ['WHATSAPP_CLOUD', 'NX_SYSTEMS', 'WHATSAPP_EVOLUTION', 'WHATSAPP_UAZAPI'];
@@ -67,11 +68,10 @@ export class CampaignsService {
     if (filtros.agendamento) where.agendamento = filtros.agendamento;
     if (filtros.etiqueta) where.filtroEtiqueta = filtros.etiqueta.toLowerCase();
     if (filtros.canal) where.canal = filtros.canal;
-    if (filtros.de || filtros.ate) {
-      where.createdAt = {
-        ...(filtros.de ? { gte: new Date(filtros.de) } : {}),
-        ...(filtros.ate ? { lte: new Date(filtros.ate + 'T23:59:59') } : {}),
-      };
+    const de = parseDateFilter(filtros.de);
+    const ate = parseDateFilter(filtros.ate ? filtros.ate + 'T23:59:59' : undefined);
+    if (de || ate) {
+      where.createdAt = { ...(de ? { gte: de } : {}), ...(ate ? { lte: ate } : {}) };
     }
     const campanhas = await this.prisma.campaign.findMany({
       where,

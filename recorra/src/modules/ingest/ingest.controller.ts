@@ -1,4 +1,4 @@
-import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { onlyDigits } from '@/common/util/normalize';
@@ -42,9 +42,21 @@ export class IngestController {
   @Post('clientes')
   async clientes(@Req() req: Request, @Body('clientes') clientes: IngestCustomer[]) {
     const tenantId = this.tenant(req);
+    if (clientes != null && !Array.isArray(clientes)) {
+      throw new BadRequestException('`clientes` deve ser uma lista');
+    }
+    const lista = Array.isArray(clientes) ? clientes : [];
     let ok = 0;
     const erros: string[] = [];
-    for (const c of clientes ?? []) {
+    for (const c of lista) {
+      if (!c || typeof c !== 'object') {
+        erros.push('item inválido');
+        continue;
+      }
+      if (!c.nome || typeof c.nome !== 'string') {
+        erros.push(`nome ausente para doc ${c.doc ?? '?'}`);
+        continue;
+      }
       const doc = onlyDigits(c.doc);
       if (!isValidCpfCnpj(doc)) {
         erros.push(`doc inválido: ${c.doc}`);
@@ -76,15 +88,23 @@ export class IngestController {
       });
       ok++;
     }
-    return { recebidos: clientes?.length ?? 0, processados: ok, erros };
+    return { recebidos: lista.length, processados: ok, erros };
   }
 
   @Post('faturas')
   async faturas(@Req() req: Request, @Body('faturas') faturas: IngestInvoice[]) {
     const tenantId = this.tenant(req);
+    if (faturas != null && !Array.isArray(faturas)) {
+      throw new BadRequestException('`faturas` deve ser uma lista');
+    }
+    const lista = Array.isArray(faturas) ? faturas : [];
     let ok = 0;
     const erros: string[] = [];
-    for (const f of faturas ?? []) {
+    for (const f of lista) {
+      if (!f || typeof f !== 'object') {
+        erros.push('item inválido');
+        continue;
+      }
       const doc = onlyDigits(f.doc);
       const customer = await this.prisma.customer.findUnique({ where: { tenantId_doc: { tenantId, doc } } });
       if (!customer) {
@@ -92,6 +112,15 @@ export class IngestController {
         continue;
       }
       const vencimento = new Date(f.vencimento);
+      if (Number.isNaN(vencimento.getTime())) {
+        erros.push(`vencimento inválido para doc ${f.doc}: ${f.vencimento}`);
+        continue;
+      }
+      const valor = Number(f.valor);
+      if (!Number.isFinite(valor) || valor <= 0) {
+        erros.push(`valor inválido para doc ${f.doc}: ${f.valor}`);
+        continue;
+      }
       const existing = f.externalId
         ? await this.prisma.invoice.findFirst({ where: { tenantId, sourceSystem: 'API', sourceExternalId: f.externalId } })
         : null;
@@ -101,7 +130,7 @@ export class IngestController {
         customerId: customer.id,
         sourceSystem: 'API' as const,
         sourceExternalId: f.externalId,
-        valor: f.valor,
+        valor,
         vencimento,
         status: (vencimento < new Date() ? 'VENCIDA' : 'PENDENTE') as 'VENCIDA' | 'PENDENTE',
         pixCopiaCola: f.pixCopiaCola,
@@ -112,6 +141,6 @@ export class IngestController {
       else await this.prisma.invoice.create({ data });
       ok++;
     }
-    return { recebidas: faturas?.length ?? 0, processadas: ok, erros };
+    return { recebidas: lista.length, processadas: ok, erros };
   }
 }

@@ -7,6 +7,7 @@ import { TenantId, CurrentUser } from '@/common/auth/current-user.decorator';
 import { AuthUser } from '@/common/auth/jwt.types';
 import { SubscriptionsService } from './subscriptions.service';
 import { AgreementsService } from './agreements.service';
+import { CreateAgreementDto } from './dto/create-agreement.dto';
 import { Ciclo } from './recurrence';
 
 @Controller()
@@ -60,7 +61,7 @@ export class BillingController {
   createAcordo(
     @TenantId() tenantId: string,
     @CurrentUser() actor: AuthUser,
-    @Body() dto: { customerId: string; faturaIds: string[]; descontoPct?: number; parcelas: number; primeiraData?: string; observacao?: string },
+    @Body() dto: CreateAgreementDto,
   ) {
     return this.agreements.create(tenantId, dto, actor.id);
   }

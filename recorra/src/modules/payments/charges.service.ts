@@ -8,6 +8,7 @@ import { computeSplit } from './split';
 import { canTransition } from './invoice-status';
 import { featureEnabled, PlanTier, Feature } from '@/modules/platform/plans';
 import { onlyDigits } from "@/common/util/normalize";
+import { parseDateOrThrow, parseDateFilter, parseNumberFilter } from '@/common/util/parse';
 import * as XLSX from 'xlsx';
 
 @Injectable()
@@ -346,17 +347,15 @@ export class ChargesService {
     if (filtros.etiqueta) {
       where.customer = { ...(where.customer ?? {}), tags: { has: filtros.etiqueta.toLowerCase() } };
     }
-    if (filtros.de || filtros.ate) {
-      where.vencimento = {
-        ...(filtros.de ? { gte: new Date(filtros.de) } : {}),
-        ...(filtros.ate ? { lte: new Date(filtros.ate + 'T23:59:59') } : {}),
-      };
+    const de = parseDateFilter(filtros.de);
+    const ate = parseDateFilter(filtros.ate ? filtros.ate + 'T23:59:59' : undefined);
+    if (de || ate) {
+      where.vencimento = { ...(de ? { gte: de } : {}), ...(ate ? { lte: ate } : {}) };
     }
-    if (filtros.valorMin || filtros.valorMax) {
-      where.valor = {
-        ...(filtros.valorMin ? { gte: Number(filtros.valorMin) } : {}),
-        ...(filtros.valorMax ? { lte: Number(filtros.valorMax) } : {}),
-      };
+    const valorMin = parseNumberFilter(filtros.valorMin);
+    const valorMax = parseNumberFilter(filtros.valorMax);
+    if (valorMin !== undefined || valorMax !== undefined) {
+      where.valor = { ...(valorMin !== undefined ? { gte: valorMin } : {}), ...(valorMax !== undefined ? { lte: valorMax } : {}) };
     }
     return this.prisma.invoice.findMany({
       where,
@@ -384,7 +383,7 @@ export class ChargesService {
       if (inv.externalId) throw new BadRequestException('Fatura ja emitida no gateway: valor nao pode ser alterado. Cancele e gere uma nova.');
       data.valor = valor;
     }
-    if (dto.vencimento) data.vencimento = new Date(dto.vencimento);
+    if (dto.vencimento) data.vencimento = parseDateOrThrow(dto.vencimento, 'vencimento');
     if (dto.descricao !== undefined) data.descricao = dto.descricao || null;
     if (dto.status && dto.status !== inv.status) {
       // Valida a transição de estado (bloqueia CANCELADA→PAGA, PAGA→PENDENTE, etc.).

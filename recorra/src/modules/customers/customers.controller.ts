@@ -7,6 +7,7 @@ import { TenantId } from '@/common/auth/current-user.decorator';
 import { RiskScoringService } from '@/modules/risk/risk-scoring.service';
 import { CustomersService } from './customers.service';
 import { UpsertCustomerDto } from './dto/customer.dto';
+import { parseNumberFilter } from '@/common/util/parse';
 
 @Controller('clientes')
 @UseGuards(JwtAuthGuard)
@@ -33,8 +34,8 @@ export class CustomersController {
       tags: tags ? tags.split(',').map((t) => t.trim()).filter(Boolean) : undefined,
       plano,
       uf,
-      valorMin: valorMin ? Number(valorMin) : undefined,
-      valorMax: valorMax ? Number(valorMax) : undefined,
+      valorMin: parseNumberFilter(valorMin),
+      valorMax: parseNumberFilter(valorMax),
       faixa,
       etiqueta,
     });

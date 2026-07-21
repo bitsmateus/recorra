@@ -43,21 +43,9 @@ const statusColor: Record<string, string> = {
 
 const emptyFiltros = { q: '', status: '', metodo: '', geracao: '', de: '', ate: '', valorMin: '', valorMax: '', etiqueta: '' };
 
-/** Legenda das situações da cobrança. Dispensável — fica guardado no navegador. */
-function LegendaStatus() {
-  const [oculta, setOculta] = useState(false);
-  useEffect(() => { setOculta(localStorage.getItem('cobrancas_legenda') === 'oculta'); }, []);
-  const ocultar = () => { setOculta(true); localStorage.setItem('cobrancas_legenda', 'oculta'); };
-  const mostrar = () => { setOculta(false); localStorage.removeItem('cobrancas_legenda'); };
-
-  if (oculta) {
-    return (
-      <button onClick={mostrar} className="mb-3 flex items-center gap-1.5 text-xs font-medium text-primary hover:underline">
-        <HelpCircle size={13} /> Entenda as situações das cobranças
-      </button>
-    );
-  }
-
+/** Ajuda contextual aberta por clique ao lado do filtro de status. */
+function AjudaStatus() {
+  const [aberta, setAberta] = useState(false);
   const itens: { badge: string; txt: string }[] = [
     { badge: 'PENDENTE', txt: 'Criada e ainda no prazo — o cliente não pagou, mas também não venceu.' },
     { badge: 'VENCIDA', txt: 'Passou do vencimento sem pagamento. É o foco da régua de cobrança.' },
@@ -66,22 +54,32 @@ function LegendaStatus() {
     { badge: 'ESTORNADA', txt: 'O pagamento foi devolvido ao cliente.' },
   ];
   return (
-    <div className="mb-4 rounded-lg border border-line bg-surface p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="flex items-center gap-1.5 text-sm font-medium text-ink"><HelpCircle size={15} className="text-primary" /> Entenda as situações</h2>
-        <button onClick={ocultar} className="text-xs text-muted hover:text-ink">Ocultar</button>
-      </div>
-      <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-        {itens.map((it) => (
-          <div key={it.badge} className="flex items-start gap-2 text-xs">
-            <span className={`shrink-0 rounded-full px-2.5 py-1 font-medium ${statusColor[it.badge] || 'bg-canvas text-muted'}`}>{it.badge}</span>
-            <span className="pt-0.5 text-muted">{it.txt}</span>
+    <div className="relative shrink-0">
+      <button type="button" onClick={() => setAberta((v) => !v)} aria-label="Entenda os status das cobranças" aria-expanded={aberta} className="flex h-9 w-8 items-center justify-center rounded border border-line text-muted hover:border-primary hover:text-primary">
+        <HelpCircle size={16} />
+      </button>
+      {aberta && (
+        <>
+          <button type="button" aria-label="Fechar ajuda" onClick={() => setAberta(false)} className="fixed inset-0 z-30 cursor-default" />
+          <div className="absolute right-0 top-11 z-40 w-[min(34rem,calc(100vw-2rem))] rounded-lg border border-line bg-surface p-4 text-left normal-case shadow-lg">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="flex items-center gap-1.5 text-sm font-medium text-ink"><HelpCircle size={15} className="text-primary" /> Entenda os status</h2>
+              <button type="button" onClick={() => setAberta(false)} className="rounded p-1 text-muted hover:bg-canvas hover:text-ink" aria-label="Fechar"><X size={15} /></button>
+            </div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {itens.map((it) => (
+                <div key={it.badge} className="flex items-start gap-2 text-xs">
+                  <span className={`shrink-0 rounded-full px-2.5 py-1 font-medium ${statusColor[it.badge] || 'bg-canvas text-muted'}`}>{it.badge}</span>
+                  <span className="pt-0.5 font-normal text-muted">{it.txt}</span>
+                </div>
+              ))}
+            </div>
+            <p className="mt-3 border-t border-line pt-2 text-xs font-normal text-muted">
+              <strong className="text-ink">Cobrança “✓ gerada”</strong> significa que o Pix/boleto já foi criado no gateway e possui meio de pagamento. Caso contrário, use o botão <strong className="text-ink">Gerar</strong>.
+            </p>
           </div>
-        ))}
-      </div>
-      <p className="mt-3 border-t border-line pt-2 text-xs text-muted">
-        <strong className="text-ink">Coluna &quot;Cobrança&quot;: &quot;✓ gerada&quot;</strong> = o Pix/boleto já foi criado no gateway e tem link de pagamento. Sem isso, a fatura existe no Recorrai mas o cliente ainda não tem como pagar — use o botão <strong className="text-ink">Gerar</strong>.
-      </p>
+        </>
+      )}
     </div>
   );
 }
@@ -234,8 +232,6 @@ export default function CobrancasPage() {
     <div>
       <PageTitle title="Cobranças" subtitle="Faturas e geração de Pix/boleto nos gateways" />
 
-      <LegendaStatus />
-
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <select value={accountId} onChange={(e) => {
           const id = e.target.value;
@@ -289,9 +285,12 @@ export default function CobrancasPage() {
         </div>
         <div className="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-7">
           <input placeholder="Cliente / CPF" value={filtros.q} onChange={(e) => setF('q', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary lg:col-span-2" />
-          <select value={filtros.status} onChange={(e) => setF('status', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
-            <option value="">Status: todos</option><option value="PENDENTE">Pendente</option><option value="VENCIDA">Vencida</option><option value="PAGA">Paga</option><option value="CANCELADA">Cancelada</option>
-          </select>
+          <div className="flex min-w-0 gap-1">
+            <select value={filtros.status} onChange={(e) => setF('status', e.target.value)} className="min-w-0 flex-1 rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
+              <option value="">Status: todos</option><option value="PENDENTE">Pendente</option><option value="VENCIDA">Vencida</option><option value="PAGA">Paga</option><option value="CANCELADA">Cancelada</option>
+            </select>
+            <AjudaStatus />
+          </div>
           <select value={filtros.metodo} onChange={(e) => setF('metodo', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
             <option value="">Método: todos</option><option value="PIX">Pix</option><option value="BOLETO">Boleto</option><option value="CARTAO">Cartão</option>
           </select>
