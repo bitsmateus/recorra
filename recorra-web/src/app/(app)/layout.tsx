@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, Users, Plug, LogOut, CreditCard, GitBranch, UserCog, Send, BarChart3, Gauge, HelpCircle, ChevronDown, Megaphone, Wallet, SlidersHorizontal, Radio, Menu, X, Mail, MessageSquare, PanelLeftClose, PanelLeftOpen, Eraser } from 'lucide-react';
+import { LayoutDashboard, Users, Plug, LogOut, CreditCard, GitBranch, UserCog, Send, BarChart3, Gauge, HelpCircle, ChevronDown, Megaphone, Wallet, SlidersHorizontal, Radio, Menu, X, Mail, MessageSquare, PanelLeftClose, PanelLeftOpen, Eraser, Moon, Sun } from 'lucide-react';
 import { Logo, LogoMark } from '@/components/Logo';
 import { getToken, logout } from '@/lib/api';
 
@@ -47,11 +47,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [abertos, setAbertos] = useState<Record<string, boolean>>({});
   const [menuAberto, setMenuAberto] = useState(false);
   const [menuMinimizado, setMenuMinimizado] = useState(false);
+  const [escuro, setEscuro] = useState(false);
 
   useEffect(() => {
     if (!getToken()) router.replace('/login');
     else {
       setMenuMinimizado(localStorage.getItem('recorra_sidebar_minimizada') === '1');
+      // O tema já foi aplicado pelo script inline do layout raiz; aqui só espelhamos
+      // o estado atual para o ícone/rótulo do botão ficarem certos.
+      setEscuro(document.documentElement.classList.contains('dark'));
       setReady(true);
     }
   }, [router]);
@@ -88,6 +92,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     });
   }
 
+  function alternarTema() {
+    setEscuro((atual) => {
+      const proximo = !atual;
+      document.documentElement.classList.toggle('dark', proximo);
+      localStorage.setItem('recorra_tema', proximo ? 'dark' : 'light');
+      return proximo;
+    });
+  }
+
   async function limparCache() {
     if (!window.confirm('Limpar o cache e as preferências locais do Recorrai? Sua sessão será mantida.')) return;
     const token = localStorage.getItem('recorra_token');
@@ -105,7 +118,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   const navContent = (compacto = false) => (
     <>
-      <nav className={`flex-1 space-y-1 overflow-y-auto ${compacto ? 'p-2' : 'p-3'}`}>
+      <nav className={`min-h-0 flex-1 space-y-1 overflow-y-auto ${compacto ? 'p-2' : 'p-3'}`}>
         {grupos.map((g) => {
           const aberto = abertos[g.label];
           const GIcon = g.icon;
@@ -146,7 +159,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           );
         })}
       </nav>
-      <div className={`border-t border-line ${compacto ? 'p-2' : 'p-3'}`}>
+      <div className={`shrink-0 border-t border-line bg-surface ${compacto ? 'p-2' : 'p-3'}`}>
+        <button onClick={alternarTema} title={compacto ? (escuro ? 'Modo claro' : 'Modo escuro') : undefined} aria-label={escuro ? 'Ativar modo claro' : 'Ativar modo escuro'} className={`mb-1 flex w-full items-center rounded py-2 text-sm text-muted transition hover:bg-canvas ${compacto ? 'justify-center px-2' : 'gap-3 px-3'}`}>{escuro ? <Sun size={18} /> : <Moon size={18} />}{!compacto && (escuro ? 'Modo claro' : 'Modo escuro')}</button>
         <button onClick={limparCache} title={compacto ? 'Limpar cache' : undefined} className={`mb-1 flex w-full items-center rounded py-2 text-sm text-muted transition hover:bg-canvas ${compacto ? 'justify-center px-2' : 'gap-3 px-3'}`}><Eraser size={18} />{!compacto && 'Limpar cache'}</button>
         <button onClick={sair} title={compacto ? 'Sair' : undefined} className={`flex w-full items-center rounded py-2 text-sm text-muted transition hover:bg-canvas ${compacto ? 'justify-center px-2' : 'gap-3 px-3'}`}><LogOut size={18} />{!compacto && 'Sair'}</button>
       </div>
@@ -156,7 +170,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen bg-canvas">
       {/* Sidebar fixa (desktop) */}
-      <aside className={`hidden flex-col border-r border-line bg-surface transition-[width] duration-200 md:flex print:hidden ${menuMinimizado ? 'w-16' : 'w-60'}`}>
+      <aside className={`sticky top-0 hidden h-screen shrink-0 flex-col overflow-hidden border-r border-line bg-surface transition-[width] duration-200 md:flex print:hidden ${menuMinimizado ? 'w-16' : 'w-60'}`}>
         <div className={`flex items-center border-b border-line ${menuMinimizado ? 'flex-col justify-center gap-2 px-2 py-3' : 'justify-between px-5 py-4'}`}>
           {menuMinimizado ? <LogoMark size={28} /> : <Logo size={30} />}
           {!menuMinimizado && <button onClick={alternarMenu} title="Minimizar menu" className="rounded p-1.5 text-muted hover:bg-canvas hover:text-primary"><PanelLeftClose size={18} /></button>}

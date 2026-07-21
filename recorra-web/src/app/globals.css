@@ -15,6 +15,31 @@
 
 :root {
   color-scheme: light;
+  --ink: #16233a; /* grafite (texto) */
+  --muted: #64748b;
+  --line: #e2e8f0;
+  --surface: #ffffff;
+  --canvas: #eef4f3; /* nuvem (fundo) */
+  --primary: #14857c;
+  --primary-tint: #e1f0ee;
+  --success-tint: #e4f4ea;
+  --warning-tint: #fcf0de;
+  --danger-tint: #fcebeb;
+}
+
+/* Tema escuro: ativado pela classe .dark no <html> (script anti-flash no layout raiz). */
+html.dark {
+  color-scheme: dark;
+  --ink: #e6edf7;
+  --muted: #93a2b8;
+  --line: #27324a;
+  --surface: #15203a; /* cartões */
+  --canvas: #0e1626; /* fundo da página */
+  --primary: #34b3a9; /* teal mais claro para ler bem no escuro */
+  --primary-tint: #16332f;
+  --success-tint: #14301f;
+  --warning-tint: #33280f;
+  --danger-tint: #33191a;
 }
 
 html,
@@ -24,8 +49,8 @@ body {
 }
 
 body {
-  background: #eef4f3; /* nuvem */
-  color: #16233a; /* grafite */
+  background: var(--canvas);
+  color: var(--ink);
   font-feature-settings: 'tnum' on; /* números tabulares em valores */
   -webkit-text-size-adjust: 100%;
 }

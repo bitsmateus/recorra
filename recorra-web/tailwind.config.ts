@@ -6,21 +6,23 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        // Cores semânticas via variáveis CSS (globals.css) para suportar tema
+        // claro/escuro. Os valores de marca fixos ficam onde não mudam com o tema.
         primary: {
-          DEFAULT: '#14857C', // teal da marca
+          DEFAULT: 'var(--primary)', // teal da marca (clareia um pouco no escuro)
           hover: '#0C6B63', // teal escuro
           soft: '#3AA8A6',
-          tint: '#E1F0EE',
+          tint: 'var(--primary-tint)',
         },
         // Verde da marca (o "ai" da logo) — também o positivo da interface.
-        success: { DEFAULT: '#22A45D', tint: '#E4F4EA' },
-        warning: { DEFAULT: '#F0A93B', tint: '#FCF0DE' }, // âmbar (pendência)
-        danger: { DEFAULT: '#EF4444', tint: '#FCEBEB' },
-        ink: '#16233A', // grafite (texto)
-        muted: '#64748B',
-        line: '#E2E8F0',
-        surface: '#FFFFFF',
-        canvas: '#EEF4F3', // nuvem (fundo)
+        success: { DEFAULT: '#22A45D', tint: 'var(--success-tint)' },
+        warning: { DEFAULT: '#F0A93B', tint: 'var(--warning-tint)' }, // âmbar (pendência)
+        danger: { DEFAULT: '#EF4444', tint: 'var(--danger-tint)' },
+        ink: 'var(--ink)', // grafite (texto)
+        muted: 'var(--muted)',
+        line: 'var(--line)',
+        surface: 'var(--surface)',
+        canvas: 'var(--canvas)', // nuvem (fundo)
       },
       borderRadius: {
         DEFAULT: '10px',

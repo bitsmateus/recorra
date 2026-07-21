@@ -52,6 +52,7 @@ function AjudaStatus() {
     { badge: 'PAGA', txt: 'O cliente pagou. A baixa é automática quando o gateway confirma.' },
     { badge: 'CANCELADA', txt: 'Cancelada — não será mais cobrada.' },
     { badge: 'ESTORNADA', txt: 'O pagamento foi devolvido ao cliente.' },
+    { badge: 'LEGADO', txt: 'Cobrança antiga mantida para histórico e conciliação. Pode receber baixa quando paga, mas não entra em réguas, campanhas automáticas nem na inadimplência operacional atual.' },
   ];
   return (
     <div className="inline-flex shrink-0">
@@ -73,6 +74,9 @@ function AjudaStatus() {
                   <span className="pt-0.5 font-normal text-muted">{it.txt}</span>
                 </div>
               ))}
+              <p className="border-t border-line pt-2 text-xs font-normal text-muted">
+                Legado é uma classificação de gestão exibida junto do status financeiro; uma cobrança pode ser, por exemplo, VENCIDA e LEGADO ao mesmo tempo.
+              </p>
             </div>
           </div>
         </>
