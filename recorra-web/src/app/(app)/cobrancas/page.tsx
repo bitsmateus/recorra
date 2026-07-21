@@ -87,6 +87,8 @@ function AjudaStatus() {
 
 export default function CobrancasPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const POR_PAGINA = 50;
+  const [limite, setLimite] = useState(POR_PAGINA);
   const [gateways, setGateways] = useState<Gateway[]>([]);
   const [filtros, setFiltros] = useState(emptyFiltros);
   const [msg, setMsg] = useState('');
@@ -115,6 +117,8 @@ export default function CobrancasPage() {
   useEffect(() => { load(); }, [load]);
   // Some da seleção quem saiu da lista (excluída ou filtrada) no recarregamento.
   useEffect(() => { setSelecionados((s) => new Set([...s].filter((id) => invoices.some((i) => i.id === id)))); }, [invoices]);
+  // Volta para a 1ª "página" quando a lista é recarregada/filtrada.
+  useEffect(() => { setLimite(POR_PAGINA); }, [invoices]);
   useEffect(() => {
     api<Gateway[]>('/config/gateways').then((gws) => {
       setGateways(gws);
@@ -170,9 +174,6 @@ export default function CobrancasPage() {
   }
 
   const filtrosAtivos = Object.entries(filtros).filter(([, v]) => v).length;
-  const idsVisiveis = invoices.map((i) => i.id);
-  const todosMarcados = idsVisiveis.length > 0 && idsVisiveis.every((id) => selecionados.has(id));
-  const toggleTodos = () => setSelecionados(todosMarcados ? new Set() : new Set(idsVisiveis));
   const geradasSelecionadas = invoices.filter((i) => selecionados.has(i.id) && i.externalId).length;
   const valorSelecionado = invoices.filter((i) => selecionados.has(i.id)).reduce((s, i) => s + Number(i.valor), 0);
 
@@ -192,6 +193,14 @@ export default function CobrancasPage() {
         return (va - vb) * (ordenacao.dir === 'asc' ? 1 : -1);
       })
     : invoices;
+
+  // Mostra só `limite` por vez; "Ver mais" revela mais 50. A seleção/"marcar
+  // todas" opera só sobre o que está na tela (evita marcar centenas escondidas).
+  const paginadas = invoicesOrdenadas.slice(0, limite);
+  const temMais = invoicesOrdenadas.length > paginadas.length;
+  const idsVisiveis = paginadas.map((i) => i.id);
+  const todosMarcados = idsVisiveis.length > 0 && idsVisiveis.every((id) => selecionados.has(id));
+  const toggleTodos = () => setSelecionados(todosMarcados ? new Set() : new Set(idsVisiveis));
 
   return (
     <div>
@@ -251,6 +260,10 @@ export default function CobrancasPage() {
         </div>
       </div>
 
+      <div className="mb-2 text-sm text-muted">
+        Total de cobranças: <span className="tabular font-medium text-ink">{invoicesOrdenadas.length}</span>{temMais && <> · mostrando <span className="tabular font-medium text-ink">{paginadas.length}</span></>}
+      </div>
+
       {selecionados.size > 0 && (
         <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-primary/30 bg-primary-tint px-4 py-2.5 text-sm">
           <span className="font-medium text-primary">{selecionados.size} cobrança(s) selecionada(s)</span>
@@ -274,7 +287,7 @@ export default function CobrancasPage() {
             </tr>
           </thead>
           <tbody>
-            {invoicesOrdenadas.map((inv) => (
+            {paginadas.map((inv) => (
               <tr key={inv.id} className={`border-b border-line last:border-0 ${selecionados.has(inv.id) ? 'bg-primary-tint/40' : ''}`}>
                 <td className="px-4 py-3"><input type="checkbox" checked={selecionados.has(inv.id)} onChange={() => toggleSel(inv.id)} className="h-4 w-4 cursor-pointer accent-primary" aria-label={`Selecionar cobrança de ${inv.customer?.nome || 'cliente'}`} /></td>
                 <td className="px-4 py-3 font-medium text-ink">{inv.customer?.nome || '—'}</td>
@@ -302,6 +315,14 @@ export default function CobrancasPage() {
           </tbody>
         </table></div>
       </div>
+      {temMais && (
+        <div className="mt-3 flex items-center justify-center gap-3">
+          <button onClick={() => setLimite((n) => n + POR_PAGINA)} className="rounded border border-line px-4 py-2 text-sm font-medium hover:bg-canvas">
+            Ver mais {Math.min(POR_PAGINA, invoicesOrdenadas.length - paginadas.length)}
+          </button>
+          <button onClick={() => setLimite(invoicesOrdenadas.length)} className="text-sm text-primary hover:underline">Ver todas ({invoicesOrdenadas.length})</button>
+        </div>
+      )}
 
       {editar && <EditarModal inv={editar} onClose={() => setEditar(null)} onSaved={() => { setEditar(null); load(); }} />}
       {wizard && <ImportWizard criarCobrancas onClose={() => setWizard(false)} onDone={() => { setWizard(false); load(); }} />}

@@ -26,11 +26,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="pt-BR">
       <head>
-        {/* Aplica o tema salvo (ou o do sistema) antes da 1ª pintura — evita o
-            "flash" branco ao carregar no escuro. Roda inline, síncrono. */}
+        {/* O padrão da plataforma é sempre claro. O escuro só é aplicado quando
+            o próprio cliente já o selecionou e essa escolha foi salva. */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('recorra_tema');var d=t==='dark'||(!t&&matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.classList.toggle('dark',d);}catch(e){}})();`,
+            __html: `(function(){try{var d=localStorage.getItem('recorra_tema')==='dark';document.documentElement.classList.toggle('dark',d);}catch(e){document.documentElement.classList.remove('dark');}})();`,
           }}
         />
       </head>

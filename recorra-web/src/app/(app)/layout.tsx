@@ -168,9 +168,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <div className="flex min-h-screen bg-canvas">
+    // Shell de altura fixa: a página não rola inteira — só o <main> rola. Assim a
+    // sidebar (e o topo no mobile) ficam sempre visíveis ao descer a lista.
+    // No print, solta a trava para o conteúdo inteiro sair no PDF.
+    <div className="flex h-screen overflow-hidden bg-canvas print:h-auto print:overflow-visible">
       {/* Sidebar fixa (desktop) */}
-      <aside className={`sticky top-0 hidden h-screen shrink-0 flex-col overflow-hidden border-r border-line bg-surface transition-[width] duration-200 md:flex print:hidden ${menuMinimizado ? 'w-16' : 'w-60'}`}>
+      <aside className={`hidden h-screen shrink-0 flex-col overflow-hidden border-r border-line bg-surface transition-[width] duration-200 md:flex print:hidden ${menuMinimizado ? 'w-16' : 'w-60'}`}>
         <div className={`flex items-center border-b border-line ${menuMinimizado ? 'flex-col justify-center gap-2 px-2 py-3' : 'justify-between px-5 py-4'}`}>
           {menuMinimizado ? <LogoMark size={28} /> : <Logo size={30} />}
           {!menuMinimizado && <button onClick={alternarMenu} title="Minimizar menu" className="rounded p-1.5 text-muted hover:bg-canvas hover:text-primary"><PanelLeftClose size={18} /></button>}
@@ -193,15 +196,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         {navContent(false)}
       </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {/* Top bar (mobile) */}
-        <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-line bg-surface px-4 py-3 md:hidden print:hidden">
+        <header className="flex shrink-0 items-center gap-3 border-b border-line bg-surface px-4 py-3 md:hidden print:hidden">
           <button onClick={() => setMenuAberto(true)} className="rounded p-1.5 text-ink hover:bg-canvas" aria-label="Abrir menu">
             <Menu size={22} />
           </button>
           <Logo size={24} />
         </header>
-        <main className="min-w-0 flex-1 overflow-auto p-4 sm:p-6 md:p-8">{children}</main>
+        <main className="min-h-0 min-w-0 flex-1 overflow-auto p-4 sm:p-6 md:p-8 print:overflow-visible">{children}</main>
       </div>
     </div>
   );
