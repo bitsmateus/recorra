@@ -43,7 +43,7 @@ describe('DispatchService — fallback e opt-out', () => {
 
     await expect(service.processOne('dispatch-1')).rejects.toThrow('fallback: opt-out');
     expect(update).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ canal: 'SMS', tentativaFallback: 2 }),
+      data: expect.objectContaining({ canal: 'SMS', channelAccountId: null, tentativaFallback: 2 }),
     }));
   });
 });
