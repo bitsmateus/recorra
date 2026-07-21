@@ -24,6 +24,14 @@ export class DispatchService {
     const d = await this.prisma.messageDispatch.findUnique({ where: { id: dispatchId }, include: { customer: true } });
     if (!d || d.status !== 'FILA') return 'PULADO';
 
+    // Opt-out no momento do envio (cobre revogação após o enfileiramento). Se o
+    // canal atual foi revogado, tenta um fallback não-revogado antes de ignorar.
+    if (await this.optOut(d.customerId, d.canal)) {
+      if (await this.tentarFallback(d, ['opt-out no canal'])) throw new Error('fallback: opt-out, tentando proximo canal');
+      await this.marcar(d.id, 'IGNORADO', 'Opt-out no canal (sem canal alternativo permitido)');
+      return 'IGNORADO';
+    }
+
     const destino = this.destino(d.canal, d.customer.telefone, d.customer.email);
     if (!destino) {
       if (await this.tentarFallback(d, ['sem destino'])) throw new Error('fallback: sem destino, tentando proximo canal');
@@ -101,19 +109,32 @@ export class DispatchService {
   }
 
   private async tentarFallback(
-    d: { id: string; canal: ChannelType; cadeiaCanais: ChannelType[]; tentativaFallback: number },
+    d: { id: string; canal: ChannelType; cadeiaCanais: ChannelType[]; tentativaFallback: number; customerId: string },
     motivos: string[],
   ): Promise<boolean> {
     const cadeia = d.cadeiaCanais?.length ? d.cadeiaCanais : [d.canal];
-    const jaTentados = cadeia.slice(0, d.tentativaFallback + 1);
-    const proximo = nextChannel(cadeia, jaTentados) as ChannelType | null;
-    if (!proximo) return false;
-    await this.prisma.messageDispatch.update({
-      where: { id: d.id },
-      data: { canal: proximo, tentativaFallback: d.tentativaFallback + 1, erro: `fallback (${motivos.join('; ')})`, status: 'FILA' },
-    });
-    this.logger.log(`Fallback do disparo ${d.id}: ${d.canal} -> ${proximo}`);
-    return true;
+    const jaTentados = [...cadeia.slice(0, d.tentativaFallback + 1)];
+    // Procura o próximo canal PULANDO os que o cliente revogou (LGPD): trocar de
+    // canal no fallback não pode reintroduzir um canal com opt-out.
+    while (true) {
+      const proximo = nextChannel(cadeia, jaTentados) as ChannelType | null;
+      if (!proximo) return false;
+      if (await this.optOut(d.customerId, proximo)) { jaTentados.push(proximo); continue; }
+      await this.prisma.messageDispatch.update({
+        where: { id: d.id },
+        // tentativaFallback aponta para a posição do canal escolhido na cadeia,
+        // para os pulados não serem retentados.
+        data: { canal: proximo, tentativaFallback: cadeia.indexOf(proximo), erro: `fallback (${motivos.join('; ')})`, status: 'FILA' },
+      });
+      this.logger.log(`Fallback do disparo ${d.id}: ${d.canal} -> ${proximo}`);
+      return true;
+    }
+  }
+
+  /** Opt-out (LGPD): true se o cliente revogou o consentimento para o canal. */
+  private async optOut(customerId: string, canal: ChannelType): Promise<boolean> {
+    const revogado = await this.prisma.consent.findFirst({ where: { customerId, canal, status: 'REVOGADO' }, select: { id: true } });
+    return !!revogado;
   }
 
   private destino(canal: string, telefone?: string | null, email?: string | null): string | null {

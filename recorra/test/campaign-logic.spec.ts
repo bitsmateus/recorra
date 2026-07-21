@@ -7,10 +7,11 @@ describe('proximaExecucao (recorrência de campanha)', () => {
     expect(proximaExecucao('UMA_VEZ', null, new Date('2026-07-21T12:00:00Z'))).toBeNull();
   });
 
-  it('SEMPRE_ATIVA reavalia no dia seguinte (não no próximo mês)', () => {
-    const now = new Date('2026-07-21T12:00:00Z');
+  it('SEMPRE_ATIVA reavalia no início do dia seguinte (o cron das 9h pega)', () => {
+    const now = new Date(2026, 6, 21, 15, 0, 0); // 21/jul 15h (depois do cron das 9h)
     const prox = proximaExecucao('SEMPRE_ATIVA', null, now)!;
-    expect(prox.getTime() - now.getTime()).toBe(24 * 3600 * 1000);
+    expect(prox.getDate()).toBe(22);
+    expect(prox.getHours()).toBe(0); // 00:00 do dia seguinte, antes das 9h do cron
   });
 
   it('MENSAL: dia ainda por vir neste mês', () => {

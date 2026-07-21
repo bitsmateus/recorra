@@ -33,7 +33,9 @@ export interface PublicoFiltros {
  */
 export function proximaExecucao(agendamento: string, diaDoMes: number | null, now: Date): Date | null {
   if (agendamento === 'UMA_VEZ') return null;
-  if (agendamento === 'SEMPRE_ATIVA') return new Date(now.getTime() + 24 * 3600 * 1000);
+  // "Sempre ativa": início do dia seguinte (00:00), para o cron diário (9h) do dia
+  // seguinte sempre pegar — evita perder um dia quando ativada depois do horário do cron.
+  if (agendamento === 'SEMPRE_ATIVA') return new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0);
   const dia = diaDoMes && diaDoMes >= 1 && diaDoMes <= 28 ? diaDoMes : 1;
   let alvo = new Date(now.getFullYear(), now.getMonth(), dia, 9, 0, 0);
   if (alvo <= now) alvo = new Date(now.getFullYear(), now.getMonth() + 1, dia, 9, 0, 0);
@@ -289,6 +291,7 @@ export class CampaignsService {
 
   async duplicar(tenantId: string, id: string) {
     const c = await this.get(tenantId, id);
+    this.assertEditavel(c); // a campanha automática não é duplicável pelas rotas comuns
     return this.prisma.campaign.create({
       data: {
         tenantId,
@@ -442,12 +445,12 @@ export class CampaignsService {
   async participantesCampanha(tenantId: string, id: string) {
     const camp = await this.prisma.campaign.findFirst({
       where: { id, tenantId },
-      include: { rule: { include: { steps: { where: { ativo: true }, select: { canal: true } } } } },
+      include: { rule: { include: { steps: { where: { ativo: true }, select: { canal: true, canaisFallback: true } } } } },
     });
     if (!camp) throw new NotFoundException('Campanha não encontrada');
-    // Na Régua os canais reais são os dos passos; nos demais, o canal único.
+    // Na Régua os canais reais são os dos passos + seus fallbacks; nos demais, o canal único.
     const canais = camp.tipoEnvio === 'REGUA' && camp.rule
-      ? [...new Set(camp.rule.steps.map((s) => s.canal))]
+      ? [...new Set(camp.rule.steps.flatMap((s) => [s.canal, ...(s.canaisFallback ?? [])]))]
       : camp.canal ? [camp.canal] : undefined;
     return this.participantesPreview(tenantId, {
       filtroTodos: camp.filtroTodos, filtroEtiqueta: camp.filtroEtiqueta,
@@ -523,7 +526,7 @@ export class CampaignsService {
     }
     const CAP = 300;
     return {
-      resumo: { participantes: participantes.length, excluidos: excluidos.length, valorAberto: participantes.reduce((s, p) => s + p.valorAberto, 0), truncado: participantes.length > CAP || excluidos.length > CAP, limiteExibicao: CAP },
+      resumo: { participantes: participantes.length, excluidos: excluidos.length, valorAberto: participantes.reduce((s, p) => s + p.valorAberto, 0), participantesTruncados: participantes.length > CAP, excluidosTruncados: excluidos.length > CAP, limiteExibicao: CAP },
       participantes: participantes.slice(0, CAP),
       excluidos: excluidos.slice(0, CAP),
     };
@@ -577,6 +580,38 @@ export class CampaignsService {
     return this.resolverPublico(tenantId, camp);
   }
 
+  /** Canais que a campanha usará (na Régua: os dos passos + seus fallbacks). */
+  private canaisDaCampanha(camp: Campaign & { rule?: { steps: { canal: ChannelType; canaisFallback: ChannelType[] }[] } | null }): ChannelType[] {
+    if (camp.tipoEnvio === 'REGUA' && camp.rule) {
+      const set = new Set<ChannelType>();
+      for (const s of camp.rule.steps) { set.add(s.canal); (s.canaisFallback ?? []).forEach((c) => set.add(c)); }
+      return [...set];
+    }
+    return camp.canal ? [camp.canal] : ['WHATSAPP_CLOUD'];
+  }
+
+  /**
+   * Filtra o público deixando só os APTOS a receber, usando a MESMA regra da
+   * prévia (motivoExclusaoPublico): alcançável em ≥1 canal + sem opt-out em todos;
+   * LEMBRETE exige fatura em aberto. Assim prévia e executor não divergem.
+   */
+  private async filtrarAptos<T extends { id: string; telefone: string | null; email: string | null }>(
+    tenantId: string, customers: T[], tipoEnvio: string, canais: ChannelType[],
+  ): Promise<T[]> {
+    if (!customers.length) return [];
+    const ids = customers.map((c) => c.id);
+    const cs = canais.length ? canais : (['WHATSAPP_CLOUD'] as ChannelType[]);
+    const isLembrete = tipoEnvio === 'LEMBRETE';
+    const [invs, optouts] = await Promise.all([
+      isLembrete ? this.prisma.invoice.findMany({ where: { tenantId, customerId: { in: ids }, status: { in: ['PENDENTE', 'VENCIDA'] }, gestaoCobranca: 'ATIVA' }, select: { customerId: true } }) : Promise.resolve([] as { customerId: string }[]),
+      this.prisma.consent.findMany({ where: { customerId: { in: ids }, canal: { in: cs }, status: 'REVOGADO' }, select: { customerId: true, canal: true } }),
+    ]);
+    const temFatura = new Set(invs.map((i) => i.customerId));
+    const optBy = new Map<string, Set<ChannelType>>();
+    for (const o of optouts) { const s = optBy.get(o.customerId) ?? new Set<ChannelType>(); s.add(o.canal); optBy.set(o.customerId, s); }
+    return customers.filter((c) => !motivoExclusaoPublico({ canais: cs, optOut: optBy.get(c.id) ?? new Set<ChannelType>(), telefone: c.telefone, email: c.email, temFaturaAberta: temFatura.has(c.id), isLembrete }));
+  }
+
   /** Executa a campanha: cria a run, os destinatários e os disparos. */
   async executar(tenantId: string, id: string, auto = false) {
     const camp = await this.prisma.campaign.findFirst({ where: { id, tenantId }, include: { rule: { include: { steps: { where: { ativo: true }, orderBy: { ordem: 'asc' } } } } } });
@@ -588,15 +623,21 @@ export class CampaignsService {
       if (jaRodou) throw new BadRequestException('Esta campanha é de envio único e já foi disparada. Duplique-a para enviar de novo.');
     }
     let publico = await this.resolverPublicoExecucao(tenantId, camp);
-    // "Sempre ativa": envia só para quem ainda NÃO recebeu nesta campanha — evita
-    // re-disparar para a base inteira a cada execução (só os novos integrantes).
+    // Só os APTOS a receber (mesma regra da prévia) — evita enfileirar disparos que
+    // o worker só ignoraria (sem canal/opt-out) e desalinhar prévia × envio real.
+    publico = await this.filtrarAptos(tenantId, publico, camp.tipoEnvio, this.canaisDaCampanha(camp));
+    // "Sempre ativa": envia só para quem ainda NÃO foi de fato atendido nesta campanha.
+    // Dedupe pelo DISPARO efetivo (não pelo recipient): quem só teve FALHA/IGNORADO
+    // volta a ser tentado quando o cadastro for corrigido.
     if (camp.agendamento === 'SEMPRE_ATIVA') {
-      const runIds = (await this.prisma.campaignRun.findMany({ where: { campaignId: camp.id }, select: { id: true } })).map((r) => r.id);
-      const jaRecebeu = runIds.length ? await this.prisma.campaignRecipient.findMany({ where: { runId: { in: runIds } }, select: { customerId: true } }) : [];
-      const set = new Set(jaRecebeu.map((r) => r.customerId));
+      const atendidos = await this.prisma.messageDispatch.findMany({
+        where: { tenantId, campaignId: camp.id, status: { notIn: ['FALHA', 'IGNORADO'] } },
+        select: { customerId: true },
+      });
+      const set = new Set(atendidos.map((r) => r.customerId));
       publico = publico.filter((c) => !set.has(c.id));
     }
-    // Público vazio: no cron (auto) apenas reagenda e sai; no disparo manual, recusa.
+    // Público APTO vazio: no cron (auto) apenas reagenda e sai; no disparo manual, recusa.
     if (publico.length === 0) {
       if (auto) {
         await this.prisma.campaign.update({ where: { id: camp.id }, data: { proximaExecucao: this.calcularProxima(camp.agendamento, camp.diaDoMes) } });
