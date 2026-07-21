@@ -289,6 +289,10 @@ model Customer {
   cidade     String?
   uf         String?
 
+  // Faixa de risco atual, desnormalizada do último RiskScore — permite filtrar/
+  // paginar por risco no banco (segmentação e público de campanha) sem pós-filtro.
+  faixaAtual RiskBand?
+
   sourceSystem SourceSystem?
   externalId   String?
   ativo        Boolean  @default(true)

@@ -15,6 +15,9 @@ export interface SegmentFilter {
   faixa?: RiskBand;
   ativo?: boolean;
   etiqueta?: string;
+  aba?: 'geral' | 'aberto' | 'incompleto';
+  page?: string | number;
+  pageSize?: string | number;
 }
 
 @Injectable()
@@ -89,14 +92,12 @@ export class CustomersService {
     return c;
   }
 
-  /** Segmentação: filtra por texto, tags, plano, uf, faixa de valor e risco. */
-  async segment(tenantId: string, f: SegmentFilter) {
+  /** `where` base da segmentação (sem a condição da aba). Risco filtrado no banco. */
+  private buildSegmentWhere(tenantId: string, f: SegmentFilter): Prisma.CustomerWhereInput {
     const where: Prisma.CustomerWhereInput = { tenantId };
     if (f.ativo !== undefined) where.ativo = f.ativo;
     if (f.q?.trim()) {
       // Busca por nome (case-insensitive) e, só quando o termo tem dígitos, por documento.
-      // Sem esse guard, onlyDigits('brava') === '' e { doc: { contains: '' } } casaria com
-      // todos os clientes, anulando o filtro por nome.
       const termo = f.q.trim();
       const digitos = onlyDigits(termo);
       const or: Prisma.CustomerWhereInput[] = [{ nome: { contains: termo, mode: 'insensitive' } }];
@@ -113,29 +114,37 @@ export class CustomersService {
         ...(f.valorMax !== undefined ? { lte: f.valorMax } : {}),
       };
     }
+    if (f.faixa) where.faixaAtual = f.faixa; // desnormalizado — filtra no banco (paginável)
+    return where;
+  }
 
-    let customers = await this.prisma.customer.findMany({ where, take: 500, orderBy: { nome: 'asc' } });
+  /**
+   * Segmentação com PAGINAÇÃO de servidor e abas (geral / em aberto / cadastro
+   * incompleto) calculadas no banco. Retorna a página, o total da aba e as
+   * contagens das 3 abas (sobre os mesmos filtros).
+   */
+  async segment(tenantId: string, f: SegmentFilter) {
+    const base = this.buildSegmentWhere(tenantId, f);
+    // "Em aberto" = tem alguma fatura não paga (equivale a pagas < total). "Incompleto" = sem e-mail ou telefone.
+    const abertoCond: Prisma.CustomerWhereInput = { invoices: { some: { status: { not: 'PAGA' } } } };
+    const incompletoCond: Prisma.CustomerWhereInput = { OR: [{ email: null }, { email: '' }, { telefone: null }, { telefone: '' }] };
+    const whereAba = f.aba === 'aberto' ? { AND: [base, abertoCond] } : f.aba === 'incompleto' ? { AND: [base, incompletoCond] } : base;
 
-    // Filtro por faixa de risco (usa o score mais recente de cada cliente).
-    if (f.faixa) {
-      const ids = customers.map((c) => c.id);
-      const scores = await this.prisma.riskScore.findMany({
-        where: { tenantId, customerId: { in: ids } },
-        orderBy: { calculadoEm: 'desc' },
-      });
-      const faixaByCustomer = new Map<string, RiskBand>();
-      for (const s of scores) if (!faixaByCustomer.has(s.customerId)) faixaByCustomer.set(s.customerId, s.faixa);
-      customers = customers.filter((c) => faixaByCustomer.get(c.id) === f.faixa);
-    }
+    const pageSize = Math.min(200, Math.max(1, Number(f.pageSize) || 50));
+    const page = Math.max(1, Number(f.page) || 1);
 
-    // Anexa contagem de cobrancas (criadas e pagas) por cliente.
+    const [customers, geral, aberto, incompleto] = await Promise.all([
+      this.prisma.customer.findMany({ where: whereAba, orderBy: { nome: 'asc' }, skip: (page - 1) * pageSize, take: pageSize }),
+      this.prisma.customer.count({ where: base }),
+      this.prisma.customer.count({ where: { AND: [base, abertoCond] } }),
+      this.prisma.customer.count({ where: { AND: [base, incompletoCond] } }),
+    ]);
+    const total = f.aba === 'aberto' ? aberto : f.aba === 'incompleto' ? incompleto : geral;
+
+    // Anexa contagem de cobranças (total e pagas) por cliente da página.
     const custIds = customers.map((c) => c.id);
     const grouped = custIds.length
-      ? await this.prisma.invoice.groupBy({
-          by: ['customerId', 'status'],
-          where: { tenantId, customerId: { in: custIds } },
-          _count: { _all: true },
-        })
+      ? await this.prisma.invoice.groupBy({ by: ['customerId', 'status'], where: { tenantId, customerId: { in: custIds } }, _count: { _all: true } })
       : [];
     const totalBy = new Map<string, number>();
     const pagaBy = new Map<string, number>();
@@ -143,11 +152,8 @@ export class CustomersService {
       totalBy.set(g.customerId, (totalBy.get(g.customerId) ?? 0) + g._count._all);
       if (g.status === 'PAGA') pagaBy.set(g.customerId, (pagaBy.get(g.customerId) ?? 0) + g._count._all);
     }
-    return customers.map((c) => ({
-      ...c,
-      cobrancasTotal: totalBy.get(c.id) ?? 0,
-      cobrancasPagas: pagaBy.get(c.id) ?? 0,
-    }));
+    const items = customers.map((c) => ({ ...c, cobrancasTotal: totalBy.get(c.id) ?? 0, cobrancasPagas: pagaBy.get(c.id) ?? 0 }));
+    return { items, total, contagens: { geral, aberto, incompleto } };
   }
 
   /** Adiciona/remove tags de um cliente. */

@@ -57,9 +57,14 @@ export class RiskScoringService {
     score = Math.max(0, Math.min(100, Math.round(score)));
     const faixa = this.bandFromScore(score);
 
-    return this.prisma.riskScore.create({
-      data: { tenantId, customerId, score, faixa, fatores: factors as unknown as object },
-    });
+    const [criado] = await this.prisma.$transaction([
+      this.prisma.riskScore.create({
+        data: { tenantId, customerId, score, faixa, fatores: factors as unknown as object },
+      }),
+      // Espelha a faixa no cliente para filtro/paginação por risco no banco.
+      this.prisma.customer.update({ where: { id: customerId }, data: { faixaAtual: faixa } }),
+    ]);
+    return criado;
   }
 
   async latest(tenantId: string, customerId: string) {

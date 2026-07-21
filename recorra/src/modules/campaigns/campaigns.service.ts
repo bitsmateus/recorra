@@ -367,15 +367,12 @@ export class CampaignsService {
         const situacao = wherePorSituacao(camp.filtroStatus);
         if (situacao.invoices) where.invoices = situacao.invoices;
       }
+      // Risco filtrado no banco pela faixa desnormalizada (sem pós-corte que quebrava a paginação).
+      if (camp.filtroFaixa) where.faixaAtual = camp.filtroFaixa;
     }
-    let customers = await this.prisma.customer.findMany({ where, take: 5000, orderBy: { nome: 'asc' } });
-    if (!camp.filtroTodos && camp.filtroFaixa) {
-      const ids = customers.map((c) => c.id);
-      const scores = await this.prisma.riskScore.findMany({ where: { tenantId, customerId: { in: ids } }, orderBy: { calculadoEm: 'desc' } });
-      const faixaBy = new Map<string, RiskBand>();
-      for (const s of scores) if (!faixaBy.has(s.customerId)) faixaBy.set(s.customerId, s.faixa);
-      customers = customers.filter((c) => faixaBy.get(c.id) === camp.filtroFaixa);
-    }
+    // Teto de segurança alto (execução precisa de todos os alvos). O filtro de risco
+    // agora está no `where`, então não há mais o corte pós-take que descartava contatos.
+    let customers = await this.prisma.customer.findMany({ where, take: 20000, orderBy: { nome: 'asc' } });
     // Remove os excluídos manualmente e adiciona os incluídos manualmente.
     const excl = new Set(camp.excluirIds ?? []);
     customers = customers.filter((c) => !excl.has(c.id));

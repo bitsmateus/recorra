@@ -41,9 +41,6 @@ function situacaoDe(c: Customer): { key: string; label: string; bg: string; fg: 
   return { key: 'dia', label: 'Em dia', bg: '#E4F4EA', fg: '#0F6E56' };
 }
 
-function cadastroIncompleto(c: Customer): boolean {
-  return !c.email || !c.telefone;
-}
 
 function SituacaoBadge({ c }: { c: Customer }) {
   const s = situacaoDe(c);
@@ -75,28 +72,44 @@ export default function ClientesPage() {
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
   const [confirmarLote, setConfirmarLote] = useState(false);
   const POR_PAGINA = 50;
-  const [limite, setLimite] = useState(POR_PAGINA);
+  const [total, setTotal] = useState(0);
+  const [pagina, setPagina] = useState(1);
+  const [contagens, setContagens] = useState({ geral: 0, aberto: 0, incompleto: 0 });
 
   const toggleSel = (id: string) => setSelecionados((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const reloadEtiquetas = useCallback(() => { api<Etiqueta[]>('/clientes/etiquetas').then(setEtiquetas).catch(() => {}); }, []);
 
-  const carregar = useCallback(async () => {
-    setLoading(true);
+  async function fetchRiscos(rows: Customer[]) {
+    const pares = await Promise.all(rows.map(async (c) => [c.id, await api<RiskScore | null>(`/clientes/${c.id}/risco`).catch(() => null)] as const));
+    setRiscos((prev) => { const m = { ...prev }; for (const [id, r] of pares) m[id] = r; return m; });
+  }
+  const paramsClientes = (pg: number) => {
     const params = new URLSearchParams();
     Object.entries(aplicados).forEach(([k, v]) => v && params.set(k, v));
-    const list = await api<Customer[]>(`/clientes?${params.toString()}`).catch(() => []);
-    setClientes(list);
+    params.set('aba', aba); params.set('page', String(pg)); params.set('pageSize', String(POR_PAGINA));
+    return params;
+  };
+
+  // Paginação de SERVIDOR: cada carga é uma página; abas e contagens vêm do banco.
+  const carregar = useCallback(async () => {
+    setLoading(true);
+    const r = await api<{ items: Customer[]; total: number; contagens: { geral: number; aberto: number; incompleto: number } }>(`/clientes?${paramsClientes(1).toString()}`).catch(() => null);
     setLoading(false);
-    const map: Record<string, RiskScore | null> = {};
-    await Promise.all(list.slice(0, 50).map(async (c) => {
-      map[c.id] = await api<RiskScore | null>(`/clientes/${c.id}/risco`).catch(() => null);
-    }));
-    setRiscos(map);
-  }, [aplicados]);
+    if (!r) return;
+    setClientes(r.items); setTotal(r.total); setContagens(r.contagens); setPagina(1);
+    fetchRiscos(r.items);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aplicados, aba]);
+
+  async function verMais() {
+    const prox = pagina + 1;
+    const r = await api<{ items: Customer[]; total: number }>(`/clientes?${paramsClientes(prox).toString()}`).catch(() => null);
+    if (!r) return;
+    setClientes((prev) => [...prev, ...r.items]); setTotal(r.total); setPagina(prox);
+    fetchRiscos(r.items);
+  }
 
   useEffect(() => { carregar(); }, [carregar]);
-  // Volta para a 1ª "página" quando troca de aba ou a lista é recarregada/filtrada.
-  useEffect(() => { setLimite(POR_PAGINA); }, [aba, clientes]);
 
   // Busca automática ~450ms após parar de digitar/mexer nos filtros (além do botão Filtrar).
   useEffect(() => {
@@ -132,21 +145,13 @@ export default function ClientesPage() {
   }
 
   const corPorTag = new Map(etiquetas.map((e) => [e.nome, e.cor] as const));
-  const visiveis = clientes.filter((c) => (aba === 'aberto' ? situacaoDe(c).key === 'aberto' : aba === 'incompleto' ? cadastroIncompleto(c) : true));
-  // Mostra só `limite` por vez; "Ver mais" revela mais 50. As contagens/abas
-  // continuam sobre a lista completa — a paginação é só da exibição.
-  const paginados = visiveis.slice(0, limite);
-  const temMais = visiveis.length > paginados.length;
-  // "Selecionar todos" marca apenas o que está na tela (evita selecionar centenas
-  // de linhas escondidas sem querer, ainda mais com exclusão em massa).
-  const idsVisiveis = paginados.map((c) => c.id);
+  // O servidor já devolve a aba filtrada e paginada; a lista carregada É o que se vê.
+  const temMais = clientes.length < total;
+  const contagem = contagens;
+  // "Selecionar todos" marca apenas o que está carregado (evita marcar milhares sem querer).
+  const idsVisiveis = clientes.map((c) => c.id);
   const todosMarcados = idsVisiveis.length > 0 && idsVisiveis.every((id) => selecionados.has(id));
   const toggleTodos = () => setSelecionados(todosMarcados ? new Set() : new Set(idsVisiveis));
-  const contagem = {
-    geral: clientes.length,
-    aberto: clientes.filter((c) => situacaoDe(c).key === 'aberto').length,
-    incompleto: clientes.filter(cadastroIncompleto).length,
-  };
 
   return (
     <div>
@@ -190,7 +195,7 @@ export default function ClientesPage() {
       </div>
 
       <div className="mb-2 flex items-center gap-3 text-sm text-muted">
-        <span>Total de clientes: <span className="tabular font-medium text-ink">{visiveis.length}{clientes.length >= 500 ? '+' : ''}</span>{temMais && <> · mostrando <span className="tabular font-medium text-ink">{paginados.length}</span></>}{clientes.length >= 500 && <span className="ml-1 text-xs text-warning" title="A API traz no máximo 500 por vez — refine os filtros para ver o restante">(limite de 500 — refine os filtros)</span>}</span>
+        <span>Total de clientes: <span className="tabular font-medium text-ink">{total}</span>{temMais && <> · mostrando <span className="tabular font-medium text-ink">{clientes.length}</span></>}</span>
       </div>
 
       {selecionados.size > 0 && (
@@ -207,7 +212,7 @@ export default function ClientesPage() {
             <tr><th className="w-10 px-4 py-3"><input type="checkbox" checked={todosMarcados} onChange={toggleTodos} className="h-4 w-4 cursor-pointer accent-primary" aria-label="Selecionar todos" /></th><th className="px-4 py-3 font-medium">Cliente</th><th className="px-4 py-3 font-medium">Documento</th><th className="px-4 py-3 font-medium">Situação</th><th className="px-4 py-3 font-medium">Tags</th><th className="px-4 py-3 font-medium">Cobranças</th><th className="px-4 py-3 font-medium">Score / Risco</th><th className="px-4 py-3 font-medium text-right">Ações</th></tr>
           </thead>
           <tbody>
-            {paginados.map((c) => (
+            {clientes.map((c) => (
               <tr key={c.id} className={`border-b border-line last:border-0 hover:bg-canvas/50 ${selecionados.has(c.id) ? 'bg-primary-tint/40' : ''}`}>
                 <td className="px-4 py-3"><input type="checkbox" checked={selecionados.has(c.id)} onChange={() => toggleSel(c.id)} className="h-4 w-4 cursor-pointer accent-primary" aria-label={`Selecionar ${c.nome}`} /></td>
                 <td className="px-4 py-3">
@@ -243,16 +248,16 @@ export default function ClientesPage() {
                 </td>
               </tr>
             ))}
-            {!loading && visiveis.length === 0 && <tr><td colSpan={8} className="px-4 py-8 text-center text-muted">Nenhum cliente encontrado.</td></tr>}
+            {!loading && clientes.length === 0 && <tr><td colSpan={8} className="px-4 py-8 text-center text-muted">Nenhum cliente encontrado.</td></tr>}
           </tbody>
         </table></div>
       </div>
       {temMais && (
         <div className="mt-3 flex items-center justify-center gap-3">
-          <button onClick={() => setLimite((n) => n + POR_PAGINA)} className="rounded border border-line px-4 py-2 text-sm font-medium hover:bg-canvas">
-            Ver mais {Math.min(POR_PAGINA, visiveis.length - paginados.length)}
+          <button onClick={verMais} className="rounded border border-line px-4 py-2 text-sm font-medium hover:bg-canvas">
+            Ver mais {Math.min(POR_PAGINA, total - clientes.length)}
           </button>
-          <button onClick={() => setLimite(visiveis.length)} className="text-sm text-primary hover:underline">Ver todos ({visiveis.length})</button>
+          <span className="text-sm text-muted">{clientes.length} de {total}</span>
         </div>
       )}
       {loading && <p className="mt-3 text-sm text-muted">Carregando...</p>}

@@ -28,6 +28,9 @@ export class CustomersController {
     @Query('valorMax') valorMax?: string,
     @Query('faixa') faixa?: RiskBand,
     @Query('etiqueta') etiqueta?: string,
+    @Query('aba') aba?: 'geral' | 'aberto' | 'incompleto',
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
   ) {
     return this.customers.segment(tenantId, {
       q,
@@ -38,6 +41,9 @@ export class CustomersController {
       valorMax: parseNumberFilter(valorMax),
       faixa,
       etiqueta,
+      aba,
+      page,
+      pageSize,
     });
   }
 
