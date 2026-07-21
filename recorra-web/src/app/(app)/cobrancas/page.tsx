@@ -6,6 +6,7 @@ import { ImportWizard } from '@/components/ImportWizard';
 import { api } from '@/lib/api';
 import { PageTitle, brl } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { toCsv, baixarArquivo } from '@/lib/csv';
 
 // Aceita valor em formato BR (109,90 ou 1.109,90) ou com ponto decimal (109.90).
 function parseValorBR(v: string): number {
@@ -198,6 +199,45 @@ export default function CobrancasPage() {
   // todas" opera só sobre o que está na tela (evita marcar centenas escondidas).
   const paginadas = invoicesOrdenadas.slice(0, limite);
   const temMais = invoicesOrdenadas.length > paginadas.length;
+
+  // Resumo do resultado FILTRADO (toda a lista carregada, não só os 50 na tela):
+  // soma total, quanto está em aberto e a quebra por status (valor + quantidade).
+  const resumo = invoicesOrdenadas.reduce(
+    (acc, i) => {
+      const v = Number(i.valor) || 0;
+      acc.soma += v;
+      if (i.status === 'PENDENTE' || i.status === 'VENCIDA') acc.emAberto += v;
+      const s = acc.porStatus[i.status] ?? { n: 0, valor: 0 };
+      s.n += 1; s.valor += v;
+      acc.porStatus[i.status] = s;
+      return acc;
+    },
+    { soma: 0, emAberto: 0, porStatus: {} as Record<string, { n: number; valor: number }> },
+  );
+  const ORDEM_STATUS = ['VENCIDA', 'PENDENTE', 'PAGA', 'CANCELADA', 'ESTORNADA'];
+  const statusResumo = ORDEM_STATUS.filter((s) => resumo.porStatus[s]);
+  const ticketMedio = invoicesOrdenadas.length ? resumo.soma / invoicesOrdenadas.length : 0;
+  const clientesDistintos = new Set(invoicesOrdenadas.map((i) => i.customer?.doc || i.customer?.nome || i.id)).size;
+  // Atraso crítico: vencidas há mais de 30 dias — o valor mais difícil de recuperar.
+  const limite30 = Date.now() - 30 * 86_400_000;
+  const critico = invoicesOrdenadas.reduce(
+    (acc, i) => {
+      if (i.status === 'VENCIDA' && new Date(i.vencimento).getTime() < limite30) { acc.n += 1; acc.valor += Number(i.valor) || 0; }
+      return acc;
+    },
+    { n: 0, valor: 0 },
+  );
+
+  function exportarCsv() {
+    const headers = ['Cliente', 'Documento', 'Valor', 'Vencimento', 'Método', 'Status', 'Gerada no gateway'];
+    const linhas = invoicesOrdenadas.map((i) => [
+      i.customer?.nome || '', i.customer?.doc || '', Number(i.valor).toFixed(2).replace('.', ','),
+      new Date(i.vencimento).toLocaleDateString('pt-BR'), i.metodo, i.status, i.externalId ? 'Sim' : 'Não',
+    ]);
+    const hoje = new Date().toISOString().slice(0, 10);
+    baixarArquivo(`cobrancas-${hoje}.csv`, toCsv(headers, linhas));
+  }
+
   const idsVisiveis = paginadas.map((i) => i.id);
   const todosMarcados = idsVisiveis.length > 0 && idsVisiveis.every((id) => selecionados.has(id));
   const toggleTodos = () => setSelecionados(todosMarcados ? new Set() : new Set(idsVisiveis));
@@ -260,8 +300,39 @@ export default function CobrancasPage() {
         </div>
       </div>
 
-      <div className="mb-2 text-sm text-muted">
-        Total de cobranças: <span className="tabular font-medium text-ink">{invoicesOrdenadas.length}</span>{temMais && <> · mostrando <span className="tabular font-medium text-ink">{paginadas.length}</span></>}
+      <div className="mb-3 rounded-lg border border-line bg-surface px-4 py-3">
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm text-muted">
+          <span>Total de cobranças: <span className="tabular font-medium text-ink">{invoicesOrdenadas.length}</span>{temMais && <> · mostrando <span className="tabular font-medium text-ink">{paginadas.length}</span></>}</span>
+          {invoicesOrdenadas.length > 0 && (
+            <button onClick={exportarCsv} className="ml-auto flex items-center gap-1.5 rounded border border-line px-2.5 py-1 text-xs font-medium hover:bg-canvas" title="Baixar o resultado filtrado em CSV (abre no Excel)">
+              <FileDown size={14} /> Exportar ({invoicesOrdenadas.length})
+            </button>
+          )}
+        </div>
+        {invoicesOrdenadas.length > 0 && (
+          <div className="mt-2 flex flex-wrap items-baseline gap-x-5 gap-y-1 text-sm text-muted">
+            <span>Valor total: <span className="tabular font-semibold text-ink">{brl(resumo.soma)}</span></span>
+            {resumo.emAberto > 0 && <span>Em aberto: <span className="tabular font-semibold text-danger">{brl(resumo.emAberto)}</span></span>}
+            <span>Ticket médio: <span className="tabular font-medium text-ink">{brl(ticketMedio)}</span></span>
+            <span>Clientes: <span className="tabular font-medium text-ink">{clientesDistintos}</span></span>
+            {critico.n > 0 && (
+              <span title="Cobranças vencidas há mais de 30 dias — o valor mais difícil de recuperar">
+                Atraso +30d: <span className="tabular font-semibold text-danger">{critico.n}</span> · <span className="tabular font-semibold text-danger">{brl(critico.valor)}</span>
+              </span>
+            )}
+          </div>
+        )}
+        {statusResumo.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {statusResumo.map((s) => (
+              <span key={s} className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs ${statusColor[s] || 'bg-canvas text-muted'}`}>
+                <span className="font-medium">{s}</span>
+                <span className="tabular opacity-70">{resumo.porStatus[s].n}</span>
+                <span className="tabular font-semibold">{brl(resumo.porStatus[s].valor)}</span>
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {selecionados.size > 0 && (
