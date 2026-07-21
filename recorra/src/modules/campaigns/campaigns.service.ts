@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { ChannelType, Prisma, RiskBand } from '@prisma/client';
+import { Campaign, ChannelType, Prisma, RiskBand } from '@prisma/client';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { DispatchService } from '@/modules/dunning/dispatch.service';
 import { PaymentProviderFactory } from '@/modules/payments/payment-provider.factory';
@@ -25,12 +25,45 @@ export interface PublicoFiltros {
   excluirIds?: string[];
 }
 
+/**
+ * Próxima execução de uma campanha recorrente (puro/testável).
+ *  - UMA_VEZ: não recorre (null).
+ *  - SEMPRE_ATIVA: reavalia todo dia (para pegar novos integrantes).
+ *  - MENSAL: no dia escolhido (1..28), pulando para o próximo mês se já passou.
+ */
+export function proximaExecucao(agendamento: string, diaDoMes: number | null, now: Date): Date | null {
+  if (agendamento === 'UMA_VEZ') return null;
+  if (agendamento === 'SEMPRE_ATIVA') return new Date(now.getTime() + 24 * 3600 * 1000);
+  const dia = diaDoMes && diaDoMes >= 1 && diaDoMes <= 28 ? diaDoMes : 1;
+  let alvo = new Date(now.getFullYear(), now.getMonth(), dia, 9, 0, 0);
+  if (alvo <= now) alvo = new Date(now.getFullYear(), now.getMonth() + 1, dia, 9, 0, 0);
+  return alvo;
+}
+
 /** Canais que precisam de telefone no cadastro (WhatsApp e SMS). */
 const EXIGE_TELEFONE: ChannelType[] = [...WHATSAPP, 'SMS'];
 const CANAL_LABEL: Record<string, string> = {
   WHATSAPP_CLOUD: 'WhatsApp', WHATSAPP_EVOLUTION: 'WhatsApp', WHATSAPP_UAZAPI: 'WhatsApp',
   NX_SYSTEMS: 'WhatsApp', EMAIL: 'E-mail', SMS: 'SMS', HTTP_GENERIC: 'HTTP',
 };
+
+/**
+ * Motivo de exclusão de um contato do envio, considerando o CONJUNTO de canais
+ * (puro/testável). Regra: apto se houver ≥1 canal em que é alcançável E sem
+ * opt-out. Espelha o executor (opt-out por passo na régua). null = participa.
+ */
+export function motivoExclusaoPublico(opts: {
+  canais: ChannelType[]; optOut: Set<ChannelType>; telefone: string | null; email: string | null;
+  temFaturaAberta: boolean; isLembrete: boolean;
+}): string | null {
+  const { canais, optOut, telefone, email, temFaturaAberta, isLembrete } = opts;
+  if (isLembrete && !temFaturaAberta) return 'Sem fatura em aberto';
+  const alcancavel = (canal: ChannelType) => (EXIGE_TELEFONE.includes(canal) ? !!telefone : canal === 'EMAIL' ? !!email : true);
+  const alcancaveis = canais.filter(alcancavel);
+  if (alcancaveis.length === 0) return canais.length > 1 ? 'Sem canal para alcançar (telefone/e-mail)' : (canais[0] === 'EMAIL' ? 'Sem e-mail cadastrado' : 'Sem telefone cadastrado');
+  if (alcancaveis.every((canal) => optOut.has(canal))) return `Opt-out em ${[...new Set(alcancaveis.map((x) => CANAL_LABEL[x] ?? x))].join('/')}`;
+  return null;
+}
 
 /** Valores aceitos no filtro de público por situação da cobrança. */
 export const SITUACOES_PUBLICO = ['VENCIDA', 'PENDENTE', 'ABERTO', 'EM_DIA'] as const;
@@ -212,9 +245,22 @@ export class CampaignsService {
     };
   }
 
+  /** Garante que a régua pertence ao tenant (evita vincular régua de outra empresa). */
+  private async validarRegua(tenantId: string, tipoEnvio: string, ruleId?: string | null) {
+    if (tipoEnvio !== 'REGUA') return;
+    if (!ruleId) throw new BadRequestException('Selecione uma régua');
+    const r = await this.prisma.dunningRule.findFirst({ where: { id: ruleId, tenantId }, select: { id: true } });
+    if (!r) throw new BadRequestException('Régua inválida.');
+  }
+
+  /** Bloqueia edição/exclusão/pausa da campanha automática pelas rotas comuns. */
+  private assertEditavel(camp: { automatico: boolean }) {
+    if (camp.automatico) throw new BadRequestException('A cobrança automática não é editada por aqui — use ligar/pausar.');
+  }
+
   async create(tenantId: string, input: CampaignInput) {
     if (!input.nome?.trim()) throw new BadRequestException('Nome é obrigatório');
-    if (input.tipoEnvio === 'REGUA' && !input.ruleId) throw new BadRequestException('Selecione uma régua');
+    await this.validarRegua(tenantId, input.tipoEnvio, input.ruleId);
     this.validarConteudo(input);
     const proxima = this.calcularProxima(input.agendamento || 'UMA_VEZ', input.diaDoMes ?? null);
     return this.prisma.campaign.create({
@@ -234,7 +280,8 @@ export class CampaignsService {
   }
 
   async update(tenantId: string, id: string, input: CampaignInput) {
-    await this.get(tenantId, id);
+    this.assertEditavel(await this.get(tenantId, id));
+    await this.validarRegua(tenantId, input.tipoEnvio, input.ruleId);
     this.validarConteudo(input);
     const proxima = this.calcularProxima(input.agendamento || 'UMA_VEZ', input.diaDoMes ?? null);
     return this.prisma.campaign.update({ where: { id }, data: { ...this.dados(input), proximaExecucao: proxima } });
@@ -277,23 +324,18 @@ export class CampaignsService {
   }
 
   async remove(tenantId: string, id: string) {
-    await this.get(tenantId, id);
+    this.assertEditavel(await this.get(tenantId, id));
     await this.prisma.campaign.delete({ where: { id } });
     return { ok: true };
   }
 
   async setStatus(tenantId: string, id: string, status: 'ATIVA' | 'PAUSADA') {
-    await this.get(tenantId, id);
+    this.assertEditavel(await this.get(tenantId, id));
     return this.prisma.campaign.update({ where: { id }, data: { status, ativa: status === 'ATIVA' } });
   }
 
   private calcularProxima(agendamento: string, diaDoMes: number | null): Date | null {
-    if (agendamento === 'UMA_VEZ') return null;
-    const dia = diaDoMes && diaDoMes >= 1 && diaDoMes <= 28 ? diaDoMes : 1;
-    const now = new Date();
-    let alvo = new Date(now.getFullYear(), now.getMonth(), dia, 9, 0, 0);
-    if (alvo <= now) alvo = new Date(now.getFullYear(), now.getMonth() + 1, dia, 9, 0, 0);
-    return alvo;
+    return proximaExecucao(agendamento, diaDoMes, new Date());
   }
 
   /** Resolve o público-alvo da campanha a partir dos filtros. */
@@ -313,7 +355,7 @@ export class CampaignsService {
           ...(camp.filtroValorMax != null ? { lte: Number(camp.filtroValorMax) } : {}),
         };
       }
-      if (camp.filtroPlano) where.plano = camp.filtroPlano;
+      if (camp.filtroPlano) where.plano = { equals: camp.filtroPlano, mode: 'insensitive' };
       if (camp.filtroCidade) where.cidade = { equals: camp.filtroCidade, mode: 'insensitive' };
       // Dias de atraso implica fatura vencida há >= N dias e supera o filtro de
       // situação na condição de fatura (é o recorte mais específico de "em atraso").
@@ -340,7 +382,8 @@ export class CampaignsService {
     const jaTem = new Set(customers.map((c) => c.id));
     const faltantes = (camp.incluirIds ?? []).filter((id) => !jaTem.has(id) && !excl.has(id));
     if (faltantes.length) {
-      const extras = await this.prisma.customer.findMany({ where: { tenantId, id: { in: faltantes } } });
+      // Include manual respeita `ativo` — não injeta cliente inativo por um id solto.
+      const extras = await this.prisma.customer.findMany({ where: { tenantId, id: { in: faltantes }, ativo: true } });
       customers = [...customers, ...extras];
     }
     return customers;
@@ -400,7 +443,15 @@ export class CampaignsService {
 
   /** "Ver participantes" de uma campanha JÁ salva — usado na revisão antes de disparar. */
   async participantesCampanha(tenantId: string, id: string) {
-    const camp = await this.get(tenantId, id);
+    const camp = await this.prisma.campaign.findFirst({
+      where: { id, tenantId },
+      include: { rule: { include: { steps: { where: { ativo: true }, select: { canal: true } } } } },
+    });
+    if (!camp) throw new NotFoundException('Campanha não encontrada');
+    // Na Régua os canais reais são os dos passos; nos demais, o canal único.
+    const canais = camp.tipoEnvio === 'REGUA' && camp.rule
+      ? [...new Set(camp.rule.steps.map((s) => s.canal))]
+      : camp.canal ? [camp.canal] : undefined;
     return this.participantesPreview(tenantId, {
       filtroTodos: camp.filtroTodos, filtroEtiqueta: camp.filtroEtiqueta,
       filtroValorMin: camp.filtroValorMin != null ? Number(camp.filtroValorMin) : null,
@@ -408,7 +459,7 @@ export class CampaignsService {
       filtroFaixa: camp.filtroFaixa, filtroStatus: camp.filtroStatus,
       filtroDiasAtraso: camp.filtroDiasAtraso, filtroPlano: camp.filtroPlano, filtroCidade: camp.filtroCidade,
       incluirIds: camp.incluirIds, excluirIds: camp.excluirIds,
-      tipoEnvio: camp.tipoEnvio, canal: camp.canal,
+      tipoEnvio: camp.tipoEnvio, canal: camp.canal, canais,
     });
   }
 
@@ -419,7 +470,7 @@ export class CampaignsService {
    * Anexa a cada participante situação/valor em aberto, risco e o motivo da entrada.
    * Tudo em consultas em lote (independe do tamanho do público).
    */
-  async participantesPreview(tenantId: string, f: PublicoFiltros & { tipoEnvio?: string; canal?: ChannelType | null }) {
+  async participantesPreview(tenantId: string, f: PublicoFiltros & { tipoEnvio?: string; canal?: ChannelType | null; canais?: ChannelType[] }) {
     const customers = await this.resolverPublico(tenantId, {
       filtroTodos: !!f.filtroTodos, filtroEtiqueta: f.filtroEtiqueta || null,
       filtroValorMin: f.filtroValorMin ?? null, filtroValorMax: f.filtroValorMax ?? null,
@@ -428,14 +479,15 @@ export class CampaignsService {
       incluirIds: f.incluirIds ?? [], excluirIds: f.excluirIds ?? [],
     });
     const ids = customers.map((c) => c.id);
-    const canal = (f.canal ?? 'WHATSAPP_CLOUD') as ChannelType;
-    const exigeTelefone = EXIGE_TELEFONE.includes(canal);
-    const exigeEmail = canal === 'EMAIL';
+    // Conjunto de canais que a campanha usará: na Régua, os canais dos passos;
+    // nos demais, o canal único. Um contato é apto se houver AO MENOS UM canal
+    // em que ele é alcançável e não deu opt-out — espelhando o executor por passo.
+    const canais = (f.canais?.length ? f.canais : [(f.canal ?? 'WHATSAPP_CLOUD')]) as ChannelType[];
 
     const [invs, scores, optouts] = await Promise.all([
       ids.length ? this.prisma.invoice.findMany({ where: { tenantId, customerId: { in: ids }, status: { in: ['PENDENTE', 'VENCIDA'] }, gestaoCobranca: 'ATIVA' }, select: { customerId: true, valor: true, status: true } }) : [],
       ids.length ? this.prisma.riskScore.findMany({ where: { tenantId, customerId: { in: ids } }, orderBy: { calculadoEm: 'desc' }, select: { customerId: true, faixa: true } }) : [],
-      ids.length ? this.prisma.consent.findMany({ where: { customerId: { in: ids }, canal, status: 'REVOGADO' }, select: { customerId: true } }) : [],
+      ids.length ? this.prisma.consent.findMany({ where: { customerId: { in: ids }, canal: { in: canais }, status: 'REVOGADO' }, select: { customerId: true, canal: true } }) : [],
     ]);
 
     const abertoBy = new Map<string, { valor: number; vencida: number }>();
@@ -447,19 +499,18 @@ export class CampaignsService {
     }
     const faixaBy = new Map<string, RiskBand>();
     for (const s of scores) if (!faixaBy.has(s.customerId)) faixaBy.set(s.customerId, s.faixa);
-    const optSet = new Set(optouts.map((o) => o.customerId));
+    const optBy = new Map<string, Set<ChannelType>>();
+    for (const o of optouts) { const s = optBy.get(o.customerId) ?? new Set<ChannelType>(); s.add(o.canal); optBy.set(o.customerId, s); }
     const manualSet = new Set(f.incluirIds ?? []);
-    const canalLabel = CANAL_LABEL[canal] ?? canal;
 
     const participantes: { id: string; nome: string; doc: string; situacao: string | null; valorAberto: number; faixa: RiskBand | null; motivo: string }[] = [];
     const excluidos: { id: string; nome: string; doc: string; motivo: string }[] = [];
     for (const c of customers) {
       const ab = abertoBy.get(c.id);
-      let motivoExcl: string | null = null;
-      if (optSet.has(c.id)) motivoExcl = `Opt-out no ${canalLabel}`;
-      else if (exigeTelefone && !c.telefone) motivoExcl = 'Sem telefone cadastrado';
-      else if (exigeEmail && !c.email) motivoExcl = 'Sem e-mail cadastrado';
-      else if (f.tipoEnvio === 'LEMBRETE' && !ab) motivoExcl = 'Sem fatura em aberto';
+      const motivoExcl = motivoExclusaoPublico({
+        canais, optOut: optBy.get(c.id) ?? new Set<ChannelType>(),
+        telefone: c.telefone, email: c.email, temFaturaAberta: !!ab, isLembrete: f.tipoEnvio === 'LEMBRETE',
+      });
 
       if (motivoExcl) {
         excluidos.push({ id: c.id, nome: c.nome, doc: c.doc, motivo: motivoExcl });
@@ -473,10 +524,11 @@ export class CampaignsService {
         });
       }
     }
+    const CAP = 300;
     return {
-      resumo: { participantes: participantes.length, excluidos: excluidos.length, valorAberto: participantes.reduce((s, p) => s + p.valorAberto, 0) },
-      participantes: participantes.slice(0, 300),
-      excluidos: excluidos.slice(0, 300),
+      resumo: { participantes: participantes.length, excluidos: excluidos.length, valorAberto: participantes.reduce((s, p) => s + p.valorAberto, 0), truncado: participantes.length > CAP || excluidos.length > CAP, limiteExibicao: CAP },
+      participantes: participantes.slice(0, CAP),
+      excluidos: excluidos.slice(0, CAP),
     };
   }
 
@@ -511,8 +563,25 @@ export class CampaignsService {
     return /\{\{\s*(valor|vencimento|pix|boleto|link|linkpagamento|pagamento)\s*\}\}/i.test(txt || '');
   }
 
+  /**
+   * Público de uma execução. Quando o público é FIXO (`publicoDinamico=false`),
+   * congela a lista reusando os destinatários da 1ª run — assim execuções futuras
+   * atingem exatamente os mesmos contatos. Só considera clientes ativos.
+   */
+  private async resolverPublicoExecucao(tenantId: string, camp: Campaign) {
+    if (camp.publicoDinamico === false) {
+      const primeira = await this.prisma.campaignRun.findFirst({ where: { campaignId: camp.id }, orderBy: { executadoEm: 'asc' }, select: { id: true } });
+      if (primeira) {
+        const recs = await this.prisma.campaignRecipient.findMany({ where: { runId: primeira.id }, select: { customerId: true } });
+        const ids = [...new Set(recs.map((r) => r.customerId))];
+        return ids.length ? this.prisma.customer.findMany({ where: { tenantId, id: { in: ids }, ativo: true } }) : [];
+      }
+    }
+    return this.resolverPublico(tenantId, camp);
+  }
+
   /** Executa a campanha: cria a run, os destinatários e os disparos. */
-  async executar(tenantId: string, id: string) {
+  async executar(tenantId: string, id: string, auto = false) {
     const camp = await this.prisma.campaign.findFirst({ where: { id, tenantId }, include: { rule: { include: { steps: { where: { ativo: true }, orderBy: { ordem: 'asc' } } } } } });
     if (!camp) throw new NotFoundException('Campanha não encontrada');
     if (camp.automatico) throw new BadRequestException('A cobrança automática roda sozinha todo dia — use ligar/pausar em vez de disparar.');
@@ -521,7 +590,23 @@ export class CampaignsService {
       const jaRodou = await this.prisma.campaignRun.findFirst({ where: { campaignId: camp.id, tenantId }, select: { id: true } });
       if (jaRodou) throw new BadRequestException('Esta campanha é de envio único e já foi disparada. Duplique-a para enviar de novo.');
     }
-    const publico = await this.resolverPublico(tenantId, camp);
+    let publico = await this.resolverPublicoExecucao(tenantId, camp);
+    // "Sempre ativa": envia só para quem ainda NÃO recebeu nesta campanha — evita
+    // re-disparar para a base inteira a cada execução (só os novos integrantes).
+    if (camp.agendamento === 'SEMPRE_ATIVA') {
+      const runIds = (await this.prisma.campaignRun.findMany({ where: { campaignId: camp.id }, select: { id: true } })).map((r) => r.id);
+      const jaRecebeu = runIds.length ? await this.prisma.campaignRecipient.findMany({ where: { runId: { in: runIds } }, select: { customerId: true } }) : [];
+      const set = new Set(jaRecebeu.map((r) => r.customerId));
+      publico = publico.filter((c) => !set.has(c.id));
+    }
+    // Público vazio: no cron (auto) apenas reagenda e sai; no disparo manual, recusa.
+    if (publico.length === 0) {
+      if (auto) {
+        await this.prisma.campaign.update({ where: { id: camp.id }, data: { proximaExecucao: this.calcularProxima(camp.agendamento, camp.diaDoMes) } });
+        return { runId: null, total: 0, enviados: 0, falhas: 0, semPublico: true };
+      }
+      throw new BadRequestException('Nenhum contato apto no público — ajuste os filtros antes de disparar.');
+    }
 
     const run = await this.prisma.campaignRun.create({ data: { campaignId: camp.id, tenantId, totalContatos: publico.length } });
     let enviados = 0;
@@ -532,8 +617,9 @@ export class CampaignsService {
     const canalCampanha = camp.canal ?? 'WHATSAPP_CLOUD';
     for (const cliente of publico) {
       try {
-        // Respeita opt-out (LGPD): não envia para quem revogou o consentimento no canal.
-        if (await this.optOut(cliente.id, canalCampanha)) { ignorados++; continue; }
+        // Opt-out (LGPD): para LEMBRETE/MENSAGEM checa o canal único da campanha.
+        // Na RÉGUA cada passo tem seu canal, então o opt-out é checado por passo (abaixo).
+        if (camp.tipoEnvio !== 'REGUA' && await this.optOut(cliente.id, canalCampanha)) { ignorados++; continue; }
         if (camp.tipoEnvio === 'LEMBRETE') {
           // Puxa as faturas em aberto do cliente e injeta o Pix/boleto/link de cada uma.
           const abertas = await this.prisma.invoice.findMany({
@@ -619,6 +705,8 @@ export class CampaignsService {
           if (invRegua && /\{\{\s*pix\s*\}\}/i.test(textoPassos)) invRegua = await this.garantirPix(invRegua);
 
           for (const step of camp.rule.steps) {
+            // Opt-out por canal do passo: não enfileira o passo cujo canal o cliente revogou.
+            if (await this.optOut(cliente.id, step.canal)) continue;
             const usaTpl = !!step.templateName;
             const paramsStep = usaTpl ? (step.templateParams ?? []).map((tok) => this.render(tok, cliente, invRegua)) : [];
             const d = await this.prisma.messageDispatch.create({
@@ -639,6 +727,8 @@ export class CampaignsService {
             if (step.offsetDias <= 0) imediatos.push(d.id);
           }
         }
+        // Régua em que todos os passos caíram no opt-out: ninguém foi enfileirado.
+        if (camp.tipoEnvio === 'REGUA' && !primeiroDispatchId) { ignorados++; continue; }
         await this.prisma.campaignRecipient.create({
           data: { runId: run.id, tenantId, customerId: cliente.id, nome: cliente.nome, doc: cliente.doc, canal: camp.canal ?? null, dispatchId: primeiroDispatchId, status: 'FILA' },
         });
@@ -723,7 +813,7 @@ export class CampaignsService {
     });
     const resultados = [];
     for (const c of vencidas) {
-      const r = await this.executar(c.tenantId, c.id).catch((e) => ({ erro: String(e) }));
+      const r = await this.executar(c.tenantId, c.id, true).catch((e) => ({ erro: String(e) }));
       resultados.push({ campanha: c.nome, ...r });
     }
     return { executadas: resultados.length, resultados };

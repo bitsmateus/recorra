@@ -89,7 +89,7 @@ export class CampaignsController {
 
   /** "Ver participantes": quem recebe (com situação/valor/risco/motivo) e quem é pulado e por quê. */
   @Post('participantes')
-  participantes(@TenantId() tenantId: string, @Body() dto: PublicoFiltros & { tipoEnvio?: string; canal?: any }) {
+  participantes(@TenantId() tenantId: string, @Body() dto: PublicoFiltros & { tipoEnvio?: string; canal?: any; canais?: any }) {
     return this.campaigns.participantesPreview(tenantId, dto);
   }
 
