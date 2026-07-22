@@ -298,37 +298,64 @@ export default function ReguasPage() {
       <PageTitle title="Réguas de cobrança" subtitle="Monte o fluxo: quando e por onde falar com o cliente" />
 
       {/* Modo da cobrança automática: simples (1 régua p/ todos) x por faixa de risco */}
-      <div className="mb-4 rounded-lg border border-line bg-surface p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <div className="text-sm font-semibold text-ink">Como a cobrança automática escolhe a régua</div>
-            <div className="text-xs text-muted">Ela roda sozinha todo dia para quem está inadimplente.</div>
-          </div>
-          <div className="flex rounded-lg border border-line p-0.5 text-sm">
-            <button disabled={salvandoConfig} onClick={() => alternarModoFaixa(false)} className={`rounded-md px-3 py-1.5 disabled:opacity-50 ${!config.usarFaixaRisco ? 'bg-primary text-white' : 'text-muted hover:bg-canvas'}`}>Simples (1 régua p/ todos)</button>
-            <button disabled={salvandoConfig} onClick={() => alternarModoFaixa(true)} className={`rounded-md px-3 py-1.5 disabled:opacity-50 ${config.usarFaixaRisco ? 'bg-primary text-white' : 'text-muted hover:bg-canvas'}`}>Por faixa de risco</button>
-          </div>
+      <div className="mb-4 rounded-lg border border-line bg-surface p-4 sm:p-5">
+        <div className="text-sm font-semibold text-ink">Cobrança automática</div>
+        <div className="mb-3 text-xs text-muted">Roda sozinha todo dia e fala com quem tem fatura em aberto (a vencer ou vencida), no dia certo de cada passo da régua.</div>
+
+        {/* Escolha do modo — cartões grandes (não cortam e ficam sempre clicáveis) */}
+        <div className="grid gap-2 sm:grid-cols-2">
+          <button
+            type="button"
+            disabled={salvandoConfig}
+            onClick={() => alternarModoFaixa(false)}
+            className={`rounded-lg border p-3 text-left transition disabled:opacity-50 ${!config.usarFaixaRisco ? 'border-primary bg-primary-tint' : 'border-line hover:bg-canvas'}`}
+          >
+            <div className="flex items-center gap-2 text-sm font-medium text-ink">
+              <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${!config.usarFaixaRisco ? 'border-primary' : 'border-line'}`}>{!config.usarFaixaRisco && <span className="h-2 w-2 rounded-full bg-primary" />}</span>
+              Simples — 1 régua para todos
+            </div>
+            <p className="mt-1 pl-6 text-xs text-muted">Todos os inadimplentes seguem a MESMA régua. Mais fácil de entender. Recomendado.</p>
+          </button>
+          <button
+            type="button"
+            disabled={salvandoConfig}
+            onClick={() => alternarModoFaixa(true)}
+            className={`rounded-lg border p-3 text-left transition disabled:opacity-50 ${config.usarFaixaRisco ? 'border-primary bg-primary-tint' : 'border-line hover:bg-canvas'}`}
+          >
+            <div className="flex items-center gap-2 text-sm font-medium text-ink">
+              <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${config.usarFaixaRisco ? 'border-primary' : 'border-line'}`}>{config.usarFaixaRisco && <span className="h-2 w-2 rounded-full bg-primary" />}</span>
+              Por faixa de risco
+            </div>
+            <p className="mt-1 pl-6 text-xs text-muted">Cada cliente recebe a régua da faixa dele (Bom pagador / Atenção / Risco).</p>
+          </button>
         </div>
-        <p className="mt-2 text-xs text-muted">
-          {config.usarFaixaRisco
-            ? 'Cada cliente recebe a régua da faixa de risco dele (Bom pagador / Atenção / Risco). Sem uma régua da faixa, usa a régua "Todas as faixas".'
-            : 'Todos os inadimplentes seguem a MESMA régua principal, selecionada abaixo. O campo de faixa de risco fica escondido.'}
-        </p>
-        {!config.usarFaixaRisco && rules.some((r) => r.ativo !== false) && (
-          <label className="mt-3 block max-w-md">
-            <span className="mb-1 block text-xs font-medium text-ink">Régua principal da cobrança automática</span>
-            <select disabled={salvandoConfig} value={config.reguaPadraoId ?? ''} onChange={(e) => escolherReguaPadrao(e.target.value)} className="w-full rounded border border-line bg-surface px-3 py-2 text-sm disabled:opacity-50">
-              {rules.filter((r) => r.ativo !== false).map((r) => <option key={r.id} value={r.id}>{r.nome}</option>)}
-            </select>
-          </label>
+
+        {/* Modo simples: seletor da régua que vai para todos (sempre visível aqui) */}
+        {!config.usarFaixaRisco && (
+          <div className="mt-3 rounded-lg border border-line bg-canvas p-3">
+            {rules.some((r) => r.ativo !== false) ? (
+              <label className="block max-w-md">
+                <span className="mb-1 block text-xs font-semibold text-ink">Qual régua a cobrança automática envia para todos</span>
+                <select disabled={salvandoConfig} value={config.reguaPadraoId ?? ''} onChange={(e) => escolherReguaPadrao(e.target.value)} className="w-full rounded border border-line bg-surface px-3 py-2 text-sm disabled:opacity-50">
+                  {!config.reguaPadraoId && <option value="">Selecione uma régua...</option>}
+                  {rules.filter((r) => r.ativo !== false).map((r) => <option key={r.id} value={r.id}>{r.nome}</option>)}
+                </select>
+                <span className="mt-1 block text-xs text-muted">Tem mais de uma régua? Troque aqui quando quiser.</span>
+              </label>
+            ) : (
+              <p className="text-xs text-[#854F0B]">Crie e ative uma régua abaixo para a cobrança automática poder usá-la.</p>
+            )}
+          </div>
         )}
-        {config.semReguaAtiva && <p className="mt-2 rounded bg-danger-tint px-3 py-2 text-xs text-danger">⚠️ Nenhuma régua ativa — ninguém está sendo cobrado automaticamente. Crie/ative uma régua.</p>}
+
+        {config.semReguaAtiva && <p className="mt-3 rounded bg-danger-tint px-3 py-2 text-xs text-danger">⚠️ Nenhuma régua ativa — ninguém está sendo cobrado automaticamente. Crie/ative uma régua.</p>}
         {config.usarFaixaRisco && config.faixasSemRegua.length > 0 && (
-          <p className="mt-2 rounded bg-warning-tint px-3 py-2 text-xs text-[#854F0B]">
+          <p className="mt-3 rounded bg-warning-tint px-3 py-2 text-xs text-[#854F0B]">
             ⚠️ Faixa(s) sem régua (esses inadimplentes NÃO são cobrados): {config.faixasSemRegua.map((f) => `${f.label} (${f.inadimplentes})`).join(', ')}. Crie uma régua para cada faixa ou uma régua "Todas as faixas".
           </p>
         )}
-        {config.usarFaixaRisco && config.semRiscoCalculado > 0 && <p className="mt-2 rounded bg-warning-tint px-3 py-2 text-xs text-[#854F0B]">⚠️ {config.semRiscoCalculado} inadimplente(s) ainda sem risco calculado. O risco será calculado antes do envio automático.</p>}
+        {config.usarFaixaRisco && config.semRiscoCalculado > 0 && <p className="mt-3 rounded bg-warning-tint px-3 py-2 text-xs text-[#854F0B]">⚠️ {config.semRiscoCalculado} inadimplente(s) ainda sem risco calculado. O risco será calculado antes do envio automático.</p>}
+        {msg && <p className="mt-3 text-sm text-primary">{msg}</p>}
       </div>
 
       <NichoGallery onClone={load} />
