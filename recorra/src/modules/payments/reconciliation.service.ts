@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { PaymentProviderFactory } from './payment-provider.factory';
+import { PaymentNotifyService } from './payment-notify.service';
 
 /**
  * Conciliação automática: consulta o status das cobranças em aberto nos
@@ -14,6 +15,7 @@ export class ReconciliationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly factory: PaymentProviderFactory,
+    private readonly notify: PaymentNotifyService,
   ) {}
 
   private sleep(ms: number) {
@@ -86,20 +88,8 @@ export class ReconciliationService {
       where: { tenantId, invoiceId, status: 'FILA' },
       data: { status: 'IGNORADO', erro: 'Pagamento confirmado (conciliação)' },
     });
-    const customer = nome ? { nome } : await this.prisma.customer.findUnique({ where: { id: customerId }, select: { nome: true } });
-    const primeiro = customer?.nome?.split(' ')[0] ?? 'cliente';
-    await this.prisma.messageDispatch.create({
-      data: {
-        tenantId,
-        customerId,
-        invoiceId,
-        canal: 'WHATSAPP_CLOUD',
-        template: 'confirmacao_pagamento',
-        conteudo: `Recebemos seu pagamento, ${primeiro}! Obrigado 🙌 Sua fatura está quitada.`,
-        status: 'FILA',
-        agendadoPara: new Date(),
-      },
-    });
+    void nome;
+    await this.notify.confirmarPagamento(tenantId, invoiceId, customerId);
     return true;
   }
 }

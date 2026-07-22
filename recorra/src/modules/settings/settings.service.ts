@@ -1,9 +1,11 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '@/common/prisma/prisma.service';
+import { lerPagamentoRecebido } from '@/modules/payments/pagamento-recebido';
 import { CryptoService } from '@/common/crypto/crypto.service';
 import { ConnectorFactory } from '@/modules/connectors/connector.factory';
 import { PaymentProviderFactory } from '@/modules/payments/payment-provider.factory';
-import { CreateIntegrationDto, UpdateIntegrationDto, CreatePaymentAccountDto, UpdatePaymentAccountDto, CreateChannelAccountDto } from './dto/settings.dto';
+import { CreateIntegrationDto, UpdateIntegrationDto, CreatePaymentAccountDto, UpdatePaymentAccountDto, CreateChannelAccountDto, PagamentoRecebidoDto } from './dto/settings.dto';
 
 /**
  * Configuração do tenant: integrações de origem (ERP), contas de gateway e
@@ -87,6 +89,26 @@ export class SettingsService {
     } catch (e) {
       return { ok: false, erro: String(e) };
     }
+  }
+
+  // ---------- Mensagem de pagamento recebido ----------
+
+  /** Preferência da confirmação de pagamento (Tenant.config.pagamentoRecebido). */
+  async getPagamentoRecebido(tenantId: string) {
+    const t = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { config: true } });
+    return lerPagamentoRecebido(t?.config);
+  }
+
+  /** Grava a preferência preservando o resto do Tenant.config. */
+  async savePagamentoRecebido(tenantId: string, dto: PagamentoRecebidoDto) {
+    const t = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { config: true } });
+    const atual = (t?.config ?? {}) as Prisma.JsonObject;
+    const pagamentoRecebido = { ...lerPagamentoRecebido(atual), ...dto } as unknown as Prisma.JsonObject;
+    await this.prisma.tenant.update({
+      where: { id: tenantId },
+      data: { config: { ...atual, pagamentoRecebido } as Prisma.InputJsonValue },
+    });
+    return this.getPagamentoRecebido(tenantId);
   }
 
   // ---------- Gateways ----------

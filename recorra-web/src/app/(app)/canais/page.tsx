@@ -5,6 +5,7 @@ import { Plus, X, RefreshCw, Trash2, Wifi, WifiOff, Loader2, MessageCircle, Mail
 import { api } from '@/lib/api';
 import { PageTitle } from '@/components/ui';
 import PlataformasEnvio from '@/components/PlataformasEnvio';
+import ConfirmacaoPagamento from '@/components/ConfirmacaoPagamento';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 
 interface Conexao { id: string; canal: string; apelido: string; ativo: boolean; status: string; instance?: string | null; origem?: string; oficial?: boolean; nxType?: string }
@@ -128,6 +129,9 @@ export default function CanaisPage() {
 
       {/* Plataformas de envio (NX Systems / API genérica) — antes ficavam em Integrações. */}
       <PlataformasEnvio />
+
+      {/* Mensagem automática de "pagamento recebido" (texto e canal configuráveis). */}
+      <ConfirmacaoPagamento />
 
       {novo && <NovoCanalModal onClose={() => setNovo(false)} onCreated={(conn) => { setNovo(false); carregar(); const t = TIPOS.find((x) => x.canal === conn.canal); if (t?.qr) setQr(conn); }} />}
       {qr && <QrModal conn={qr} onClose={() => { setQr(null); carregar(); }} />}

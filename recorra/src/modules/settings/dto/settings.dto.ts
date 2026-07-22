@@ -55,6 +55,32 @@ export class UpdatePaymentAccountDto {
   credentials?: Record<string, unknown>;
 }
 
+/** Mensagem automática de "pagamento recebido" (guardada em Tenant.config.pagamentoRecebido). */
+export class PagamentoRecebidoDto {
+  @IsOptional()
+  @IsBoolean()
+  ativo?: boolean;
+
+  // Vazio = usa a primeira conta de canal ativa do tenant.
+  @IsOptional()
+  @IsIn(['', 'WHATSAPP_CLOUD', 'WHATSAPP_EVOLUTION', 'WHATSAPP_UAZAPI', 'EMAIL', 'SMS', 'HTTP_GENERIC', 'NX_SYSTEMS'])
+  canal?: string;
+
+  // Obrigatório nos canais WhatsApp (template HSM aprovado).
+  @IsOptional()
+  @IsString()
+  templateName?: string;
+
+  @IsOptional()
+  @IsString()
+  assunto?: string;
+
+  // Aceita {{nome}}, {{valor}} e {{vencimento}}.
+  @IsOptional()
+  @IsString()
+  conteudo?: string;
+}
+
 export class CreateChannelAccountDto {
   @IsIn(['WHATSAPP_CLOUD', 'WHATSAPP_EVOLUTION', 'WHATSAPP_UAZAPI', 'EMAIL', 'SMS', 'HTTP_GENERIC', 'NX_SYSTEMS'])
   canal!: ChannelType;

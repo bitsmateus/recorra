@@ -2,6 +2,7 @@ import { Body, Controller, Headers, HttpCode, Param, Post, Req, Logger } from '@
 import { Request } from 'express';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { PaymentProviderFactory } from './payment-provider.factory';
+import { PaymentNotifyService } from './payment-notify.service';
 
 @Controller('webhooks')
 export class WebhookController {
@@ -10,6 +11,7 @@ export class WebhookController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly factory: PaymentProviderFactory,
+    private readonly notify: PaymentNotifyService,
   ) {}
 
   @Post(':provider/:accountId')
@@ -133,19 +135,7 @@ export class WebhookController {
         data: { status: 'IGNORADO', erro: 'Pagamento confirmado - regua pausada' },
       });
 
-      const primeiroNome = invoice.customer.nome.split(' ')[0];
-      await this.prisma.messageDispatch.create({
-        data: {
-          tenantId: account.tenantId,
-          customerId: invoice.customerId,
-          invoiceId: invoice.id,
-          canal: 'WHATSAPP_CLOUD',
-          template: 'confirmacao_pagamento',
-          conteudo: `Recebemos seu pagamento, ${primeiroNome}! Obrigado. Sua fatura esta quitada.`,
-          status: 'FILA',
-          agendadoPara: new Date(),
-        },
-      });
+      await this.notify.confirmarPagamento(account.tenantId, invoice.id, invoice.customerId);
     }
 
     // processadoEm já foi setado atomicamente no claim acima.
