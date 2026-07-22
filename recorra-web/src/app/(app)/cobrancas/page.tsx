@@ -21,6 +21,7 @@ interface Invoice {
   valor: number;
   vencimento: string;
   status: string;
+  pagoEm?: string | null;
   gestaoCobranca: 'ATIVA' | 'LEGADO' | 'PAUSADA';
   metodo: string;
   descricao?: string;
@@ -481,6 +482,7 @@ export default function CobrancasPage() {
                 <td className="px-4 py-3">
                   <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${statusColor[inv.status] || 'bg-canvas text-muted'}`}>{inv.status}</span>
                   {inv.gestaoCobranca === 'LEGADO' && <span className="ml-1 rounded-full bg-canvas px-2.5 py-1 text-xs font-medium text-muted" title="Visível no histórico, fora das cobranças automáticas">LEGADO</span>}
+                  {inv.status === 'PAGA' && inv.pagoEm && <div className="mt-1 text-xs text-[#0F6E56]">Pago em {new Date(inv.pagoEm).toLocaleDateString('pt-BR')}</div>}
                 </td>
                 <td className="px-4 py-3">
                   {inv.externalId ? <span className="text-xs text-success">✓ gerada</span>
