@@ -112,3 +112,13 @@ export class SaveRuleDto {
   @Type(() => StepDto)
   steps!: StepDto[];
 }
+
+export class SetRiskModeDto {
+  @IsBoolean()
+  usarFaixaRisco!: boolean;
+}
+
+export class SetDefaultRuleDto {
+  @IsString()
+  ruleId!: string;
+}

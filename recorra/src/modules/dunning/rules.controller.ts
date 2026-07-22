@@ -4,7 +4,7 @@ import { RolesGuard } from '@/common/auth/roles.guard';
 import { Roles } from '@/common/auth/roles.decorator';
 import { TenantId } from '@/common/auth/current-user.decorator';
 import { RulesService } from './rules.service';
-import { SaveRuleDto } from './dto/rule.dto';
+import { SaveRuleDto, SetDefaultRuleDto, SetRiskModeDto } from './dto/rule.dto';
 
 @Controller('reguas')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -34,8 +34,14 @@ export class RulesController {
 
   @Post('config/faixa')
   @Roles('OWNER', 'ADMIN')
-  setFaixa(@TenantId() tenantId: string, @Body('usarFaixaRisco') usar: boolean) {
-    return this.rules.setUsarFaixaRisco(tenantId, !!usar);
+  setFaixa(@TenantId() tenantId: string, @Body() dto: SetRiskModeDto) {
+    return this.rules.setUsarFaixaRisco(tenantId, dto.usarFaixaRisco);
+  }
+
+  @Post('config/regua-padrao')
+  @Roles('OWNER', 'ADMIN')
+  setReguaPadrao(@TenantId() tenantId: string, @Body() dto: SetDefaultRuleDto) {
+    return this.rules.setReguaPadrao(tenantId, dto.ruleId);
   }
 
   @Post('modelos/:id/clonar')

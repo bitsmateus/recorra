@@ -37,12 +37,15 @@ interface Rule {
   steps: Step[];
   campaigns?: { id: string; nome: string; status: string }[];
   inadimplentesCobertos?: number;
+  reguaEfetiva?: boolean;
 }
 
 interface CobrancaConfig {
   usarFaixaRisco: boolean;
+  reguaPadraoId: string | null;
   faixasSemRegua: { faixa: string; label: string; inadimplentes: number }[];
   semReguaAtiva: boolean;
+  semRiscoCalculado: number;
 }
 
 const canalLabel: Record<Canal, { label: string; icon: typeof MessageCircle }> = {
@@ -223,7 +226,8 @@ export default function ReguasPage() {
   const [sel, setSel] = useState<Rule | null>(null);
   const [msg, setMsg] = useState('');
   const [aiOpen, setAiOpen] = useState(false);
-  const [config, setConfig] = useState<CobrancaConfig>({ usarFaixaRisco: true, faixasSemRegua: [], semReguaAtiva: false });
+  const [config, setConfig] = useState<CobrancaConfig>({ usarFaixaRisco: true, reguaPadraoId: null, faixasSemRegua: [], semReguaAtiva: false, semRiscoCalculado: 0 });
+  const [salvandoConfig, setSalvandoConfig] = useState(false);
 
   const load = useCallback(async () => {
     const [r, c] = await Promise.all([
@@ -238,9 +242,31 @@ export default function ReguasPage() {
   }, [load]);
 
   async function alternarModoFaixa(usar: boolean) {
-    setConfig((c) => ({ ...c, usarFaixaRisco: usar })); // otimista
-    await api('/reguas/config/faixa', { method: 'POST', body: { usarFaixaRisco: usar } }).catch(() => {});
-    load();
+    if (salvandoConfig || usar === config.usarFaixaRisco) return;
+    setSalvandoConfig(true);
+    try {
+      await api('/reguas/config/faixa', { method: 'POST', body: { usarFaixaRisco: usar } });
+      setMsg('✓ Modo da cobrança automática atualizado');
+      await load();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Não foi possível alterar o modo');
+    } finally {
+      setSalvandoConfig(false);
+    }
+  }
+
+  async function escolherReguaPadrao(ruleId: string) {
+    if (!ruleId || salvandoConfig) return;
+    setSalvandoConfig(true);
+    try {
+      await api('/reguas/config/regua-padrao', { method: 'POST', body: { ruleId } });
+      setMsg('✓ Régua principal atualizada');
+      await load();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Não foi possível escolher a régua principal');
+    } finally {
+      setSalvandoConfig(false);
+    }
   }
 
   async function salvar() {
@@ -279,21 +305,30 @@ export default function ReguasPage() {
             <div className="text-xs text-muted">Ela roda sozinha todo dia para quem está inadimplente.</div>
           </div>
           <div className="flex rounded-lg border border-line p-0.5 text-sm">
-            <button onClick={() => alternarModoFaixa(false)} className={`rounded-md px-3 py-1.5 ${!config.usarFaixaRisco ? 'bg-primary text-white' : 'text-muted hover:bg-canvas'}`}>Simples (1 régua p/ todos)</button>
-            <button onClick={() => alternarModoFaixa(true)} className={`rounded-md px-3 py-1.5 ${config.usarFaixaRisco ? 'bg-primary text-white' : 'text-muted hover:bg-canvas'}`}>Por faixa de risco</button>
+            <button disabled={salvandoConfig} onClick={() => alternarModoFaixa(false)} className={`rounded-md px-3 py-1.5 disabled:opacity-50 ${!config.usarFaixaRisco ? 'bg-primary text-white' : 'text-muted hover:bg-canvas'}`}>Simples (1 régua p/ todos)</button>
+            <button disabled={salvandoConfig} onClick={() => alternarModoFaixa(true)} className={`rounded-md px-3 py-1.5 disabled:opacity-50 ${config.usarFaixaRisco ? 'bg-primary text-white' : 'text-muted hover:bg-canvas'}`}>Por faixa de risco</button>
           </div>
         </div>
         <p className="mt-2 text-xs text-muted">
           {config.usarFaixaRisco
             ? 'Cada cliente recebe a régua da faixa de risco dele (Bom pagador / Atenção / Risco). Sem uma régua da faixa, usa a régua "Todas as faixas".'
-            : 'Todos os inadimplentes seguem a MESMA régua — a marcada como "Todas as faixas" (ou a régua ativa mais antiga). O campo de faixa de risco fica escondido.'}
+            : 'Todos os inadimplentes seguem a MESMA régua principal, selecionada abaixo. O campo de faixa de risco fica escondido.'}
         </p>
+        {!config.usarFaixaRisco && rules.some((r) => r.ativo !== false) && (
+          <label className="mt-3 block max-w-md">
+            <span className="mb-1 block text-xs font-medium text-ink">Régua principal da cobrança automática</span>
+            <select disabled={salvandoConfig} value={config.reguaPadraoId ?? ''} onChange={(e) => escolherReguaPadrao(e.target.value)} className="w-full rounded border border-line bg-surface px-3 py-2 text-sm disabled:opacity-50">
+              {rules.filter((r) => r.ativo !== false).map((r) => <option key={r.id} value={r.id}>{r.nome}</option>)}
+            </select>
+          </label>
+        )}
         {config.semReguaAtiva && <p className="mt-2 rounded bg-danger-tint px-3 py-2 text-xs text-danger">⚠️ Nenhuma régua ativa — ninguém está sendo cobrado automaticamente. Crie/ative uma régua.</p>}
         {config.usarFaixaRisco && config.faixasSemRegua.length > 0 && (
           <p className="mt-2 rounded bg-warning-tint px-3 py-2 text-xs text-[#854F0B]">
             ⚠️ Faixa(s) sem régua (esses inadimplentes NÃO são cobrados): {config.faixasSemRegua.map((f) => `${f.label} (${f.inadimplentes})`).join(', ')}. Crie uma régua para cada faixa ou uma régua "Todas as faixas".
           </p>
         )}
+        {config.usarFaixaRisco && config.semRiscoCalculado > 0 && <p className="mt-2 rounded bg-warning-tint px-3 py-2 text-xs text-[#854F0B]">⚠️ {config.semRiscoCalculado} inadimplente(s) ainda sem risco calculado. O risco será calculado antes do envio automático.</p>}
       </div>
 
       <NichoGallery onClone={load} />
@@ -329,10 +364,12 @@ export default function ReguasPage() {
                 </div>
                 <div className="mt-1 text-xs">
                   {r.ativo !== false && (r.inadimplentesCobertos ?? 0) > 0
-                    ? <span className="font-medium text-primary">Cobrando {r.inadimplentesCobertos} inadimplente(s) hoje</span>
+                    ? <span className="font-medium text-primary">{r.inadimplentesCobertos} inadimplente(s) coberto(s) por esta régua</span>
                     : r.ativo === false
                       ? <span className="text-muted/70">Inativa — não cobra ninguém</span>
-                      : <span className="text-muted/70">Nenhum inadimplente na faixa desta régua agora</span>}
+                      : r.reguaEfetiva === false
+                        ? <span className="text-muted/70">Ativa, mas não selecionada pela cobrança automática</span>
+                        : <span className="text-muted/70">Nenhum inadimplente coberto por esta régua agora</span>}
                 </div>
                 <div className="mt-1 text-xs">
                   {r.campaigns && r.campaigns.length > 0
@@ -458,7 +495,7 @@ function FlowEditor({
             </select>
           </label>
         ) : (
-          <div className="flex items-end text-xs text-muted">Modo simples: esta régua vale para <b className="mx-1 text-ink">todos</b> os inadimplentes.</div>
+          <div className="flex items-end text-xs text-muted">Modo simples: a faixa não é usada. Escolha acima qual régua será a principal.</div>
         )}
       </div>
 

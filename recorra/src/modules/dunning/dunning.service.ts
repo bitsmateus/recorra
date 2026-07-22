@@ -10,6 +10,22 @@ import { pickVariant } from './abtest';
 
 type RuleWithSteps = DunningRule & { steps: DunningStep[] };
 
+/** Seleção determinística compartilhável/testável. A lista deve estar em ordem de criação. */
+export function selecionarRegua<T extends { id: string; faixaRisco: string | null; ativo: boolean }>(
+  regras: T[], usarFaixaRisco: boolean, faixa: string | null, reguaPadraoId?: string | null,
+): T | null {
+  const ativas = regras.filter((r) => r.ativo);
+  if (!usarFaixaRisco) {
+    return ativas.find((r) => r.id === reguaPadraoId)
+      ?? ativas.find((r) => r.faixaRisco === null)
+      ?? ativas[0]
+      ?? null;
+  }
+  return ativas.find((r) => r.faixaRisco === faixa)
+    ?? ativas.find((r) => r.faixaRisco === null)
+    ?? null;
+}
+
 @Injectable()
 export class DunningService {
   private readonly logger = new Logger(DunningService.name);
@@ -21,36 +37,26 @@ export class DunningService {
   ) {}
 
   async runForTenant(tenantId: string, ref: Date = new Date()) {
-    const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
-    const invoices = await this.prisma.invoice.findMany({
-      where: { tenantId, status: { in: ['PENDENTE', 'VENCIDA'] }, gestaoCobranca: 'ATIVA', contestada: false },
-      include: { customer: true },
-    });
-
-    // Modo simples (faixa de risco desligada): uma única régua para todos os
-    // inadimplentes — a "Todas as faixas" ativa ou, na falta, a régua ativa mais antiga.
-    const modoSimples = tenant.usarFaixaRisco === false;
     const stepsInc = { steps: { where: { ativo: true }, orderBy: { ordem: 'asc' as const } } };
-    let reguaSimples: RuleWithSteps | null = null;
-    if (modoSimples) {
-      reguaSimples = ((await this.prisma.dunningRule.findFirst({ where: { tenantId, ativo: true, faixaRisco: null }, include: stepsInc, orderBy: { createdAt: 'asc' } }))
-        ?? (await this.prisma.dunningRule.findFirst({ where: { tenantId, ativo: true }, include: stepsInc, orderBy: { createdAt: 'asc' } }))) as RuleWithSteps | null;
-    }
+    const [tenant, invoices, regras] = await Promise.all([
+      this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } }),
+      this.prisma.invoice.findMany({
+        where: { tenantId, status: { in: ['PENDENTE', 'VENCIDA'] }, gestaoCobranca: 'ATIVA', contestada: false, customer: { ativo: true } },
+        include: { customer: true },
+      }),
+      this.prisma.dunningRule.findMany({ where: { tenantId, ativo: true }, include: stepsInc, orderBy: { createdAt: 'asc' } }),
+    ]);
+    const usarFaixaRisco = tenant.usarFaixaRisco !== false;
+    const faixaPorCliente = new Map<string, string>();
 
     let enfileirados = 0;
     for (const invoice of invoices) {
       const diffDias = Math.round((this.midnight(ref).getTime() - this.midnight(invoice.vencimento).getTime()) / 86400000);
 
-      let rule: RuleWithSteps | null;
-      if (modoSimples) {
-        rule = reguaSimples;
-      } else {
-        // Por faixa: a régua da faixa do cliente ganha; sem uma específica, cai na "Todas as faixas".
-        let scoreRow = await this.risk.latest(tenantId, invoice.customerId);
-        if (!scoreRow) scoreRow = await this.risk.scoreCustomer(tenantId, invoice.customerId);
-        rule = ((await this.prisma.dunningRule.findFirst({ where: { tenantId, ativo: true, faixaRisco: scoreRow.faixa }, include: stepsInc, orderBy: { createdAt: 'asc' } }))
-          ?? (await this.prisma.dunningRule.findFirst({ where: { tenantId, ativo: true, faixaRisco: null }, include: stepsInc, orderBy: { createdAt: 'asc' } }))) as RuleWithSteps | null;
-      }
+      let faixa = faixaPorCliente.get(invoice.customerId) ?? invoice.customer.faixaAtual;
+      if (usarFaixaRisco && !faixa) faixa = (await this.risk.scoreCustomer(tenantId, invoice.customerId)).faixa;
+      if (faixa) faixaPorCliente.set(invoice.customerId, faixa);
+      const rule = selecionarRegua(regras as RuleWithSteps[], usarFaixaRisco, faixa, tenant.reguaPadraoId);
       if (!rule) continue;
 
       const steps = rule.steps.filter((s) => s.offsetDias === diffDias);
@@ -105,6 +111,7 @@ export class DunningService {
         customerId: invoice.customerId,
         invoiceId: invoice.id,
         ruleId: rule.id,
+        ruleNome: rule.nome,
         canal: step.canal,
         channelAccountId: step.channelAccountId ?? undefined,
         cadeiaCanais: cadeia,

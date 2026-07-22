@@ -149,21 +149,22 @@ enum SyncType {
 // ---------------- Núcleo ----------------
 
 model Tenant {
-  id           String   @id @default(cuid())
-  nome         String
-  cnpj         String?
-  plano        PlanTier @default(TRIAL) // legado: fallback enquanto planId não é definido
-  planId       String?  // plano do catálogo editável (tabela plans); null = usa `plano`
-  plan         Plan?    @relation(fields: [planId], references: [id])
-  ativo        Boolean  @default(true)
-  timezone     String   @default("America/Sao_Paulo")
+  id             String   @id @default(cuid())
+  nome           String
+  cnpj           String?
+  plano          PlanTier @default(TRIAL) // legado: fallback enquanto planId não é definido
+  planId         String? // plano do catálogo editável (tabela plans); null = usa `plano`
+  plan           Plan?    @relation(fields: [planId], references: [id])
+  ativo          Boolean  @default(true)
+  timezone       String   @default("America/Sao_Paulo")
   // Cobrança automática: true = escolhe a régua pela faixa de risco do cliente;
   // false (modo simples, padrão de novos clientes) = uma única régua para todos.
-  usarFaixaRisco Boolean @default(false)
-  config       Json?
-  featureFlags Json?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  usarFaixaRisco Boolean  @default(false)
+  reguaPadraoId  String?
+  config         Json?
+  featureFlags   Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   users              User[]
   customers          Customer[]
@@ -176,6 +177,7 @@ model Tenant {
   invoices           Invoice[]
   subscriptions      Subscription[]
   dunningRules       DunningRule[]
+  reguaPadrao        DunningRule?             @relation("TenantReguaPadrao", fields: [reguaPadraoId], references: [id], onDelete: SetNull)
   dispatches         MessageDispatch[]
   webhookEvents      WebhookEvent[]
   auditLogs          AuditLog[]
@@ -187,6 +189,7 @@ model Tenant {
   whatsappTemplates  WhatsAppTemplate[]
   conversations      Conversation[]
 
+  @@index([reguaPadraoId])
   @@map("tenants")
 }
 
@@ -278,7 +281,7 @@ model RefreshToken {
 }
 
 model Customer {
-  id       String  @id @default(cuid())
+  id       String   @id @default(cuid())
   tenantId String
   nome     String
   doc      String
@@ -298,9 +301,9 @@ model Customer {
 
   sourceSystem SourceSystem?
   externalId   String?
-  ativo        Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  ativo        Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
 
   tenant         Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   invoices       Invoice[]
@@ -319,17 +322,17 @@ model Customer {
 }
 
 model PaymentProviderAccount {
-  id          String              @id @default(cuid())
-  tenantId    String
-  provider    PaymentProviderType
-  apelido     String?
-  ambiente    String              @default("sandbox")
-  credentials String
-  ativo       Boolean             @default(true)
+  id                 String              @id @default(cuid())
+  tenantId           String
+  provider           PaymentProviderType
+  apelido            String?
+  ambiente           String              @default("sandbox")
+  credentials        String
+  ativo              Boolean             @default(true)
   // Janela de vencidas que participa da cobrança automática. Null = todas.
-  importLookbackDays Int?         @default(30)
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
+  importLookbackDays Int?                @default(30)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
 
   tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   invoices Invoice[]
@@ -393,7 +396,7 @@ model SyncLog {
 }
 
 model Invoice {
-  id                String               @id @default(cuid())
+  id                String                  @id @default(cuid())
   tenantId          String
   customerId        String
   providerAccountId String?
@@ -402,21 +405,21 @@ model Invoice {
   sourceSystem      SourceSystem?
   sourceExternalId  String?
   descricao         String?
-  valor             Decimal              @db.Decimal(12, 2)
+  valor             Decimal                 @db.Decimal(12, 2)
   vencimento        DateTime
-  status            InvoiceStatus        @default(PENDENTE)
+  status            InvoiceStatus           @default(PENDENTE)
   gestaoCobranca    InvoiceCollectionStatus @default(ATIVA)
-  metodo            ChargeMethod         @default(PIX)
+  metodo            ChargeMethod            @default(PIX)
   pixCopiaCola      String?
   boletoLinha       String?
   boletoUrl         String?
   linkPagamento     String?
   splitConfig       Json?
   origem            String?
-  contestada        Boolean              @default(false)
+  contestada        Boolean                 @default(false)
   pagoEm            DateTime?
-  createdAt         DateTime             @default(now())
-  updatedAt         DateTime             @updatedAt
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
 
   tenant          Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   customer        Customer                @relation(fields: [customerId], references: [id], onDelete: Cascade)
@@ -518,30 +521,32 @@ model DunningRule {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  tenant Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  steps  DunningStep[]
-  campaigns Campaign[]
+  tenant            Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  steps             DunningStep[]
+  campaigns         Campaign[]
+  tenantsComoPadrao Tenant[]          @relation("TenantReguaPadrao")
+  dispatches        MessageDispatch[]
 
   @@index([tenantId])
   @@map("dunning_rules")
 }
 
 model DunningStep {
-  id             String        @id @default(cuid())
-  ruleId         String
-  ordem          Int
-  offsetDias     Int
-  canal          ChannelType
+  id               String        @id @default(cuid())
+  ruleId           String
+  ordem            Int
+  offsetDias       Int
+  canal            ChannelType
   channelAccountId String?
-  canaisFallback ChannelType[] @default([])
-  template       String
-  emailAssunto   String? // assunto do e-mail deste passo (aceita variáveis)
-  templateB      String?
-  abTest         Boolean       @default(false)
-  templateName   String?       // nome do template aprovado (envio oficial via NX/Meta)
-  templateParams String[]      @default([]) // variáveis Recorra que preenchem {{1}}, {{2}}...
-  condicoes      Json?
-  ativo          Boolean       @default(true)
+  canaisFallback   ChannelType[] @default([])
+  template         String
+  emailAssunto     String? // assunto do e-mail deste passo (aceita variáveis)
+  templateB        String?
+  abTest           Boolean       @default(false)
+  templateName     String? // nome do template aprovado (envio oficial via NX/Meta)
+  templateParams   String[]      @default([]) // variáveis Recorra que preenchem {{1}}, {{2}}...
+  condicoes        Json?
+  ativo            Boolean       @default(true)
 
   rule DunningRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
 
@@ -556,13 +561,14 @@ model MessageDispatch {
   invoiceId         String?
   channelAccountId  String?
   campaignId        String?
-  ruleId            String?        // régua que gerou o disparo (cobrança automática) — p/ rastreio
+  ruleId            String? // régua que gerou o disparo (cobrança automática) — p/ rastreio
+  ruleNome          String? // snapshot histórico: preserva o nome após renomear/excluir a régua
   canal             ChannelType
   cadeiaCanais      ChannelType[]  @default([])
   template          String?
   conteudo          String?
-  assunto           String?        // assunto do e-mail já resolvido para este cliente
-  templateName      String?        // template aprovado a enviar (canal oficial)
+  assunto           String? // assunto do e-mail já resolvido para este cliente
+  templateName      String? // template aprovado a enviar (canal oficial)
   templateParams    String[]       @default([]) // parâmetros já resolvidos p/ este cliente
   variante          String?
   tentativaFallback Int            @default(0)
@@ -578,10 +584,12 @@ model MessageDispatch {
   customer       Customer        @relation(fields: [customerId], references: [id], onDelete: Cascade)
   invoice        Invoice?        @relation(fields: [invoiceId], references: [id])
   channelAccount ChannelAccount? @relation(fields: [channelAccountId], references: [id])
+  rule           DunningRule?    @relation(fields: [ruleId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, status])
   @@index([tenantId, createdAt])
   @@index([tenantId, campaignId])
+  @@index([tenantId, ruleId])
   @@map("message_dispatches")
 }
 
@@ -722,22 +730,22 @@ model PlatformAdmin {
 }
 
 model PlatformInvoice {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   tenantId       String
   competencia    String
   plano          PlanTier
-  valorBase      Decimal  @db.Decimal(12, 2)
-  disparos       Int      @default(0)
-  valorExcedente Decimal  @default(0) @db.Decimal(12, 2)
-  valorTotal     Decimal  @db.Decimal(12, 2)
-  status         String   @default("aberta") // aberta | cobrada | paga
+  valorBase      Decimal   @db.Decimal(12, 2)
+  disparos       Int       @default(0)
+  valorExcedente Decimal   @default(0) @db.Decimal(12, 2)
+  valorTotal     Decimal   @db.Decimal(12, 2)
+  status         String    @default("aberta") // aberta | cobrada | paga
   // Cobrança no gateway da plataforma (Asaas):
   asaasPaymentId String?
   linkPagamento  String?
   pixCopiaCola   String?
   boletoUrl      String?
   pagoEm         DateTime?
-  createdAt      DateTime @default(now())
+  createdAt      DateTime  @default(now())
 
   @@unique([tenantId, competencia])
   @@index([tenantId])
@@ -844,28 +852,28 @@ model Campaign {
   // ou pausada; o disparo em si continua no runForTenant (motor de régua).
   automatico Boolean @default(false)
 
-  tipoEnvio CampaignTipoEnvio @default(MENSAGEM)
-  ruleId    String?
-  mensagem  String?
-  emailAssunto String? // assunto do e-mail (aceita variáveis, ex.: "{{nome}}, sua fatura vence")
-  canal     ChannelType?
+  tipoEnvio        CampaignTipoEnvio @default(MENSAGEM)
+  ruleId           String?
+  mensagem         String?
+  emailAssunto     String? // assunto do e-mail (aceita variáveis, ex.: "{{nome}}, sua fatura vence")
+  canal            ChannelType?
   channelAccountId String? // conexão específica (ex.: qual WhatsApp oficial)
   templateNome     String? // nome do template WABA aprovado (canal oficial)
-  templateParams   String[] @default([]) // tokens p/ cada {{n}} (ex.: "{{nome}}", "texto fixo")
-  escopoFatura String @default("TODAS")
-  delaySegundos Int   @default(5)
+  templateParams   String[]          @default([]) // tokens p/ cada {{n}} (ex.: "{{nome}}", "texto fixo")
+  escopoFatura     String            @default("TODAS")
+  delaySegundos    Int               @default(5)
 
-  filtroTodos    Boolean   @default(false)
-  filtroEtiqueta String?
-  filtroValorMin Decimal?  @db.Decimal(12, 2)
-  filtroValorMax Decimal?  @db.Decimal(12, 2)
-  filtroFaixa    RiskBand?
-  filtroStatus   String?   // situação da cobrança: VENCIDA | PENDENTE | ABERTO | EM_DIA
-  filtroDiasAtraso Int?    // clientes com fatura vencida há >= N dias
-  filtroPlano    String?
-  filtroCidade   String?
-  incluirIds     String[]  @default([])
-  excluirIds     String[]  @default([])
+  filtroTodos      Boolean   @default(false)
+  filtroEtiqueta   String?
+  filtroValorMin   Decimal?  @db.Decimal(12, 2)
+  filtroValorMax   Decimal?  @db.Decimal(12, 2)
+  filtroFaixa      RiskBand?
+  filtroStatus     String? // situação da cobrança: VENCIDA | PENDENTE | ABERTO | EM_DIA
+  filtroDiasAtraso Int? // clientes com fatura vencida há >= N dias
+  filtroPlano      String?
+  filtroCidade     String?
+  incluirIds       String[]  @default([])
+  excluirIds       String[]  @default([])
 
   publicoDinamico Boolean             @default(true)
   agendamento     CampaignAgendamento @default(UMA_VEZ)

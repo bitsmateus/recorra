@@ -4,6 +4,7 @@ import { PrismaService } from '@/common/prisma/prisma.service';
 import { SaveRuleDto } from './dto/rule.dto';
 import { NICHO_TEMPLATES, findNicho } from './nicho-templates';
 import { evaluateAb, Variante } from './abtest';
+import { selecionarRegua } from './dunning.service';
 
 @Injectable()
 export class RulesService {
@@ -13,6 +14,7 @@ export class RulesService {
   private inadimplenteWhere(tenantId: string, faixa?: RiskBand | null): Prisma.CustomerWhereInput {
     return {
       tenantId,
+      ativo: true,
       ...(faixa ? { faixaAtual: faixa } : {}),
       invoices: { some: { status: { in: ['PENDENTE', 'VENCIDA'] }, gestaoCobranca: 'ATIVA', contestada: false } },
     };
@@ -20,7 +22,7 @@ export class RulesService {
 
   async list(tenantId: string) {
     const [tenant, reguas] = await Promise.all([
-      this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { usarFaixaRisco: true } }),
+      this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { usarFaixaRisco: true, reguaPadraoId: true } }),
       this.prisma.dunningRule.findMany({
         where: { tenantId },
         include: {
@@ -31,16 +33,27 @@ export class RulesService {
         orderBy: { createdAt: 'asc' },
       }),
     ]);
-    const simples = tenant?.usarFaixaRisco === false;
-    // "Cobra X inadimplentes hoje": no modo simples, só a régua efetiva cobre todos;
-    // no modo por faixa, cada régua cobre os inadimplentes da sua faixa (Todas = todos).
-    const totalInad = await this.prisma.customer.count({ where: this.inadimplenteWhere(tenantId) });
-    const reguaSimplesId = simples ? (reguas.find((r) => r.ativo && !r.faixaRisco)?.id ?? reguas.find((r) => r.ativo)?.id) : null;
-    const comCobertura = await Promise.all(reguas.map(async (r) => {
-      let cobre = 0;
-      if (simples) cobre = r.id === reguaSimplesId ? totalInad : 0;
-      else if (r.ativo) cobre = await this.prisma.customer.count({ where: this.inadimplenteWhere(tenantId, r.faixaRisco) });
-      return { ...r, inadimplentesCobertos: cobre };
+    const usarFaixaRisco = tenant?.usarFaixaRisco !== false;
+    const faixas = [RiskBand.BOM, RiskBand.ATENCAO, RiskBand.RISCO];
+    const [totalInad, semRisco, ...porFaixa] = await Promise.all([
+      this.prisma.customer.count({ where: this.inadimplenteWhere(tenantId) }),
+      this.prisma.customer.count({ where: { AND: [this.inadimplenteWhere(tenantId), { faixaAtual: null }] } }),
+      ...faixas.map((faixa) => this.prisma.customer.count({ where: this.inadimplenteWhere(tenantId, faixa) })),
+    ]);
+    const efetivaSimples = selecionarRegua(reguas, false, null, tenant?.reguaPadraoId);
+    const cobertura = new Map<string, number>();
+    if (!usarFaixaRisco && efetivaSimples) cobertura.set(efetivaSimples.id, totalInad);
+    if (usarFaixaRisco) {
+      faixas.forEach((faixa, i) => {
+        const efetiva = selecionarRegua(reguas, true, faixa);
+        if (efetiva) cobertura.set(efetiva.id, (cobertura.get(efetiva.id) ?? 0) + porFaixa[i]);
+      });
+    }
+    const comCobertura = reguas.map((r) => ({
+      ...r,
+      inadimplentesCobertos: cobertura.get(r.id) ?? 0,
+      reguaEfetiva: usarFaixaRisco ? cobertura.has(r.id) : r.id === efetivaSimples?.id,
+      semRiscoCalculado: semRisco,
     }));
     return comCobertura;
   }
@@ -48,8 +61,8 @@ export class RulesService {
   /** Config da cobrança automática + diagnóstico (faixas de inadimplentes sem régua). */
   async config(tenantId: string) {
     const [tenant, reguas] = await Promise.all([
-      this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { usarFaixaRisco: true } }),
-      this.prisma.dunningRule.findMany({ where: { tenantId, ativo: true }, select: { faixaRisco: true } }),
+      this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { usarFaixaRisco: true, reguaPadraoId: true } }),
+      this.prisma.dunningRule.findMany({ where: { tenantId, ativo: true }, select: { id: true, faixaRisco: true }, orderBy: { createdAt: 'asc' } }),
     ]);
     const usarFaixaRisco = tenant?.usarFaixaRisco !== false;
     const faixasSemRegua: { faixa: string; label: string; inadimplentes: number }[] = [];
@@ -63,14 +76,29 @@ export class RulesService {
         if (inadimplentes > 0) faixasSemRegua.push({ faixa, label: LABEL[faixa], inadimplentes });
       }
     }
-    // Modo simples sem nenhuma régua ativa → ninguém é cobrado.
-    const semReguaAtiva = !usarFaixaRisco && reguas.length === 0;
-    return { usarFaixaRisco, faixasSemRegua, semReguaAtiva };
+    const semReguaAtiva = reguas.length === 0;
+    const semRiscoCalculado = usarFaixaRisco
+      ? await this.prisma.customer.count({ where: { AND: [this.inadimplenteWhere(tenantId), { faixaAtual: null }] } })
+      : 0;
+    // O id explícito é preferido; se ficou nulo/inválido, informa a mesma escolha
+    // determinística usada pelo motor até o usuário selecionar outra.
+    const reguaPadraoId = selecionarRegua(reguas.map((r) => ({ ...r, ativo: true })), false, null, tenant?.reguaPadraoId)?.id ?? null;
+    return { usarFaixaRisco, reguaPadraoId, faixasSemRegua, semReguaAtiva, semRiscoCalculado };
   }
 
   async setUsarFaixaRisco(tenantId: string, usar: boolean) {
-    await this.prisma.tenant.update({ where: { id: tenantId }, data: { usarFaixaRisco: usar } });
-    return { usarFaixaRisco: usar };
+    const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId }, select: { reguaPadraoId: true } });
+    const regras = await this.prisma.dunningRule.findMany({ where: { tenantId, ativo: true }, select: { id: true, faixaRisco: true }, orderBy: { createdAt: 'asc' } });
+    const reguaPadraoId = usar ? tenant.reguaPadraoId : selecionarRegua(regras.map((r) => ({ ...r, ativo: true })), false, null, tenant.reguaPadraoId)?.id ?? null;
+    await this.prisma.tenant.update({ where: { id: tenantId }, data: { usarFaixaRisco: usar, reguaPadraoId } });
+    return { usarFaixaRisco: usar, reguaPadraoId };
+  }
+
+  async setReguaPadrao(tenantId: string, ruleId: string) {
+    const rule = await this.prisma.dunningRule.findFirst({ where: { id: ruleId, tenantId, ativo: true }, select: { id: true } });
+    if (!rule) throw new BadRequestException('Selecione uma régua ativa deste ambiente.');
+    await this.prisma.tenant.update({ where: { id: tenantId }, data: { reguaPadraoId: rule.id } });
+    return { reguaPadraoId: rule.id };
   }
 
   async get(tenantId: string, id: string) {
