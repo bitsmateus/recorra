@@ -392,17 +392,21 @@ export class ChargesService {
     // Início do dia (UTC), como no resto da plataforma — não o instante atual.
     const n = new Date();
     const limite30 = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate() - 30));
-    const [agg, porStatusRaw, clientes, critico] = await Promise.all([
+    const [agg, porStatusRaw, clientes, critico, clientesPorStatusRaw] = await Promise.all([
       this.prisma.invoice.aggregate({ where, _sum: { valor: true }, _count: true }),
       this.prisma.invoice.groupBy({ by: ['status'], where, _sum: { valor: true }, _count: { _all: true } }),
       this.prisma.invoice.findMany({ where, select: { customerId: true }, distinct: ['customerId'] }),
       this.prisma.invoice.aggregate({ where: { AND: [where, { status: 'VENCIDA', vencimento: { lt: limite30 } }] }, _sum: { valor: true }, _count: true }),
+      // Clientes distintos por status (uma linha por par status+cliente).
+      this.prisma.invoice.groupBy({ by: ['status', 'customerId'], where }),
     ]);
-    const porStatus: Record<string, { n: number; valor: number }> = {};
+    const clientesPorStatus: Record<string, number> = {};
+    for (const g of clientesPorStatusRaw) clientesPorStatus[g.status] = (clientesPorStatus[g.status] ?? 0) + 1;
+    const porStatus: Record<string, { n: number; valor: number; clientes: number }> = {};
     let emAberto = 0;
     for (const g of porStatusRaw) {
       const valor = Number(g._sum.valor ?? 0);
-      porStatus[g.status] = { n: g._count._all, valor };
+      porStatus[g.status] = { n: g._count._all, valor, clientes: clientesPorStatus[g.status] ?? 0 };
       if (g.status === 'PENDENTE' || g.status === 'VENCIDA') emAberto += valor;
     }
     const total = agg._count;

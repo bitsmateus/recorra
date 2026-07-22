@@ -88,7 +88,7 @@ function AjudaStatus() {
 
 interface ResumoCobrancas {
   total: number; soma: number; emAberto: number; ticketMedio: number; clientesDistintos: number;
-  critico: { n: number; valor: number }; porStatus: Record<string, { n: number; valor: number }>;
+  critico: { n: number; valor: number }; porStatus: Record<string, { n: number; valor: number; clientes?: number }>;
 }
 
 export default function CobrancasPage() {
@@ -239,8 +239,6 @@ export default function CobrancasPage() {
 
   // "Ver mais" acumula páginas; a seleção/"marcar todas" opera só sobre o carregado.
   const temMais = invoices.length < total;
-  const ORDEM_STATUS = ['VENCIDA', 'PENDENTE', 'PAGA', 'CANCELADA', 'ESTORNADA'];
-  const statusResumo = resumo ? ORDEM_STATUS.filter((s) => resumo.porStatus[s]) : [];
 
   async function exportarCsv() {
     setMsg('Preparando exportação...');
@@ -259,6 +257,34 @@ export default function CobrancasPage() {
   const idsVisiveis = invoices.map((i) => i.id);
   const todosMarcados = idsVisiveis.length > 0 && idsVisiveis.every((id) => selecionados.has(id));
   const toggleTodos = () => setSelecionados(todosMarcados ? new Set() : new Set(idsVisiveis));
+
+  // Filtro de período (aplica em de/ate, que filtram por vencimento).
+  const isoData = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  function aplicarPeriodo(p: 'hoje' | 'mes' | 'ano' | 'tudo') {
+    const h = new Date();
+    let de = '', ate = '';
+    if (p === 'hoje') { de = isoData(h); ate = isoData(h); }
+    else if (p === 'mes') { de = isoData(new Date(h.getFullYear(), h.getMonth(), 1)); ate = isoData(new Date(h.getFullYear(), h.getMonth() + 1, 0)); }
+    else if (p === 'ano') { de = isoData(new Date(h.getFullYear(), 0, 1)); ate = isoData(new Date(h.getFullYear(), 11, 31)); }
+    setFiltros((s) => ({ ...s, de, ate }));
+  }
+  const periodoAtual: 'hoje' | 'mes' | 'ano' | 'tudo' | 'custom' = (() => {
+    const h = new Date();
+    if (!filtros.de && !filtros.ate) return 'tudo';
+    if (filtros.de === isoData(h) && filtros.ate === isoData(h)) return 'hoje';
+    if (filtros.de === isoData(new Date(h.getFullYear(), h.getMonth(), 1)) && filtros.ate === isoData(new Date(h.getFullYear(), h.getMonth() + 1, 0))) return 'mes';
+    if (filtros.de === isoData(new Date(h.getFullYear(), 0, 1)) && filtros.ate === isoData(new Date(h.getFullYear(), 11, 31))) return 'ano';
+    return 'custom';
+  })();
+
+  // Cards de "Situação das cobranças" (estilo painel), a partir do resumo por status.
+  const CARDS = [
+    { key: 'PAGA', label: 'Recebidas', cor: '#0F6E56', track: 'bg-success-tint' },
+    { key: 'PENDENTE', label: 'Aguardando pagamento', cor: '#B45309', track: 'bg-warning-tint' },
+    { key: 'VENCIDA', label: 'Vencidas', cor: '#A32D2D', track: 'bg-danger-tint' },
+    { key: 'CANCELADA', label: 'Canceladas', cor: '#64748B', track: 'bg-canvas' },
+  ];
+  const maxValorStatus = resumo ? Math.max(1, ...CARDS.map((c) => resumo.porStatus[c.key]?.valor ?? 0)) : 1;
 
   return (
     <div>
@@ -293,6 +319,40 @@ export default function CobrancasPage() {
         </div>
         {msg && <span className="text-sm text-primary">{msg}</span>}
       </div>
+
+      {resumo && resumo.total > 0 && (
+        <div className="mb-4 rounded-lg border border-line bg-surface p-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-ink">Situação das cobranças</h2>
+            <div className="flex items-center gap-0.5 rounded-lg border border-line p-0.5 text-xs">
+              {([['hoje', 'Hoje'], ['mes', 'Este mês'], ['ano', 'Este ano'], ['tudo', 'Desde o início']] as const).map(([k, label]) => (
+                <button key={k} onClick={() => aplicarPeriodo(k)} className={`rounded-md px-2.5 py-1 font-medium transition ${periodoAtual === k ? 'bg-primary text-white' : 'text-muted hover:bg-canvas'}`}>{label}</button>
+              ))}
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {CARDS.map((c) => {
+              const d = resumo.porStatus[c.key];
+              const valor = d?.valor ?? 0;
+              const largura = Math.round((valor / maxValorStatus) * 100);
+              const ativo = filtros.status === c.key;
+              return (
+                <button key={c.key} onClick={() => setF('status', ativo ? '' : c.key)} title={`Filtrar por ${c.label}`} className={`rounded-lg border p-4 text-left transition hover:shadow-sm ${ativo ? 'border-primary ring-1 ring-primary/30' : 'border-line'}`}>
+                  <div className="mb-1 text-xs font-medium text-muted">{c.label}</div>
+                  <div className="tabular text-xl font-semibold" style={{ color: c.cor }}>{brl(valor)}</div>
+                  <div className={`my-2 h-1.5 w-full overflow-hidden rounded-full ${c.track}`}>
+                    <div className="h-full rounded-full" style={{ width: `${largura}%`, background: c.cor }} />
+                  </div>
+                  <div className="flex items-center gap-3 text-xs text-muted">
+                    <span className="tabular">{d?.clientes ?? 0} cliente(s)</span>
+                    <span className="tabular">{d?.n ?? 0} cobrança(s)</span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="mb-4 rounded-lg border border-line bg-surface p-3">
         <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted"><Filter size={14} /> Filtros {filtrosAtivos > 0 && <span className="rounded-full bg-primary-tint px-2 py-0.5 text-primary">{filtrosAtivos}</span>}
@@ -339,17 +399,6 @@ export default function CobrancasPage() {
                 Atraso +30d: <span className="tabular font-semibold text-danger">{resumo.critico.n}</span> · <span className="tabular font-semibold text-danger">{brl(resumo.critico.valor)}</span>
               </span>
             )}
-          </div>
-        )}
-        {statusResumo.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-2">
-            {statusResumo.map((s) => (
-              <span key={s} className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs ${statusColor[s] || 'bg-canvas text-muted'}`}>
-                <span className="font-medium">{s}</span>
-                <span className="tabular opacity-70">{resumo?.porStatus[s].n}</span>
-                <span className="tabular font-semibold">{brl(resumo?.porStatus[s].valor ?? 0)}</span>
-              </span>
-            ))}
           </div>
         )}
       </div>
