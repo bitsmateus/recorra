@@ -638,7 +638,8 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
                   Quando o cliente tem várias faturas em aberto:
                   <Ajuda>
                     <b>Uma mensagem por fatura:</b> se o cliente deve 3 faturas, ele recebe 3 mensagens, uma com o Pix/boleto de cada uma.<br /><br />
-                    <b>Só a mais próxima do vencimento:</b> manda uma única mensagem, com a fatura que vence primeiro. Bom para não encher o cliente de mensagens.
+                    <b>Só a mais próxima do vencimento:</b> manda uma única mensagem, com a fatura que vence primeiro. Bom para não encher o cliente de mensagens.<br /><br />
+                    Em ambos os casos só entram as faturas que batem com a <b>situação</b> escolhida no público — numa campanha &quot;com fatura vencida&quot;, a que ainda vai vencer não é enviada.
                   </Ajuda>
                 </span>
                 <select value={f.escopoFatura} onChange={(e) => set('escopoFatura', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">

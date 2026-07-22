@@ -97,6 +97,32 @@ export function wherePorSituacao(valor?: string | null): Prisma.CustomerWhereInp
   }
 }
 
+/**
+ * Quais faturas em aberto do cliente a campanha deve cobrar (puro/testável).
+ *
+ * O filtro de público escolhe QUEM entra (ex.: "quem tem fatura vencida"); sem
+ * este recorte, o Lembrete mandaria uma mensagem para CADA fatura em aberto —
+ * inclusive as que ainda nem venceram. Aqui o mesmo critério do público é
+ * aplicado às faturas, para o cliente receber só o que ele pediu.
+ *  - VENCIDA/PENDENTE: só as faturas naquela situação.
+ *  - atraso mínimo (dias): só as vencidas há pelo menos N dias.
+ *  - "Todos os contatos", ABERTO ou sem filtro: todas as em aberto.
+ */
+export function faturasDaCampanha<T extends { status: string; vencimento: Date }>(
+  abertas: T[],
+  opts: { filtroTodos?: boolean; filtroStatus?: string | null; filtroDiasAtraso?: number | null },
+  ref: Date = new Date(),
+): T[] {
+  if (opts.filtroTodos) return abertas;
+  if (opts.filtroDiasAtraso != null && opts.filtroDiasAtraso > 0) {
+    const limite = new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), ref.getUTCDate() - opts.filtroDiasAtraso));
+    return abertas.filter((i) => i.status === 'VENCIDA' && i.vencimento <= limite);
+  }
+  if (opts.filtroStatus === 'VENCIDA') return abertas.filter((i) => i.status === 'VENCIDA');
+  if (opts.filtroStatus === 'PENDENTE') return abertas.filter((i) => i.status === 'PENDENTE');
+  return abertas;
+}
+
 export interface CampaignInput {
   nome: string;
   tipoEnvio: 'REGUA' | 'MENSAGEM' | 'LEMBRETE';
@@ -526,20 +552,22 @@ export class CampaignsService {
     // em que ele é alcançável e não deu opt-out — espelhando o executor por passo.
     const canais = (f.canais?.length ? f.canais : [(f.canal ?? 'WHATSAPP_CLOUD')]) as ChannelType[];
 
-    const invs: { customerId: string; valor: Prisma.Decimal; status: string }[] = [];
+    const invs: { customerId: string; valor: Prisma.Decimal; status: string; vencimento: Date }[] = [];
     const scores: { customerId: string; faixa: RiskBand }[] = [];
     const optouts: { customerId: string; canal: ChannelType }[] = [];
     for (const lote of emLotes(ids)) {
       const [i, s, o] = await Promise.all([
-        this.prisma.invoice.findMany({ where: { tenantId, customerId: { in: lote }, status: { in: ['PENDENTE', 'VENCIDA'] }, gestaoCobranca: 'ATIVA' }, select: { customerId: true, valor: true, status: true } }),
+        this.prisma.invoice.findMany({ where: { tenantId, customerId: { in: lote }, status: { in: ['PENDENTE', 'VENCIDA'] }, gestaoCobranca: 'ATIVA' }, select: { customerId: true, valor: true, status: true, vencimento: true } }),
         this.prisma.riskScore.findMany({ where: { tenantId, customerId: { in: lote } }, orderBy: { calculadoEm: 'desc' }, select: { customerId: true, faixa: true } }),
         this.prisma.consent.findMany({ where: { customerId: { in: lote }, canal: { in: canais }, status: 'REVOGADO' }, select: { customerId: true, canal: true } }),
       ]);
       invs.push(...i); scores.push(...s); optouts.push(...o);
     }
 
+    // Mesma regra do executor: só conta as faturas que a campanha vai realmente
+    // cobrar, para o "em aberto" da prévia não inflar com faturas fora do filtro.
     const abertoBy = new Map<string, { valor: number; vencida: number }>();
-    for (const i of invs) {
+    for (const i of faturasDaCampanha(invs, f)) {
       const a = abertoBy.get(i.customerId) ?? { valor: 0, vencida: 0 };
       a.valor += Number(i.valor);
       if (i.status === 'VENCIDA') a.vencida += 1;
@@ -718,9 +746,12 @@ export class CampaignsService {
             where: { tenantId, customerId: cliente.id, status: { in: ['PENDENTE', 'VENCIDA'] }, gestaoCobranca: 'ATIVA' },
             orderBy: { vencimento: 'asc' },
           });
+          // Respeita o filtro de situação do público: numa campanha "com fatura
+          // vencida" o cliente não pode receber também a fatura que ainda vai vencer.
+          const elegiveis = faturasDaCampanha(abertas, camp);
           const alvo = camp.escopoFatura === 'PROXIMA'
-            ? abertas.sort((a, b) => Math.abs(a.vencimento.getTime() - Date.now()) - Math.abs(b.vencimento.getTime() - Date.now())).slice(0, 1)
-            : abertas;
+            ? elegiveis.sort((a, b) => Math.abs(a.vencimento.getTime() - Date.now()) - Math.abs(b.vencimento.getTime() - Date.now())).slice(0, 1)
+            : elegiveis;
           if (alvo.length === 0) { ignorados++; continue; }
           // No WhatsApp o conteúdo vem do template; nos demais, do texto livre.
           const usaTpl = !!camp.templateNome;
