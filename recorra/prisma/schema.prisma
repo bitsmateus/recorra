@@ -837,6 +837,7 @@ enum CampaignAgendamento {
 
 enum CampaignStatus {
   RASCUNHO
+  AGENDADA
   ATIVA
   PAUSADA
   CONCLUIDA
@@ -878,6 +879,9 @@ model Campaign {
   publicoDinamico Boolean             @default(true)
   agendamento     CampaignAgendamento @default(UMA_VEZ)
   diaDoMes        Int?
+  // Envio único agendado: data/hora escolhida para o disparo começar sozinho.
+  // Null = dispara manualmente ("Disparar agora"). Só vale para agendamento UMA_VEZ.
+  agendadaPara    DateTime?
   proximaExecucao DateTime?
 
   status    CampaignStatus @default(RASCUNHO)

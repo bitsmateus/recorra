@@ -77,6 +77,17 @@ export class SchedulerService implements OnApplicationBootstrap {
     }
   }
 
+  /** Campanhas de envio único com início agendado — precisa granularidade de minutos. */
+  @Cron(CronExpression.EVERY_5_MINUTES)
+  async runCampanhasAgendadas() {
+    try {
+      const r = await this.campaigns.executarUnicasAgendadas();
+      if (r.executadas > 0) this.logger.log(`Campanhas agendadas (envio único): ${r.executadas} disparadas`);
+    } catch (e) {
+      this.logger.error(`Falha nas campanhas agendadas: ${String(e)}`);
+    }
+  }
+
   /**
    * Importação diária dos gateways: puxa cobranças novas "a receber" (ex.: mensalidades
    * geradas por assinaturas criadas no próprio gateway). É a rede de segurança do webhook

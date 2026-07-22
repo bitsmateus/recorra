@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Plus, Play, Pause, BarChart3, Pencil, Trash2, X, Megaphone, ExternalLink, Copy, Filter, Loader2, HelpCircle, Radio } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -20,7 +20,7 @@ interface Campaign {
   filtroTodos: boolean; filtroEtiqueta?: string; filtroValorMin?: number; filtroValorMax?: number; filtroFaixa?: string; filtroStatus?: string; filtroDiasAtraso?: number; filtroPlano?: string; filtroCidade?: string;
   incluirIds?: string[]; excluirIds?: string[];
   publicoDinamico: boolean;
-  agendamento: 'UMA_VEZ' | 'MENSAL' | 'SEMPRE_ATIVA'; diaDoMes?: number;
+  agendamento: 'UMA_VEZ' | 'MENSAL' | 'SEMPRE_ATIVA'; diaDoMes?: number; agendadaPara?: string | null;
   status: string; runs?: Run[];
   entrega?: { total: number; enviados: number; fila: number; falha: number } | null;
 }
@@ -105,14 +105,30 @@ const MAP_OPCOES = [
   { v: '__FIXO__', l: 'Texto fixo' },
 ];
 const statusColor: Record<string, string> = {
-  RASCUNHO: 'bg-canvas text-muted', ATIVA: 'bg-primary-tint text-primary',
+  RASCUNHO: 'bg-canvas text-muted', AGENDADA: 'bg-primary-tint text-primary', ATIVA: 'bg-primary-tint text-primary',
   PAUSADA: 'bg-warning-tint text-[#854F0B]', CONCLUIDA: 'bg-canvas text-muted',
 };
-const statusLabel: Record<string, string> = { RASCUNHO: 'Rascunho', ATIVA: 'Ativa', PAUSADA: 'Pausada', CONCLUIDA: 'Disparada' };
-const agendaLabel = (c: Campaign) => c.agendamento === 'UMA_VEZ' ? 'Uma vez' : c.agendamento === 'MENSAL' ? `Todo mês (dia ${c.diaDoMes || 1})` : 'Sempre ativa';
+const statusLabel: Record<string, string> = { RASCUNHO: 'Rascunho', AGENDADA: 'Agendada', ATIVA: 'Ativa', PAUSADA: 'Pausada', CONCLUIDA: 'Disparada' };
+const dataHoraCurta = (s?: string | null) => s ? new Date(s).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+const agendaLabel = (c: Campaign) =>
+  c.agendamento === 'UMA_VEZ'
+    ? (c.agendadaPara && c.status !== 'CONCLUIDA' ? `Agendada · ${dataHoraCurta(c.agendadaPara)}` : 'Uma vez')
+    : c.agendamento === 'MENSAL' ? `Todo mês (dia ${c.diaDoMes || 1})` : 'Sempre ativa';
 /** Campanha de envio único já disparada não dispara de novo — o caminho é duplicar e disparar a cópia. */
 const jaDisparada = (c: Campaign) => c.agendamento === 'UMA_VEZ' && !!c.entrega;
 const dataHora = (s?: string) => s ? new Date(s).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+/** ISO/Date → valor do <input type="datetime-local"> (hora local, sem timezone). */
+function paraInputLocal(iso?: string | Date | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+/** "Agora" no formato do datetime-local, para servir de mínimo do campo. */
+function agoraInputLocal(): string {
+  return paraInputLocal(new Date());
+}
 const SITUACAO_LABEL: Record<string, string> = {
   VENCIDA: 'com fatura vencida',
   PENDENTE: 'com fatura a vencer',
@@ -425,6 +441,7 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
     publicoDinamico: edit?.publicoDinamico ?? true,
     agendamento: edit?.agendamento || 'UMA_VEZ',
     diaDoMes: edit?.diaDoMes ? String(edit.diaDoMes) : '1',
+    agendadaPara: paraInputLocal(edit?.agendadaPara),
   });
   const [reguas, setReguas] = useState<Regua[]>([]);
   const [etiquetas, setEtiquetas] = useState<Etiqueta[]>([]);
@@ -437,6 +454,7 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
   const templateSel = templates.find((t) => t.nome === f.templateNome);
   const varsTemplate = templateSel ? templateVars(templateSel.corpo) : [];
   const [templateParams, setTemplateParams] = useState<string[]>(edit?.templateParams || []);
+  const templateAnterior = useRef(edit?.templateNome || '');
   const setParam = (i: number, v: string) => setTemplateParams((p) => { const n = [...p]; n[i] = v; return n; });
   const [publico, setPublico] = useState<PublicoPreview | null>(null);
   const [incluir, setIncluir] = useState<string[]>(edit?.incluirIds || []);
@@ -491,11 +509,23 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canais]);
 
-  // Ajusta o nº de parâmetros ao template escolhido (default: nome).
+  // Ajusta o nº de parâmetros somente depois que o template foi carregado.
+  // Ao editar, a lista de templates chega de forma assíncrona: antes ela passava
+  // por `varsTemplate=[]`, apagava os valores salvos e depois recriava tudo como
+  // {{nome}}. Mantemos os valores quando é o mesmo template e usamos o default
+  // apenas quando o usuário escolhe outro template de propósito.
   useEffect(() => {
-    setTemplateParams((prev) => varsTemplate.map((_, i) => prev[i] ?? '{{nome}}'));
+    if (!f.templateNome) {
+      templateAnterior.current = '';
+      setTemplateParams([]);
+      return;
+    }
+    if (!templateSel) return;
+    const mudouTemplate = templateAnterior.current !== f.templateNome;
+    setTemplateParams((prev) => varsTemplate.map((_, i) => mudouTemplate ? '{{nome}}' : (prev[i] ?? '{{nome}}')));
+    templateAnterior.current = f.templateNome;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [f.templateNome, templates.length]);
+  }, [f.templateNome, templateSel?.corpo]);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -548,6 +578,7 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
       publicoDinamico: f.publicoDinamico,
       agendamento: f.agendamento,
       diaDoMes: f.agendamento === 'MENSAL' ? Number(f.diaDoMes) : null,
+      agendadaPara: f.agendamento === 'UMA_VEZ' && f.agendadaPara ? new Date(f.agendadaPara).toISOString() : null,
     };
     try {
       if (edit) await api(`/campanhas/${edit.id}`, { method: 'PUT', body });
@@ -701,7 +732,7 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
           <span className="mb-1 flex items-center gap-1 text-xs font-semibold text-muted">
             Quando enviar
             <Ajuda>
-              <b>Uma vez:</b> dispara agora, uma única vez, e encerra.<br /><br />
+              <b>Uma vez:</b> dispara uma única vez e encerra. Pode disparar na hora (&quot;Disparar agora&quot;) ou <b>agendar o início</b> para uma data/hora — o sistema dispara sozinho na hora marcada.<br /><br />
               <b>Todo mês:</b> repete automaticamente todo mês, no dia que você escolher ao lado.<br /><br />
               <b>Sempre ativa:</b> fica ligada e envia para cada novo contato que entrar no público (útil com público dinâmico).
             </Ajuda>
@@ -718,6 +749,28 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
               </label>
             )}
           </div>
+          {f.agendamento === 'UMA_VEZ' && (
+            <div className="mt-3 rounded-lg border border-line bg-canvas p-3">
+              <label className="block">
+                <span className="mb-1 flex items-center gap-1.5 text-xs font-medium text-ink">Agendar início do disparo <span className="font-normal text-muted">(opcional)</span></span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="datetime-local"
+                    value={f.agendadaPara}
+                    min={agoraInputLocal()}
+                    onChange={(e) => set('agendadaPara', e.target.value)}
+                    className="rounded border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-primary"
+                  />
+                  {f.agendadaPara && <button type="button" onClick={() => set('agendadaPara', '')} className="text-xs font-medium text-muted hover:text-danger">limpar</button>}
+                </div>
+                <span className="mt-1 block text-xs text-muted">
+                  {f.agendadaPara
+                    ? `Vai disparar sozinha em ${new Date(f.agendadaPara).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}. Salve para agendar.`
+                    : 'Deixe em branco para disparar manualmente com o botão "Disparar agora".'}
+                </span>
+              </label>
+            </div>
+          )}
           {f.agendamento !== 'UMA_VEZ' && (
             <div className="mt-3">
               <span className="mb-1 block text-xs font-medium text-muted">Como o público se comporta a cada envio</span>

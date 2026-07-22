@@ -123,6 +123,7 @@ export interface CampaignInput {
   publicoDinamico?: boolean;
   agendamento?: 'UMA_VEZ' | 'MENSAL' | 'SEMPRE_ATIVA';
   diaDoMes?: number | null;
+  agendadaPara?: string | Date | null; // ISO/data de início do envio único agendado
 }
 
 @Injectable()
@@ -255,6 +256,13 @@ export class CampaignsService {
     };
   }
 
+  /** Data de início agendada (só faz sentido em UMA_VEZ). Inválida/ausente → null. */
+  private parseAgendada(agendamento: string, v?: string | Date | null): Date | null {
+    if (agendamento !== 'UMA_VEZ' || !v) return null;
+    const d = v instanceof Date ? v : new Date(v);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
   /** Garante que a régua pertence ao tenant (evita vincular régua de outra empresa). */
   private async validarRegua(tenantId: string, tipoEnvio: string, ruleId?: string | null) {
     if (tipoEnvio !== 'REGUA') return;
@@ -272,9 +280,12 @@ export class CampaignsService {
     if (!input.nome?.trim()) throw new BadRequestException('Nome é obrigatório');
     await this.validarRegua(tenantId, input.tipoEnvio, input.ruleId);
     this.validarConteudo(input);
-    const proxima = this.calcularProxima(input.agendamento || 'UMA_VEZ', input.diaDoMes ?? null);
+    const dados = this.dados(input);
+    const agendada = this.parseAgendada(dados.agendamento, input.agendadaPara);
+    // Início agendado (UMA_VEZ): a campanha espera até a hora marcada e o cron dispara.
+    const proxima = agendada ?? this.calcularProxima(dados.agendamento, dados.diaDoMes);
     return this.prisma.campaign.create({
-      data: { tenantId, ...this.dados(input), proximaExecucao: proxima, status: 'RASCUNHO' },
+      data: { tenantId, ...dados, agendadaPara: agendada, proximaExecucao: proxima, status: agendada ? 'AGENDADA' : 'RASCUNHO' },
     });
   }
 
@@ -290,11 +301,19 @@ export class CampaignsService {
   }
 
   async update(tenantId: string, id: string, input: CampaignInput) {
-    this.assertEditavel(await this.get(tenantId, id));
+    const atual = await this.get(tenantId, id);
+    this.assertEditavel(atual);
     await this.validarRegua(tenantId, input.tipoEnvio, input.ruleId);
     this.validarConteudo(input);
-    const proxima = this.calcularProxima(input.agendamento || 'UMA_VEZ', input.diaDoMes ?? null);
-    return this.prisma.campaign.update({ where: { id }, data: { ...this.dados(input), proximaExecucao: proxima } });
+    const dados = this.dados(input);
+    const agendada = this.parseAgendada(dados.agendamento, input.agendadaPara);
+    const proxima = agendada ?? this.calcularProxima(dados.agendamento, dados.diaDoMes);
+    // Ligar/desligar o agendamento reflete no status; campanhas já disparadas ou
+    // recorrentes mantêm o status atual.
+    let status = atual.status;
+    if (agendada) status = 'AGENDADA';
+    else if (atual.status === 'AGENDADA') status = 'RASCUNHO';
+    return this.prisma.campaign.update({ where: { id }, data: { ...dados, agendadaPara: agendada, proximaExecucao: proxima, status } });
   }
 
   async duplicar(tenantId: string, id: string) {
@@ -328,6 +347,8 @@ export class CampaignsService {
         publicoDinamico: c.publicoDinamico,
         agendamento: c.agendamento,
         diaDoMes: c.diaDoMes,
+        // A cópia não herda o agendamento de início — o usuário reagenda se quiser.
+        agendadaPara: null,
         status: 'RASCUNHO',
         proximaExecucao: this.calcularProxima(c.agendamento, c.diaDoMes),
       },
@@ -875,6 +896,30 @@ export class CampaignsService {
     for (let i = 0; i < ids.length; i++) {
       try { await this.dispatchQueue.enqueue(ids[i], i * (delaySeg > 0 ? delaySeg : 0) * 1000); } catch { /* erro já registrado no disparo */ }
     }
+  }
+
+  /**
+   * Dispara campanhas de envio único cuja hora agendada já chegou (chamado pelo
+   * agendador com granularidade de minutos). Cada uma roda uma única vez — o
+   * `executar` marca CONCLUIDA e zera a próxima execução. Sem público apto na
+   * hora marcada, volta a RASCUNHO para o usuário reagendar.
+   */
+  async executarUnicasAgendadas() {
+    const agora = new Date();
+    const vencidas = await this.prisma.campaign.findMany({
+      where: { automatico: false, agendamento: 'UMA_VEZ', status: 'AGENDADA', proximaExecucao: { lte: agora } },
+    });
+    const resultados = [];
+    for (const c of vencidas) {
+      const r: any = await this.executar(c.tenantId, c.id, true).catch((e) => ({ erro: String(e) }));
+      if (r?.semPublico || r?.erro) {
+        await this.prisma.campaign
+          .update({ where: { id: c.id }, data: { status: 'RASCUNHO', agendadaPara: null, proximaExecucao: null } })
+          .catch(() => undefined);
+      }
+      resultados.push({ campanha: c.nome, ...r });
+    }
+    return { executadas: resultados.length, resultados };
   }
 
   /** Executa campanhas recorrentes vencidas (chamado pelo agendador). */
