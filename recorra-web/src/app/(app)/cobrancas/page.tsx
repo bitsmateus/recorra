@@ -44,6 +44,13 @@ const statusColor: Record<string, string> = {
 
 const emptyFiltros = { q: '', status: '', metodo: '', geracao: '', de: '', ate: '', valorMin: '', valorMax: '', etiqueta: '' };
 
+// Intervalo do mês atual (padrão do filtro de data ao abrir a tela).
+function mesAtualISO() {
+  const h = new Date();
+  const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return { de: iso(new Date(h.getFullYear(), h.getMonth(), 1)), ate: iso(new Date(h.getFullYear(), h.getMonth() + 1, 0)) };
+}
+
 /** Ajuda contextual aberta por clique ao lado do filtro de status. */
 function AjudaStatus() {
   const [aberta, setAberta] = useState(false);
@@ -99,7 +106,7 @@ export default function CobrancasPage() {
   const [resumo, setResumo] = useState<ResumoCobrancas | null>(null);
   const [ordenacao, setOrdenacao] = useState<{ campo: 'valor' | 'vencimento' | null; dir: 'asc' | 'desc' }>({ campo: null, dir: 'asc' });
   const [gateways, setGateways] = useState<Gateway[]>([]);
-  const [filtros, setFiltros] = useState(emptyFiltros);
+  const [filtros, setFiltros] = useState(() => ({ ...emptyFiltros, ...mesAtualISO() }));
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
   const [editar, setEditar] = useState<Invoice | null>(null);
@@ -330,23 +337,26 @@ export default function CobrancasPage() {
           <div className="flex items-center gap-2">
             {/* Período (com Personalizado) */}
             <div className="relative">
-              <button onClick={() => { setMenuPeriodo((v) => !v); setMenuFiltros(false); }} className="flex items-center gap-2 rounded-lg border border-line px-3 py-1.5 text-sm hover:bg-canvas"><CalendarDays size={14} /> {periodoLabel[periodoAtual]} <ChevronDown size={14} /></button>
+              <button onClick={() => { setMenuPeriodo((v) => !v); setMenuFiltros(false); }} className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium transition ${menuPeriodo ? 'border-primary bg-primary-tint text-primary' : 'border-primary/40 text-primary hover:bg-primary-tint'}`}><CalendarDays size={14} /> {periodoLabel[periodoAtual]} <ChevronDown size={14} /></button>
               {menuPeriodo && (
                 <>
                   <div className="fixed inset-0 z-10" onClick={() => setMenuPeriodo(false)} />
-                  <div className="absolute right-0 z-20 mt-1 w-64 rounded-lg border border-line bg-surface p-2 shadow-lg">
+                  <div className="absolute right-0 z-20 mt-1 w-72 rounded-lg border border-line bg-surface p-2 shadow-lg">
                     {([['hoje', 'Hoje'], ['mes', 'Este mês'], ['ano', 'Este ano'], ['tudo', 'Desde o início']] as const).map(([k, label]) => (
-                      <button key={k} onClick={() => { aplicarPeriodo(k); setMenuPeriodo(false); }} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-canvas">
-                        <span className={`inline-block h-3.5 w-3.5 rounded-full border ${periodoAtual === k ? 'border-4 border-primary' : 'border-line'}`} />
+                      <button key={k} onClick={() => { aplicarPeriodo(k); setMenuPeriodo(false); }} className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-primary-tint">
+                        <span className={`inline-block h-3.5 w-3.5 shrink-0 rounded-full border-2 ${periodoAtual === k ? 'border-4 border-primary' : 'border-line'}`} />
                         <span className={periodoAtual === k ? 'font-medium text-primary' : 'text-ink'}>{label}</span>
                       </button>
                     ))}
-                    <div className="mt-1 border-t border-line px-2 pt-2">
-                      <div className="mb-1.5 flex items-center gap-2 text-sm"><span className={`inline-block h-3.5 w-3.5 rounded-full border ${periodoAtual === 'custom' ? 'border-4 border-primary' : 'border-line'}`} /> <span className={periodoAtual === 'custom' ? 'font-medium text-primary' : 'text-ink'}>Personalizado</span></div>
-                      <div className="flex items-center gap-2">
-                        <input type="date" value={filtros.de} onChange={(e) => setF('de', e.target.value)} className="w-full rounded border border-line px-2 py-1.5 text-xs outline-none focus:border-primary" />
-                        <span className="text-xs text-muted">até</span>
-                        <input type="date" value={filtros.ate} onChange={(e) => setF('ate', e.target.value)} className="w-full rounded border border-line px-2 py-1.5 text-xs outline-none focus:border-primary" />
+                    <div className="mt-1 rounded-md border-t border-line px-2 pb-1 pt-2">
+                      <div className="mb-2 flex items-center gap-2 text-sm"><span className={`inline-block h-3.5 w-3.5 shrink-0 rounded-full border-2 ${periodoAtual === 'custom' ? 'border-4 border-primary' : 'border-line'}`} /> <span className={periodoAtual === 'custom' ? 'font-medium text-primary' : 'text-ink'}>Personalizado</span></div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <label className="block"><span className="mb-1 block text-[11px] text-muted">De</span>
+                          <input type="date" value={filtros.de} onChange={(e) => setF('de', e.target.value)} className="w-full rounded-md border border-primary/30 bg-primary-tint/30 px-2 py-1.5 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
+                        </label>
+                        <label className="block"><span className="mb-1 block text-[11px] text-muted">Até</span>
+                          <input type="date" value={filtros.ate} onChange={(e) => setF('ate', e.target.value)} className="w-full rounded-md border border-primary/30 bg-primary-tint/30 px-2 py-1.5 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
+                        </label>
                       </div>
                     </div>
                   </div>
@@ -355,7 +365,7 @@ export default function CobrancasPage() {
             </div>
             {/* Filtros (sem data) */}
             <div className="relative">
-              <button onClick={() => { setMenuFiltros((v) => !v); setMenuPeriodo(false); }} className="flex items-center gap-2 rounded-lg border border-line px-3 py-1.5 text-sm hover:bg-canvas"><Filter size={14} /> Filtros {filtrosSemData > 0 && <span className="rounded-full bg-primary-tint px-1.5 text-xs font-medium text-primary">{filtrosSemData}</span>} <ChevronDown size={14} /></button>
+              <button onClick={() => { setMenuFiltros((v) => !v); setMenuPeriodo(false); }} className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium transition ${menuFiltros ? 'border-primary bg-primary-tint text-primary' : 'border-primary/40 text-primary hover:bg-primary-tint'}`}><Filter size={14} /> Filtros {filtrosSemData > 0 && <span className="rounded-full bg-primary px-1.5 text-xs font-medium text-white">{filtrosSemData}</span>} <ChevronDown size={14} /></button>
               {menuFiltros && (
                 <>
                   <div className="fixed inset-0 z-10" onClick={() => setMenuFiltros(false)} />
