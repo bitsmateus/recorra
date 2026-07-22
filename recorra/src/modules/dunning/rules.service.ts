@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma, RiskBand } from '@prisma/client';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { SaveRuleDto } from './dto/rule.dto';
@@ -8,7 +8,18 @@ import { selecionarRegua } from './dunning.service';
 
 @Injectable()
 export class RulesService {
+  private readonly logger = new Logger(RulesService.name);
+
   constructor(private readonly prisma: PrismaService) {}
+
+  /** Descrição legível de um erro do Prisma (código + alvo) para diagnóstico. */
+  private detalheErro(e: unknown): string {
+    if (e instanceof Prisma.PrismaClientKnownRequestError) {
+      const meta = e.meta ? ` ${JSON.stringify(e.meta)}` : '';
+      return `${e.code}: ${e.message.split('\n').pop()?.trim() ?? e.message}${meta}`;
+    }
+    return e instanceof Error ? e.message : String(e);
+  }
 
   /** Cliente inadimplente = tem fatura em aberto (não contestada, gestão ativa). */
   private inadimplenteWhere(tenantId: string, faixa?: RiskBand | null): Prisma.CustomerWhereInput {
@@ -90,15 +101,34 @@ export class RulesService {
     const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId }, select: { reguaPadraoId: true } });
     const regras = await this.prisma.dunningRule.findMany({ where: { tenantId, ativo: true }, select: { id: true, faixaRisco: true }, orderBy: { createdAt: 'asc' } });
     const reguaPadraoId = usar ? tenant.reguaPadraoId : selecionarRegua(regras.map((r) => ({ ...r, ativo: true })), false, null, tenant.reguaPadraoId)?.id ?? null;
-    await this.prisma.tenant.update({ where: { id: tenantId }, data: { usarFaixaRisco: usar, reguaPadraoId } });
-    return { usarFaixaRisco: usar, reguaPadraoId };
+    try {
+      await this.prisma.tenant.update({ where: { id: tenantId }, data: { usarFaixaRisco: usar, reguaPadraoId } });
+      return { usarFaixaRisco: usar, reguaPadraoId };
+    } catch (e) {
+      // A troca de modo não pode falhar por causa da régua-padrão (no modo simples
+      // ela é recalculada de forma determinística). Se a escrita do FK falhar,
+      // tenta de novo zerando a régua — o modo ainda muda e a UI segue funcionando.
+      this.logger.error(`setUsarFaixaRisco(${usar}) falhou ao gravar reguaPadraoId=${reguaPadraoId}: ${this.detalheErro(e)}`);
+      try {
+        await this.prisma.tenant.update({ where: { id: tenantId }, data: { usarFaixaRisco: usar, reguaPadraoId: null } });
+        return { usarFaixaRisco: usar, reguaPadraoId: null };
+      } catch (e2) {
+        this.logger.error(`setUsarFaixaRisco(${usar}) falhou também sem reguaPadraoId: ${this.detalheErro(e2)}`);
+        throw new BadRequestException(`Não foi possível alterar o modo da cobrança. Detalhe: ${this.detalheErro(e2)}`);
+      }
+    }
   }
 
   async setReguaPadrao(tenantId: string, ruleId: string) {
     const rule = await this.prisma.dunningRule.findFirst({ where: { id: ruleId, tenantId, ativo: true }, select: { id: true } });
     if (!rule) throw new BadRequestException('Selecione uma régua ativa deste ambiente.');
-    await this.prisma.tenant.update({ where: { id: tenantId }, data: { reguaPadraoId: rule.id } });
-    return { reguaPadraoId: rule.id };
+    try {
+      await this.prisma.tenant.update({ where: { id: tenantId }, data: { reguaPadraoId: rule.id } });
+      return { reguaPadraoId: rule.id };
+    } catch (e) {
+      this.logger.error(`setReguaPadrao(${ruleId}) falhou: ${this.detalheErro(e)}`);
+      throw new BadRequestException(`Não foi possível definir a régua principal. Detalhe: ${this.detalheErro(e)}`);
+    }
   }
 
   async get(tenantId: string, id: string) {
