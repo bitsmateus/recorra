@@ -158,8 +158,8 @@ model Tenant {
   ativo        Boolean  @default(true)
   timezone     String   @default("America/Sao_Paulo")
   // Cobrança automática: true = escolhe a régua pela faixa de risco do cliente;
-  // false (modo simples) = uma única régua para todos os inadimplentes.
-  usarFaixaRisco Boolean @default(true)
+  // false (modo simples, padrão de novos clientes) = uma única régua para todos.
+  usarFaixaRisco Boolean @default(false)
   config       Json?
   featureFlags Json?
   createdAt    DateTime @default(now())
