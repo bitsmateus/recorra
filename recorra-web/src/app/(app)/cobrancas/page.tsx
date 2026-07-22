@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { Download, Pencil, Trash2, X, Filter, Plus, FileSpreadsheet, FileDown, ChevronDown, ChevronUp, ArrowUpDown, Receipt, Copy, ExternalLink, Check, HelpCircle, RefreshCw } from 'lucide-react';
+import { Download, Pencil, Trash2, X, Filter, Plus, FileSpreadsheet, FileDown, ChevronDown, ChevronUp, ArrowUpDown, Receipt, Copy, ExternalLink, Check, HelpCircle, RefreshCw, CalendarDays } from 'lucide-react';
 import { ImportWizard } from '@/components/ImportWizard';
 import { api } from '@/lib/api';
 import { PageTitle, brl } from '@/components/ui';
@@ -112,6 +112,8 @@ export default function CobrancasPage() {
   const toggleSel = (id: string) => setSelecionados((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const [criar, setCriar] = useState(false);
   const [menuImport, setMenuImport] = useState(false);
+  const [menuPeriodo, setMenuPeriodo] = useState(false);
+  const [menuFiltros, setMenuFiltros] = useState(false);
   const [wizard, setWizard] = useState(false);
   const [etiquetas, setEtiquetas] = useState<{ nome: string }[]>([]);
   const setF = (k: string, v: string) => setFiltros((s) => ({ ...s, [k]: v }));
@@ -224,7 +226,8 @@ export default function CobrancasPage() {
     load();
   }
 
-  const filtrosAtivos = Object.entries(filtros).filter(([, v]) => v).length;
+  // Filtros não-data ativos (a data vive no dropdown de Período).
+  const filtrosSemData = (['q', 'status', 'metodo', 'geracao', 'etiqueta', 'valorMin', 'valorMax'] as const).filter((k) => filtros[k]).length;
   const geradasSelecionadas = invoices.filter((i) => selecionados.has(i.id) && i.externalId).length;
   const valorSelecionado = invoices.filter((i) => selecionados.has(i.id)).reduce((s, i) => s + Number(i.valor), 0);
 
@@ -285,6 +288,7 @@ export default function CobrancasPage() {
     { key: 'CANCELADA', label: 'Canceladas', cor: '#64748B', track: 'bg-canvas' },
   ];
   const maxValorStatus = resumo ? Math.max(1, ...CARDS.map((c) => resumo.porStatus[c.key]?.valor ?? 0)) : 1;
+  const periodoLabel: Record<string, string> = { hoje: 'Hoje', mes: 'Este mês', ano: 'Este ano', tudo: 'Desde o início', custom: 'Personalizado' };
 
   return (
     <div>
@@ -320,16 +324,70 @@ export default function CobrancasPage() {
         {msg && <span className="text-sm text-primary">{msg}</span>}
       </div>
 
-      {resumo && resumo.total > 0 && (
-        <div className="mb-4 rounded-lg border border-line bg-surface p-4">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold text-ink">Situação das cobranças</h2>
-            <div className="flex items-center gap-0.5 rounded-lg border border-line p-0.5 text-xs">
-              {([['hoje', 'Hoje'], ['mes', 'Este mês'], ['ano', 'Este ano'], ['tudo', 'Desde o início']] as const).map(([k, label]) => (
-                <button key={k} onClick={() => aplicarPeriodo(k)} className={`rounded-md px-2.5 py-1 font-medium transition ${periodoAtual === k ? 'bg-primary text-white' : 'text-muted hover:bg-canvas'}`}>{label}</button>
-              ))}
+      <div className="mb-4 rounded-lg border border-line bg-surface p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold text-ink">Situação das cobranças</h2>
+          <div className="flex items-center gap-2">
+            {/* Período (com Personalizado) */}
+            <div className="relative">
+              <button onClick={() => { setMenuPeriodo((v) => !v); setMenuFiltros(false); }} className="flex items-center gap-2 rounded-lg border border-line px-3 py-1.5 text-sm hover:bg-canvas"><CalendarDays size={14} /> {periodoLabel[periodoAtual]} <ChevronDown size={14} /></button>
+              {menuPeriodo && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setMenuPeriodo(false)} />
+                  <div className="absolute right-0 z-20 mt-1 w-64 rounded-lg border border-line bg-surface p-2 shadow-lg">
+                    {([['hoje', 'Hoje'], ['mes', 'Este mês'], ['ano', 'Este ano'], ['tudo', 'Desde o início']] as const).map(([k, label]) => (
+                      <button key={k} onClick={() => { aplicarPeriodo(k); setMenuPeriodo(false); }} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-canvas">
+                        <span className={`inline-block h-3.5 w-3.5 rounded-full border ${periodoAtual === k ? 'border-4 border-primary' : 'border-line'}`} />
+                        <span className={periodoAtual === k ? 'font-medium text-primary' : 'text-ink'}>{label}</span>
+                      </button>
+                    ))}
+                    <div className="mt-1 border-t border-line px-2 pt-2">
+                      <div className="mb-1.5 flex items-center gap-2 text-sm"><span className={`inline-block h-3.5 w-3.5 rounded-full border ${periodoAtual === 'custom' ? 'border-4 border-primary' : 'border-line'}`} /> <span className={periodoAtual === 'custom' ? 'font-medium text-primary' : 'text-ink'}>Personalizado</span></div>
+                      <div className="flex items-center gap-2">
+                        <input type="date" value={filtros.de} onChange={(e) => setF('de', e.target.value)} className="w-full rounded border border-line px-2 py-1.5 text-xs outline-none focus:border-primary" />
+                        <span className="text-xs text-muted">até</span>
+                        <input type="date" value={filtros.ate} onChange={(e) => setF('ate', e.target.value)} className="w-full rounded border border-line px-2 py-1.5 text-xs outline-none focus:border-primary" />
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+            {/* Filtros (sem data) */}
+            <div className="relative">
+              <button onClick={() => { setMenuFiltros((v) => !v); setMenuPeriodo(false); }} className="flex items-center gap-2 rounded-lg border border-line px-3 py-1.5 text-sm hover:bg-canvas"><Filter size={14} /> Filtros {filtrosSemData > 0 && <span className="rounded-full bg-primary-tint px-1.5 text-xs font-medium text-primary">{filtrosSemData}</span>} <ChevronDown size={14} /></button>
+              {menuFiltros && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setMenuFiltros(false)} />
+                  <div className="absolute right-0 z-20 mt-1 w-[min(92vw,30rem)] rounded-lg border border-line bg-surface p-4 shadow-lg">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <input placeholder="Cliente / CPF" value={filtros.q} onChange={(e) => setF('q', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary sm:col-span-2" />
+                      <select value={filtros.status} onChange={(e) => setF('status', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
+                        <option value="">Status: todos</option><option value="PENDENTE">Pendente</option><option value="VENCIDA">Vencida</option><option value="PAGA">Paga</option><option value="CANCELADA">Cancelada</option>
+                      </select>
+                      <select value={filtros.metodo} onChange={(e) => setF('metodo', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
+                        <option value="">Método: todos</option><option value="PIX">Pix</option><option value="BOLETO">Boleto</option><option value="CARTAO">Cartão</option>
+                      </select>
+                      <select value={filtros.geracao} onChange={(e) => setF('geracao', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
+                        <option value="">Geração: todas</option><option value="gerada">Já gerada</option><option value="pendente">A gerar</option>
+                      </select>
+                      <select value={filtros.etiqueta} onChange={(e) => setF('etiqueta', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
+                        <option value="">Etiqueta: todas</option>{etiquetas.map((t) => <option key={t.nome} value={t.nome}>{t.nome}</option>)}
+                      </select>
+                      <input placeholder="Valor mín" value={filtros.valorMin} onChange={(e) => setF('valorMin', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+                      <input placeholder="Valor máx" value={filtros.valorMax} onChange={(e) => setF('valorMax', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+                    </div>
+                    <div className="mt-3 flex items-center justify-between">
+                      <button onClick={() => setFiltros((s) => ({ ...emptyFiltros, de: s.de, ate: s.ate }))} className="text-sm text-primary hover:underline">Limpar filtros</button>
+                      <button onClick={() => setMenuFiltros(false)} className="rounded bg-primary px-4 py-1.5 text-sm font-medium text-white hover:bg-primary-hover">Aplicar</button>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
+        </div>
+        {resumo && resumo.total > 0 ? (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {CARDS.map((c) => {
               const d = resumo.porStatus[c.key];
@@ -351,32 +409,9 @@ export default function CobrancasPage() {
               );
             })}
           </div>
-        </div>
-      )}
-
-      <div className="mb-4 rounded-lg border border-line bg-surface p-3">
-        <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted"><Filter size={14} /> Filtros {filtrosAtivos > 0 && <span className="rounded-full bg-primary-tint px-2 py-0.5 text-primary">{filtrosAtivos}</span>}
-          {filtrosAtivos > 0 && <button onClick={() => setFiltros(emptyFiltros)} className="ml-auto text-primary hover:underline">Limpar</button>}
-        </div>
-        <div className="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-7">
-          <input placeholder="Cliente / CPF" value={filtros.q} onChange={(e) => setF('q', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary lg:col-span-2" />
-          <select value={filtros.status} onChange={(e) => setF('status', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
-            <option value="">Status: todos</option><option value="PENDENTE">Pendente</option><option value="VENCIDA">Vencida</option><option value="PAGA">Paga</option><option value="CANCELADA">Cancelada</option>
-          </select>
-          <select value={filtros.metodo} onChange={(e) => setF('metodo', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
-            <option value="">Método: todos</option><option value="PIX">Pix</option><option value="BOLETO">Boleto</option><option value="CARTAO">Cartão</option>
-          </select>
-          <select value={filtros.geracao} onChange={(e) => setF('geracao', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
-            <option value="">Geração: todas</option><option value="gerada">Já gerada</option><option value="pendente">A gerar</option>
-          </select>
-          <select value={filtros.etiqueta} onChange={(e) => setF('etiqueta', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
-            <option value="">Etiqueta: todas</option>{etiquetas.map((t) => <option key={t.nome} value={t.nome}>{t.nome}</option>)}
-          </select>
-          <input type="date" title="Vence de" value={filtros.de} onChange={(e) => setF('de', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
-          <input type="date" title="Vence até" value={filtros.ate} onChange={(e) => setF('ate', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
-          <input placeholder="Valor mín" value={filtros.valorMin} onChange={(e) => setF('valorMin', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
-          <input placeholder="Valor máx" value={filtros.valorMax} onChange={(e) => setF('valorMax', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
-        </div>
+        ) : (
+          <p className="py-4 text-center text-sm text-muted">Nenhuma cobrança no período/filtro selecionado.</p>
+        )}
       </div>
 
       <div className="mb-3 rounded-lg border border-line bg-surface px-4 py-3">
