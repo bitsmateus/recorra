@@ -62,8 +62,16 @@ export default function GatewayPagamento() {
   const [confirmar, setConfirmar] = useState<Row | null>(null);
   const [importando, setImportando] = useState<string | null>(null);
   const [janelas, setJanelas] = useState<Record<string, string>>({});
+  const [copiado, setCopiado] = useState<string | null>(null);
   const isBanco = BANCOS_PIX.includes(provider);
   const setB = (k: string, v: string) => setBanco((s) => ({ ...s, [k]: v }));
+
+  // URL do webhook: a rota /webhooks é servida fora do prefixo /api, então tiramos o /api do base.
+  const apiBase = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/api\/?$/, '');
+  const webhookUrlDe = (r: Row) => `${apiBase}/webhooks/${String(r.provider)}/${r.id}`;
+  async function copiarUrl(url: string, id: string) {
+    try { await navigator.clipboard.writeText(url); setCopiado(id); setTimeout(() => setCopiado(null), 1500); } catch { /* clipboard indisponível */ }
+  }
 
   const load = useCallback(() => {
     api<Row[]>('/config/gateways').then((data) => {
@@ -189,6 +197,13 @@ export default function GatewayPagamento() {
                 <button onClick={() => iniciarEdicao(r)} title="Editar gateway" className="rounded p-1.5 text-muted hover:bg-canvas hover:text-ink"><Pencil size={14} /></button>
                 <button onClick={() => setConfirmar(r)} title="Remover gateway" className="rounded p-1.5 text-muted hover:bg-danger-tint hover:text-danger"><Trash2 size={14} /></button>
               </div>
+              </div>
+              <div className="mt-3 border-t border-line pt-3">
+                <span className="mb-1 block text-xs text-muted">URL do webhook — cole no painel do {gwLabel(String(r.provider))} para baixa automática dos pagamentos:</span>
+                <div className="flex items-center gap-2">
+                  <input readOnly value={webhookUrlDe(r)} onFocus={(e) => e.currentTarget.select()} className="min-w-0 flex-1 rounded border border-line bg-canvas px-2 py-1.5 font-mono text-[11px] text-muted outline-none" />
+                  <button type="button" onClick={() => copiarUrl(webhookUrlDe(r), r.id)} className="shrink-0 rounded border border-line px-3 py-1.5 text-xs hover:bg-canvas">{copiado === r.id ? 'Copiado!' : 'Copiar'}</button>
+                </div>
               </div>
               {String(r.provider) === 'ASAAS' && (
                 <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-line pt-3">
