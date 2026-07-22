@@ -26,6 +26,18 @@ export class RulesController {
     return this.rules.abStats(tenantId);
   }
 
+  // Config da cobrança automática (modo faixa on/off + diagnóstico). Antes de :id.
+  @Get('config')
+  config(@TenantId() tenantId: string) {
+    return this.rules.config(tenantId);
+  }
+
+  @Post('config/faixa')
+  @Roles('OWNER', 'ADMIN')
+  setFaixa(@TenantId() tenantId: string, @Body('usarFaixaRisco') usar: boolean) {
+    return this.rules.setUsarFaixaRisco(tenantId, !!usar);
+  }
+
   @Post('modelos/:id/clonar')
   @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
   clonar(@TenantId() tenantId: string, @Param('id') id: string) {

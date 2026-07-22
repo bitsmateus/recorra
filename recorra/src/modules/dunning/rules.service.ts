@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma, RiskBand } from '@prisma/client';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { SaveRuleDto } from './dto/rule.dto';
 import { NICHO_TEMPLATES, findNicho } from './nicho-templates';
@@ -8,17 +9,68 @@ import { evaluateAb, Variante } from './abtest';
 export class RulesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  list(tenantId: string) {
-    return this.prisma.dunningRule.findMany({
-      where: { tenantId },
-      include: {
-        steps: { orderBy: { ordem: 'asc' } },
-        // Transparência: quais campanhas usam esta régua (a régua define COMO
-        // comunicar; quem/quando fica na campanha). Somente leitura na tela.
-        campaigns: { select: { id: true, nome: true, status: true }, orderBy: { nome: 'asc' } },
-      },
-      orderBy: { createdAt: 'asc' },
-    });
+  /** Cliente inadimplente = tem fatura em aberto (não contestada, gestão ativa). */
+  private inadimplenteWhere(tenantId: string, faixa?: RiskBand | null): Prisma.CustomerWhereInput {
+    return {
+      tenantId,
+      ...(faixa ? { faixaAtual: faixa } : {}),
+      invoices: { some: { status: { in: ['PENDENTE', 'VENCIDA'] }, gestaoCobranca: 'ATIVA', contestada: false } },
+    };
+  }
+
+  async list(tenantId: string) {
+    const [tenant, reguas] = await Promise.all([
+      this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { usarFaixaRisco: true } }),
+      this.prisma.dunningRule.findMany({
+        where: { tenantId },
+        include: {
+          steps: { orderBy: { ordem: 'asc' } },
+          // Transparência: quais campanhas usam esta régua (somente leitura).
+          campaigns: { select: { id: true, nome: true, status: true }, orderBy: { nome: 'asc' } },
+        },
+        orderBy: { createdAt: 'asc' },
+      }),
+    ]);
+    const simples = tenant?.usarFaixaRisco === false;
+    // "Cobra X inadimplentes hoje": no modo simples, só a régua efetiva cobre todos;
+    // no modo por faixa, cada régua cobre os inadimplentes da sua faixa (Todas = todos).
+    const totalInad = await this.prisma.customer.count({ where: this.inadimplenteWhere(tenantId) });
+    const reguaSimplesId = simples ? (reguas.find((r) => r.ativo && !r.faixaRisco)?.id ?? reguas.find((r) => r.ativo)?.id) : null;
+    const comCobertura = await Promise.all(reguas.map(async (r) => {
+      let cobre = 0;
+      if (simples) cobre = r.id === reguaSimplesId ? totalInad : 0;
+      else if (r.ativo) cobre = await this.prisma.customer.count({ where: this.inadimplenteWhere(tenantId, r.faixaRisco) });
+      return { ...r, inadimplentesCobertos: cobre };
+    }));
+    return comCobertura;
+  }
+
+  /** Config da cobrança automática + diagnóstico (faixas de inadimplentes sem régua). */
+  async config(tenantId: string) {
+    const [tenant, reguas] = await Promise.all([
+      this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { usarFaixaRisco: true } }),
+      this.prisma.dunningRule.findMany({ where: { tenantId, ativo: true }, select: { faixaRisco: true } }),
+    ]);
+    const usarFaixaRisco = tenant?.usarFaixaRisco !== false;
+    const faixasSemRegua: { faixa: string; label: string; inadimplentes: number }[] = [];
+    const temTodas = reguas.some((r) => !r.faixaRisco);
+    if (usarFaixaRisco && !temTodas) {
+      const cobertas = new Set(reguas.map((r) => r.faixaRisco).filter(Boolean));
+      const LABEL: Record<string, string> = { BOM: 'Bom pagador', ATENCAO: 'Atenção', RISCO: 'Risco' };
+      for (const faixa of ['BOM', 'ATENCAO', 'RISCO'] as const) {
+        if (cobertas.has(faixa)) continue;
+        const inadimplentes = await this.prisma.customer.count({ where: this.inadimplenteWhere(tenantId, faixa) });
+        if (inadimplentes > 0) faixasSemRegua.push({ faixa, label: LABEL[faixa], inadimplentes });
+      }
+    }
+    // Modo simples sem nenhuma régua ativa → ninguém é cobrado.
+    const semReguaAtiva = !usarFaixaRisco && reguas.length === 0;
+    return { usarFaixaRisco, faixasSemRegua, semReguaAtiva };
+  }
+
+  async setUsarFaixaRisco(tenantId: string, usar: boolean) {
+    await this.prisma.tenant.update({ where: { id: tenantId }, data: { usarFaixaRisco: usar } });
+    return { usarFaixaRisco: usar };
   }
 
   async get(tenantId: string, id: string) {

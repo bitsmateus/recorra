@@ -36,6 +36,13 @@ interface Rule {
   ativo?: boolean;
   steps: Step[];
   campaigns?: { id: string; nome: string; status: string }[];
+  inadimplentesCobertos?: number;
+}
+
+interface CobrancaConfig {
+  usarFaixaRisco: boolean;
+  faixasSemRegua: { faixa: string; label: string; inadimplentes: number }[];
+  semReguaAtiva: boolean;
 }
 
 const canalLabel: Record<Canal, { label: string; icon: typeof MessageCircle }> = {
@@ -216,14 +223,25 @@ export default function ReguasPage() {
   const [sel, setSel] = useState<Rule | null>(null);
   const [msg, setMsg] = useState('');
   const [aiOpen, setAiOpen] = useState(false);
+  const [config, setConfig] = useState<CobrancaConfig>({ usarFaixaRisco: true, faixasSemRegua: [], semReguaAtiva: false });
 
   const load = useCallback(async () => {
-    const r = await api<Rule[]>('/reguas').catch(() => []);
+    const [r, c] = await Promise.all([
+      api<Rule[]>('/reguas').catch(() => []),
+      api<CobrancaConfig>('/reguas/config').catch(() => null),
+    ]);
     setRules(r);
+    if (c) setConfig(c);
   }, []);
   useEffect(() => {
     load();
   }, [load]);
+
+  async function alternarModoFaixa(usar: boolean) {
+    setConfig((c) => ({ ...c, usarFaixaRisco: usar })); // otimista
+    await api('/reguas/config/faixa', { method: 'POST', body: { usarFaixaRisco: usar } }).catch(() => {});
+    load();
+  }
 
   async function salvar() {
     if (!sel) return;
@@ -252,6 +270,31 @@ export default function ReguasPage() {
   return (
     <div>
       <PageTitle title="Réguas de cobrança" subtitle="Monte o fluxo: quando e por onde falar com o cliente" />
+
+      {/* Modo da cobrança automática: simples (1 régua p/ todos) x por faixa de risco */}
+      <div className="mb-4 rounded-lg border border-line bg-surface p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold text-ink">Como a cobrança automática escolhe a régua</div>
+            <div className="text-xs text-muted">Ela roda sozinha todo dia para quem está inadimplente.</div>
+          </div>
+          <div className="flex rounded-lg border border-line p-0.5 text-sm">
+            <button onClick={() => alternarModoFaixa(false)} className={`rounded-md px-3 py-1.5 ${!config.usarFaixaRisco ? 'bg-primary text-white' : 'text-muted hover:bg-canvas'}`}>Simples (1 régua p/ todos)</button>
+            <button onClick={() => alternarModoFaixa(true)} className={`rounded-md px-3 py-1.5 ${config.usarFaixaRisco ? 'bg-primary text-white' : 'text-muted hover:bg-canvas'}`}>Por faixa de risco</button>
+          </div>
+        </div>
+        <p className="mt-2 text-xs text-muted">
+          {config.usarFaixaRisco
+            ? 'Cada cliente recebe a régua da faixa de risco dele (Bom pagador / Atenção / Risco). Sem uma régua da faixa, usa a régua "Todas as faixas".'
+            : 'Todos os inadimplentes seguem a MESMA régua — a marcada como "Todas as faixas" (ou a régua ativa mais antiga). O campo de faixa de risco fica escondido.'}
+        </p>
+        {config.semReguaAtiva && <p className="mt-2 rounded bg-danger-tint px-3 py-2 text-xs text-danger">⚠️ Nenhuma régua ativa — ninguém está sendo cobrado automaticamente. Crie/ative uma régua.</p>}
+        {config.usarFaixaRisco && config.faixasSemRegua.length > 0 && (
+          <p className="mt-2 rounded bg-warning-tint px-3 py-2 text-xs text-[#854F0B]">
+            ⚠️ Faixa(s) sem régua (esses inadimplentes NÃO são cobrados): {config.faixasSemRegua.map((f) => `${f.label} (${f.inadimplentes})`).join(', ')}. Crie uma régua para cada faixa ou uma régua "Todas as faixas".
+          </p>
+        )}
+      </div>
 
       <NichoGallery onClone={load} />
       <AbStats />
@@ -282,7 +325,14 @@ export default function ReguasPage() {
               >
                 <div className="font-medium text-ink">{r.nome}</div>
                 <div className="mt-0.5 text-xs text-muted">
-                  {faixaLabel[r.faixaRisco || '']} · {r.steps.length} passos
+                  {config.usarFaixaRisco ? faixaLabel[r.faixaRisco || ''] : 'Cobrança automática'} · {r.steps.length} passos
+                </div>
+                <div className="mt-1 text-xs">
+                  {r.ativo !== false && (r.inadimplentesCobertos ?? 0) > 0
+                    ? <span className="font-medium text-primary">Cobrando {r.inadimplentesCobertos} inadimplente(s) hoje</span>
+                    : r.ativo === false
+                      ? <span className="text-muted/70">Inativa — não cobra ninguém</span>
+                      : <span className="text-muted/70">Nenhum inadimplente na faixa desta régua agora</span>}
                 </div>
                 <div className="mt-1 text-xs">
                   {r.campaigns && r.campaigns.length > 0
@@ -298,7 +348,7 @@ export default function ReguasPage() {
 
         {/* Editor de fluxo */}
         {sel ? (
-          <FlowEditor rule={sel} setRule={setSel} onSave={salvar} onDelete={excluir} msg={msg} />
+          <FlowEditor rule={sel} setRule={setSel} onSave={salvar} onDelete={excluir} msg={msg} usarFaixaRisco={config.usarFaixaRisco} />
         ) : (
           <div className="flex items-center justify-center rounded-lg border border-dashed border-line bg-surface p-12 text-sm text-muted">
             Selecione uma régua ou crie uma nova para montar o fluxo.
@@ -359,12 +409,14 @@ function FlowEditor({
   onSave,
   onDelete,
   msg,
+  usarFaixaRisco,
 }: {
   rule: Rule;
   setRule: (r: Rule) => void;
   onSave: () => void;
   onDelete: () => void;
   msg: string;
+  usarFaixaRisco: boolean;
 }) {
   function update(patch: Partial<Rule>) {
     setRule({ ...rule, ...patch });
@@ -395,15 +447,19 @@ function FlowEditor({
           <span className="mb-1 block text-xs text-muted">Nome da régua</span>
           <input value={rule.nome} onChange={(e) => update({ nome: e.target.value })} className="w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
         </label>
-        <label className="block">
-          <span className="mb-1 block text-xs text-muted">Aplicar à faixa de risco</span>
-          <select value={rule.faixaRisco || ''} onChange={(e) => update({ faixaRisco: e.target.value as Faixa })} className="w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
-            <option value="">Todas as faixas</option>
-            <option value="BOM">Bom pagador</option>
-            <option value="ATENCAO">Atenção</option>
-            <option value="RISCO">Risco</option>
-          </select>
-        </label>
+        {usarFaixaRisco ? (
+          <label className="block">
+            <span className="mb-1 block text-xs text-muted">Aplicar à faixa de risco</span>
+            <select value={rule.faixaRisco || ''} onChange={(e) => update({ faixaRisco: e.target.value as Faixa })} className="w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
+              <option value="">Todas as faixas</option>
+              <option value="BOM">Bom pagador</option>
+              <option value="ATENCAO">Atenção</option>
+              <option value="RISCO">Risco</option>
+            </select>
+          </label>
+        ) : (
+          <div className="flex items-end text-xs text-muted">Modo simples: esta régua vale para <b className="mx-1 text-ink">todos</b> os inadimplentes.</div>
+        )}
       </div>
 
       {/* Janela de envio e anti-spam */}

@@ -52,10 +52,13 @@ export class DispatchesController {
       }),
     ]);
 
-    // Anexa o nome da campanha (sem relação FK, mapeia manualmente).
+    // Anexa o nome da campanha e da régua (sem relação FK, mapeia manualmente).
     const campIds = [...new Set(rows.map((r) => r.campaignId).filter(Boolean) as string[])];
     const camps = campIds.length ? await this.prisma.campaign.findMany({ where: { id: { in: campIds } }, select: { id: true, nome: true } }) : [];
     const cmap = new Map(camps.map((c) => [c.id, c.nome]));
+    const ruleIds = [...new Set(rows.map((r) => r.ruleId).filter(Boolean) as string[])];
+    const rules = ruleIds.length ? await this.prisma.dunningRule.findMany({ where: { id: { in: ruleIds } }, select: { id: true, nome: true } }) : [];
+    const rmap = new Map(rules.map((r) => [r.id, r.nome]));
 
     return {
       total,
@@ -67,6 +70,8 @@ export class DispatchesController {
         canal: r.canal,
         canalNome: r.channelAccount?.apelido ?? null,
         campanha: r.campaignId ? cmap.get(r.campaignId) ?? null : null,
+        regua: r.ruleId ? rmap.get(r.ruleId) ?? null : null,
+        origem: r.campaignId ? 'Campanha' : r.ruleId ? 'Cobrança automática' : null,
         conteudo: r.conteudo,
         status: r.status,
         erro: r.erro,

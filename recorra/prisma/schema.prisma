@@ -157,6 +157,9 @@ model Tenant {
   plan         Plan?    @relation(fields: [planId], references: [id])
   ativo        Boolean  @default(true)
   timezone     String   @default("America/Sao_Paulo")
+  // Cobrança automática: true = escolhe a régua pela faixa de risco do cliente;
+  // false (modo simples) = uma única régua para todos os inadimplentes.
+  usarFaixaRisco Boolean @default(true)
   config       Json?
   featureFlags Json?
   createdAt    DateTime @default(now())
@@ -553,6 +556,7 @@ model MessageDispatch {
   invoiceId         String?
   channelAccountId  String?
   campaignId        String?
+  ruleId            String?        // régua que gerou o disparo (cobrança automática) — p/ rastreio
   canal             ChannelType
   cadeiaCanais      ChannelType[]  @default([])
   template          String?

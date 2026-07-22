@@ -6,7 +6,7 @@ import { api } from '@/lib/api';
 import { PageTitle, Metric } from '@/components/ui';
 
 interface Row {
-  id: string; canal: string; canalNome?: string | null; campanha?: string | null;
+  id: string; canal: string; canalNome?: string | null; campanha?: string | null; regua?: string | null; origem?: string | null;
   conteudo?: string; status: string; erro?: string; createdAt: string; enviadoEm?: string;
   cliente?: string | null; telefone?: string | null;
 }
@@ -121,7 +121,7 @@ export default function DisparosPage() {
             <tr>
               <th className="px-4 py-3 font-medium">Cliente</th>
               <th className="px-4 py-3 font-medium">Canal</th>
-              <th className="px-4 py-3 font-medium">Campanha</th>
+              <th className="px-4 py-3 font-medium">Origem</th>
               <th className="px-4 py-3 font-medium">Mensagem</th>
               <th className="px-4 py-3 font-medium">Quando</th>
               <th className="px-4 py-3 font-medium">Status</th>
@@ -135,7 +135,13 @@ export default function DisparosPage() {
                 <tr key={d.id} className="border-b border-line last:border-0 hover:bg-canvas/50">
                   <td className="px-4 py-3"><div className="font-medium text-ink">{d.cliente || '—'}</div>{d.telefone && <div className="text-xs text-muted">{d.telefone}</div>}</td>
                   <td className="px-4 py-3"><span className="inline-flex items-center gap-1.5 text-muted"><Icon size={14} /> {canalTipoLabel[tipo] || d.canal}{d.canalNome && <span className="text-xs text-muted">· {d.canalNome}</span>}</span></td>
-                  <td className="px-4 py-3 text-muted">{d.campanha || <span className="text-xs">—</span>}</td>
+                  <td className="px-4 py-3 text-muted">
+                    {d.campanha
+                      ? <span>{d.campanha}</span>
+                      : d.regua
+                        ? <span>Cobrança automática<br /><span className="text-xs text-muted">régua: {d.regua}</span></span>
+                        : <span className="text-xs">—</span>}
+                  </td>
                   <td className="px-4 py-3">
                     {d.conteudo ? (
                       <div className="group relative inline-block">

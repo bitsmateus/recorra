@@ -27,18 +27,30 @@ export class DunningService {
       include: { customer: true },
     });
 
+    // Modo simples (faixa de risco desligada): uma única régua para todos os
+    // inadimplentes — a "Todas as faixas" ativa ou, na falta, a régua ativa mais antiga.
+    const modoSimples = tenant.usarFaixaRisco === false;
+    const stepsInc = { steps: { where: { ativo: true }, orderBy: { ordem: 'asc' as const } } };
+    let reguaSimples: RuleWithSteps | null = null;
+    if (modoSimples) {
+      reguaSimples = ((await this.prisma.dunningRule.findFirst({ where: { tenantId, ativo: true, faixaRisco: null }, include: stepsInc, orderBy: { createdAt: 'asc' } }))
+        ?? (await this.prisma.dunningRule.findFirst({ where: { tenantId, ativo: true }, include: stepsInc, orderBy: { createdAt: 'asc' } }))) as RuleWithSteps | null;
+    }
+
     let enfileirados = 0;
     for (const invoice of invoices) {
       const diffDias = Math.round((this.midnight(ref).getTime() - this.midnight(invoice.vencimento).getTime()) / 86400000);
 
-      let scoreRow = await this.risk.latest(tenantId, invoice.customerId);
-      if (!scoreRow) scoreRow = await this.risk.scoreCustomer(tenantId, invoice.customerId);
-
-      const rule = (await this.prisma.dunningRule.findFirst({
-        where: { tenantId, ativo: true, OR: [{ faixaRisco: scoreRow.faixa }, { faixaRisco: null }] },
-        include: { steps: { where: { ativo: true }, orderBy: { ordem: 'asc' } } },
-        orderBy: { faixaRisco: 'desc' },
-      })) as RuleWithSteps | null;
+      let rule: RuleWithSteps | null;
+      if (modoSimples) {
+        rule = reguaSimples;
+      } else {
+        // Por faixa: a régua da faixa do cliente ganha; sem uma específica, cai na "Todas as faixas".
+        let scoreRow = await this.risk.latest(tenantId, invoice.customerId);
+        if (!scoreRow) scoreRow = await this.risk.scoreCustomer(tenantId, invoice.customerId);
+        rule = ((await this.prisma.dunningRule.findFirst({ where: { tenantId, ativo: true, faixaRisco: scoreRow.faixa }, include: stepsInc, orderBy: { createdAt: 'asc' } }))
+          ?? (await this.prisma.dunningRule.findFirst({ where: { tenantId, ativo: true, faixaRisco: null }, include: stepsInc, orderBy: { createdAt: 'asc' } }))) as RuleWithSteps | null;
+      }
       if (!rule) continue;
 
       const steps = rule.steps.filter((s) => s.offsetDias === diffDias);
@@ -92,6 +104,7 @@ export class DunningService {
         tenantId,
         customerId: invoice.customerId,
         invoiceId: invoice.id,
+        ruleId: rule.id,
         canal: step.canal,
         channelAccountId: step.channelAccountId ?? undefined,
         cadeiaCanais: cadeia,
