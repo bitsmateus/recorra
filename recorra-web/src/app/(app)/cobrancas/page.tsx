@@ -175,6 +175,16 @@ export default function CobrancasPage() {
     load();
   }
 
+  async function conciliarPagamentos() {
+    setBusy(true); setMsg('Verificando pagamentos no gateway...');
+    try {
+      const r = await api<{ verificadas: number; baixadas: number }>('/cobrancas/conciliar', { method: 'POST' });
+      setMsg(r.baixadas > 0 ? `✓ ${r.baixadas} cobrança(s) baixada(s) como Paga.` : '✓ Nada a atualizar — nenhuma cobrança em aberto foi paga no gateway.');
+      load();
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro ao conciliar'); }
+    setBusy(false);
+  }
+
   async function excluirLote() {
     setMsg('Excluindo...');
     const r = await api<{ excluidas: number; total: number }>('/cobrancas/excluir-lote', { method: 'POST', body: { invoiceIds: [...selecionados] } }).catch(() => null);
@@ -272,6 +282,7 @@ export default function CobrancasPage() {
           )}
         </div>
         <div className="flex items-center gap-1">
+          <button onClick={conciliarPagamentos} disabled={busy} title="Consulta o gateway e dá baixa nas cobranças em aberto que já foram pagas" className="flex items-center gap-2 rounded border border-line px-4 py-2 text-sm hover:bg-canvas disabled:opacity-60"><RefreshCw size={15} /> Atualizar pagamentos</button>
           <button onClick={reavaliarStatus} className="flex items-center gap-2 rounded border border-line px-4 py-2 text-sm hover:bg-canvas"><RefreshCw size={15} /> Reavaliar status</button>
           <span className="group relative inline-block">
             <button type="button" className="flex h-5 w-5 items-center justify-center rounded-full text-muted hover:text-primary"><HelpCircle size={15} /></button>
