@@ -1,4 +1,4 @@
-import { IsBoolean, IsIn, IsObject, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsBoolean, IsIn, IsObject, IsOptional, IsString } from 'class-validator';
 import { ChannelType, PaymentProviderType, SourceSystem } from '@prisma/client';
 
 export class CreateIntegrationDto {
@@ -70,6 +70,12 @@ export class PagamentoRecebidoDto {
   @IsOptional()
   @IsString()
   templateName?: string;
+
+  // Valor de cada {{1}}, {{2}}... do template HSM (aceita {{nome}}, {{valor}}...).
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  templateParams?: string[];
 
   @IsOptional()
   @IsString()

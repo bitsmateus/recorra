@@ -4,7 +4,7 @@ import { PrismaService } from '@/common/prisma/prisma.service';
 import { lerPagamentoRecebido } from './pagamento-recebido';
 
 const brl = (n: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(n);
-const CANAIS_WHATSAPP: ChannelType[] = ['WHATSAPP_CLOUD', 'WHATSAPP_EVOLUTION', 'WHATSAPP_UAZAPI'];
+const CANAIS_WHATSAPP: ChannelType[] = ['WHATSAPP_CLOUD', 'WHATSAPP_EVOLUTION', 'WHATSAPP_UAZAPI', 'NX_SYSTEMS'];
 
 /**
  * Confirmação de "pagamento recebido" enviada ao cliente quando a fatura é baixada.
@@ -44,10 +44,15 @@ export class PaymentNotifyService {
     ]);
 
     const primeiroNome = customer?.nome?.trim().split(' ')[0] || 'cliente';
-    const conteudo = pref.conteudo
-      .replace(/\{\{\s*nome\s*\}\}/g, primeiroNome)
-      .replace(/\{\{\s*valor\s*\}\}/g, invoice ? brl(Number(invoice.valor)) : '')
-      .replace(/\{\{\s*vencimento\s*\}\}/g, invoice ? invoice.vencimento.toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : '');
+    const resolver = (txt: string) =>
+      txt
+        .replace(/\{\{\s*nome\s*\}\}/g, primeiroNome)
+        .replace(/\{\{\s*valor\s*\}\}/g, invoice ? brl(Number(invoice.valor)) : '')
+        .replace(/\{\{\s*vencimento\s*\}\}/g, invoice ? invoice.vencimento.toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : '');
+
+    const conteudo = resolver(pref.conteudo);
+    // Cada {{n}} do template HSM recebe o token configurado, já resolvido.
+    const templateParams = (pref.templateParams ?? []).map(resolver);
 
     await this.prisma.messageDispatch.create({
       data: {
@@ -57,7 +62,7 @@ export class PaymentNotifyService {
         canal: conta.canal,
         channelAccountId: conta.id,
         template: 'confirmacao_pagamento',
-        ...(pref.templateName.trim() ? { templateName: pref.templateName.trim() } : {}),
+        ...(pref.templateName.trim() ? { templateName: pref.templateName.trim(), templateParams } : {}),
         ...(conta.canal === 'EMAIL' && pref.assunto.trim() ? { assunto: pref.assunto.trim() } : {}),
         conteudo,
         status: 'FILA',

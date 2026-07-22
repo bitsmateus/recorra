@@ -9,16 +9,23 @@ export interface PagamentoRecebidoPref {
   canal: string;
   /** Nome do template HSM — obrigatório nos canais WhatsApp. */
   templateName: string;
+  /** Valor de cada {{1}}, {{2}}... do template HSM. Aceita as mesmas variáveis do texto. */
+  templateParams: string[];
   /** Assunto (só e-mail). */
   assunto: string;
   /** Texto. Aceita {{nome}}, {{valor}} e {{vencimento}}. */
   conteudo: string;
 }
 
+/**
+ * Desligado por padrão: quem contrata a régua decide se quer também avisar o
+ * pagamento — ligar sozinho mandaria mensagem em nome do cliente sem ele pedir.
+ */
 export const PAGAMENTO_RECEBIDO_PADRAO: PagamentoRecebidoPref = {
-  ativo: true,
+  ativo: false,
   canal: '',
   templateName: '',
+  templateParams: [],
   assunto: 'Recebemos seu pagamento',
   conteudo: 'Recebemos seu pagamento, {{nome}}! Obrigado 🙌 Sua fatura de {{valor}} está quitada.',
 };
