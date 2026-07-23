@@ -47,3 +47,26 @@ describe('faturasDaCampanha', () => {
     expect(faturasDaCampanha(soPendente, { filtroStatus: 'VENCIDA' }, REF)).toHaveLength(0);
   });
 });
+
+describe('recorte "vencidas deste mês" (VENCIDA_MES)', () => {
+  const REF_MES = new Date('2026-07-22T12:00:00Z'); // julho/2026
+  const venceuEsteMes = { id: 'm1', status: 'VENCIDA', vencimento: new Date('2026-07-05T00:00:00Z') };
+  const venceuMesPassado = { id: 'm0', status: 'VENCIDA', vencimento: new Date('2026-06-28T00:00:00Z') };
+  const aVencerEsteMes = { id: 'p1', status: 'PENDENTE', vencimento: new Date('2026-07-30T00:00:00Z') };
+
+  it('pega só as vencidas com vencimento dentro do mês corrente', () => {
+    const r = faturasDaCampanha([venceuMesPassado, venceuEsteMes, aVencerEsteMes], { filtroStatus: 'VENCIDA_MES' }, REF_MES);
+    expect(r.map((i) => i.id)).toEqual(['m1']);
+  });
+
+  it('não confunde com "todas as vencidas"', () => {
+    const r = faturasDaCampanha([venceuMesPassado, venceuEsteMes], { filtroStatus: 'VENCIDA' }, REF_MES);
+    expect(r.map((i) => i.id)).toEqual(['m0', 'm1']);
+  });
+
+  it('inclui o vencimento no dia 1º do mês (borda)', () => {
+    const dia1 = { id: 'd1', status: 'VENCIDA', vencimento: new Date('2026-07-01T00:00:00Z') };
+    const r = faturasDaCampanha([dia1], { filtroStatus: 'VENCIDA_MES' }, REF_MES);
+    expect(r.map((i) => i.id)).toEqual(['d1']);
+  });
+});

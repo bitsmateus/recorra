@@ -131,10 +131,39 @@ function agoraInputLocal(): string {
 }
 const SITUACAO_LABEL: Record<string, string> = {
   VENCIDA: 'com fatura vencida',
+  VENCIDA_MES: 'vencidas deste mês',
   PENDENTE: 'com fatura a vencer',
   ABERTO: 'com fatura em aberto',
   EM_DIA: 'em dia',
 };
+
+/** As duas situações que representam "vencida" (a do mês é um recorte dela). */
+const ehVencida = (s?: string) => s === 'VENCIDA' || s === 'VENCIDA_MES';
+
+/**
+ * Recortes prontos de "quão velha é a dívida". `dias` alimenta o atraso mínimo;
+ * "deste mês" é uma situação própria (vencimento dentro do mês corrente).
+ */
+const ATRASOS: { id: string; label: string; status: string; dias: string }[] = [
+  { id: 'todas', label: 'Todas', status: 'VENCIDA', dias: '' },
+  { id: 'mes', label: 'Deste mês', status: 'VENCIDA_MES', dias: '' },
+  { id: '30', label: '+30 dias', status: 'VENCIDA', dias: '30' },
+  { id: '60', label: '+60 dias', status: 'VENCIDA', dias: '60' },
+  { id: '90', label: '+90 dias', status: 'VENCIDA', dias: '90' },
+];
+
+/**
+ * Qual recorte está ativo (para marcar o botão certo). `custom` é estado
+ * explícito: derivar só do número impedia trocar de "+60" para personalizado,
+ * já que 60 continua sendo um preset válido.
+ */
+function atrasoAtivo(f: { filtroStatus: string; filtroDiasAtraso: string }, custom: boolean): string {
+  if (custom) return 'custom';
+  if (f.filtroStatus === 'VENCIDA_MES') return 'mes';
+  const d = (f.filtroDiasAtraso || '').trim();
+  if (!d) return 'todas';
+  return ['30', '60', '90'].includes(d) ? d : 'custom';
+}
 
 const publicoLabel = (c: Campaign) => {
   if (c.filtroTodos) return 'Todos os contatos';
@@ -456,6 +485,9 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
   const [templateParams, setTemplateParams] = useState<string[]>(edit?.templateParams || []);
   const templateAnterior = useRef(edit?.templateNome || '');
   const setParam = (i: number, v: string) => setTemplateParams((p) => { const n = [...p]; n[i] = v; return n; });
+  // Modo "personalizado" do atraso: começa ligado quando a campanha salva usa
+  // um número que não é preset.
+  const [atrasoCustom, setAtrasoCustom] = useState(!!edit?.filtroDiasAtraso && !['30', '60', '90'].includes(String(edit.filtroDiasAtraso)));
   const [publico, setPublico] = useState<PublicoPreview | null>(null);
   const [incluir, setIncluir] = useState<string[]>(edit?.incluirIds || []);
   const [excluir, setExcluir] = useState<string[]>(edit?.excluirIds || []);
@@ -608,14 +640,14 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
             </Ajuda>
           </span>
           <div className="mb-3 grid grid-cols-3 gap-2">
-            <button onClick={() => set('tipoEnvio', 'LEMBRETE')} className={`rounded border p-3 text-left text-sm ${f.tipoEnvio === 'LEMBRETE' ? 'border-primary bg-primary-tint' : 'border-line hover:bg-canvas'}`}><b className="text-ink">Lembrete de cobrança</b><div className="text-xs text-muted">Uma mensagem por fatura em aberto, com Pix/boleto. Só para quem deve.</div></button>
-            <button onClick={() => set('tipoEnvio', 'MENSAGEM')} className={`rounded border p-3 text-left text-sm ${f.tipoEnvio === 'MENSAGEM' ? 'border-primary bg-primary-tint' : 'border-line hover:bg-canvas'}`}><b className="text-ink">Mensagem única</b><div className="text-xs text-muted">Uma mensagem por cliente, para todo o público (mesmo sem dívida).</div></button>
+            <button onClick={() => set('tipoEnvio', 'LEMBRETE')} className={`rounded border p-3 text-left text-sm ${f.tipoEnvio === 'LEMBRETE' ? 'border-primary bg-primary-tint' : 'border-line hover:bg-canvas'}`}><b className="text-ink">Lembrete de cobrança</b><div className="text-xs text-muted">Uma mensagem por fatura, com Pix/boleto.</div></button>
+            <button onClick={() => set('tipoEnvio', 'MENSAGEM')} className={`rounded border p-3 text-left text-sm ${f.tipoEnvio === 'MENSAGEM' ? 'border-primary bg-primary-tint' : 'border-line hover:bg-canvas'}`}><b className="text-ink">Mensagem única</b><div className="text-xs text-muted">Uma por cliente, mesmo sem dívida.</div></button>
             <button onClick={() => set('tipoEnvio', 'REGUA')} className={`rounded border p-3 text-left text-sm ${f.tipoEnvio === 'REGUA' ? 'border-primary bg-primary-tint' : 'border-line hover:bg-canvas'}`}><b className="text-ink">Régua (fluxo)</b><div className="text-xs text-muted">Aciona uma régua com passos.</div></button>
           </div>
           {f.tipoEnvio === 'LEMBRETE' ? (
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-sm">
-                <span className="text-xs text-muted">Método de envio:</span>
+                <span className="text-xs text-muted">Enviar por:</span>
                 <select value={f.channelAccountId} onChange={(e) => { const c = conexoes.find((x) => x.id === e.target.value); setF((s) => ({ ...s, channelAccountId: e.target.value, canal: c?.canal || '' })); }} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">{conexoes.length === 0 && <option value="">Nenhum canal conectado</option>}{conexoes.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}</select>
               </div>
               {isWhats ? (
@@ -635,7 +667,7 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
               )}
               <div className="flex flex-wrap items-center gap-2 text-sm">
                 <span className="flex items-center gap-1 text-xs text-muted">
-                  Quando o cliente tem várias faturas em aberto:
+                  Se tiver várias faturas:
                   <Ajuda>
                     <b>Uma mensagem por fatura:</b> se o cliente deve 3 faturas, ele recebe 3 mensagens, uma com o Pix/boleto de cada uma.<br /><br />
                     <b>Só a mais próxima do vencimento:</b> manda uma única mensagem, com a fatura que vence primeiro. Bom para não encher o cliente de mensagens.<br /><br />
@@ -651,7 +683,7 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
           ) : f.tipoEnvio === 'MENSAGEM' ? (
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-sm">
-                <span className="text-xs text-muted">Método de envio:</span>
+                <span className="text-xs text-muted">Enviar por:</span>
                 <select value={f.channelAccountId} onChange={(e) => { const c = conexoes.find((x) => x.id === e.target.value); setF((s) => ({ ...s, channelAccountId: e.target.value, canal: c?.canal || '' })); }} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">{conexoes.length === 0 && <option value="">Nenhum canal conectado</option>}{conexoes.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}</select>
               </div>
 
@@ -709,22 +741,54 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
                   </span>
                 )}
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <select value={f.filtroEtiqueta} onChange={(e) => set('filtroEtiqueta', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Etiqueta: qualquer</option>{etiquetas.map((t) => <option key={t.nome} value={t.nome}>{t.nome}</option>)}</select>
-                <select value={f.filtroFaixa} onChange={(e) => set('filtroFaixa', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Risco: qualquer</option><option value="BOM">Bom pagador</option><option value="ATENCAO">Atenção</option><option value="RISCO">Risco</option></select>
-                <input value={f.filtroValorMin} onChange={(e) => set('filtroValorMin', e.target.value)} placeholder="Valor plano mín" className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
-                <input value={f.filtroValorMax} onChange={(e) => set('filtroValorMax', e.target.value)} placeholder="Valor plano máx" className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
-                <input value={f.filtroPlano} onChange={(e) => set('filtroPlano', e.target.value)} placeholder="Plano" className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
-                <input value={f.filtroCidade} onChange={(e) => set('filtroCidade', e.target.value)} placeholder="Cidade" className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
-                <select value={f.filtroStatus} onChange={(e) => set('filtroStatus', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
-                  <option value="">Situação: qualquer</option>
-                  <option value="VENCIDA">Com fatura vencida</option>
-                  <option value="PENDENTE">Com fatura a vencer</option>
-                  <option value="ABERTO">Com fatura em aberto</option>
-                  <option value="EM_DIA">Em dia (sem aberto)</option>
-                </select>
-                <input value={f.filtroDiasAtraso} onChange={(e) => set('filtroDiasAtraso', e.target.value)} inputMode="numeric" placeholder="Atraso mín. (dias)" title="Clientes com fatura vencida há pelo menos N dias" className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+              {/* Situação em botões: um clique, sem dois campos que se atropelam. */}
+              <div className="mb-2">
+                <div className="mb-1.5 flex flex-wrap gap-1.5">
+                  {([['', 'Qualquer'], ['ABERTO', 'Em aberto'], ['PENDENTE', 'A vencer'], ['VENCIDA', 'Vencidas']] as [string, string][]).map(([v, l]) => (
+                    <button key={v || 'q'} type="button" onClick={() => { setAtrasoCustom(false); set('filtroStatus', v); set('filtroDiasAtraso', ''); }}
+                      className={`rounded-full border px-3 py-1.5 text-xs transition ${ehVencida(f.filtroStatus) ? (v === 'VENCIDA' ? 'border-primary bg-primary-tint font-medium text-primary' : 'border-line text-muted hover:bg-canvas') : f.filtroStatus === v ? 'border-primary bg-primary-tint font-medium text-primary' : 'border-line text-muted hover:bg-canvas'}`}>
+                      {l}
+                    </button>
+                  ))}
+                </div>
+                {/* Só aparece quando faz sentido: recorte de quão velha é a dívida. */}
+                {ehVencida(f.filtroStatus) && (
+                  <div className="rounded-lg bg-canvas p-2">
+                    <div className="mb-1.5 text-xs text-muted">Quais vencidas</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {ATRASOS.map((a) => (
+                        <button key={a.id} type="button" onClick={() => { setAtrasoCustom(false); set('filtroStatus', a.status); set('filtroDiasAtraso', a.dias); }}
+                          className={`rounded-full border px-3 py-1.5 text-xs transition ${atrasoAtivo(f, atrasoCustom) === a.id ? 'border-primary bg-primary-tint font-medium text-primary' : 'border-line bg-surface text-muted hover:bg-canvas'}`}>
+                          {a.label}
+                        </button>
+                      ))}
+                      <button type="button" onClick={() => { setAtrasoCustom(true); set('filtroStatus', 'VENCIDA'); set('filtroDiasAtraso', f.filtroDiasAtraso || '15'); }}
+                        className={`rounded-full border px-3 py-1.5 text-xs transition ${atrasoAtivo(f, atrasoCustom) === 'custom' ? 'border-primary bg-primary-tint font-medium text-primary' : 'border-line bg-surface text-muted hover:bg-canvas'}`}>
+                        Personalizado
+                      </button>
+                      {atrasoAtivo(f, atrasoCustom) === 'custom' && (
+                        <span className="flex items-center gap-1.5 text-xs text-muted">
+                          <input value={f.filtroDiasAtraso} onChange={(e) => set('filtroDiasAtraso', e.target.value)} inputMode="numeric" className="w-16 rounded border border-line bg-surface px-2 py-1 text-center text-sm outline-none focus:border-primary" />
+                          dias ou mais
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
+
+              {/* Filtros finos ficam escondidos: quase ninguém usa em toda campanha. */}
+              <details className="rounded-lg border border-line px-3 py-2">
+                <summary className="cursor-pointer text-xs font-medium text-muted">Mais filtros</summary>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <select value={f.filtroEtiqueta} onChange={(e) => set('filtroEtiqueta', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Etiqueta: qualquer</option>{etiquetas.map((t) => <option key={t.nome} value={t.nome}>{t.nome}</option>)}</select>
+                  <select value={f.filtroFaixa} onChange={(e) => set('filtroFaixa', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Risco: qualquer</option><option value="BOM">Bom pagador</option><option value="ATENCAO">Atenção</option><option value="RISCO">Risco</option></select>
+                  <input value={f.filtroValorMin} onChange={(e) => set('filtroValorMin', e.target.value)} placeholder="Valor plano mín" className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+                  <input value={f.filtroValorMax} onChange={(e) => set('filtroValorMax', e.target.value)} placeholder="Valor plano máx" className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+                  <input value={f.filtroPlano} onChange={(e) => set('filtroPlano', e.target.value)} placeholder="Plano" className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+                  <input value={f.filtroCidade} onChange={(e) => set('filtroCidade', e.target.value)} placeholder="Cidade" className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+                </div>
+              </details>
             </>
           )}
         </div>
@@ -774,15 +838,15 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
           )}
           {f.agendamento !== 'UMA_VEZ' && (
             <div className="mt-3">
-              <span className="mb-1 block text-xs font-medium text-muted">Como o público se comporta a cada envio</span>
+              <span className="mb-1 block text-xs font-medium text-muted">Público a cada envio</span>
               <div className="grid grid-cols-2 gap-2">
                 <button type="button" onClick={() => set('publicoDinamico', true)} className={`rounded border p-2 text-left ${f.publicoDinamico ? 'border-primary bg-primary-tint' : 'border-line hover:bg-canvas'}`}>
                   <div className="text-sm font-medium text-ink">Automático <span className="text-xs font-normal text-muted">(recomendado)</span></div>
-                  <div className="text-xs text-muted">Recalcula os filtros antes de cada envio: quem passou a dever entra, quem pagou sai.</div>
+                  <div className="text-xs text-muted">Quem passou a dever entra, quem pagou sai.</div>
                 </button>
                 <button type="button" onClick={() => set('publicoDinamico', false)} className={`rounded border p-2 text-left ${!f.publicoDinamico ? 'border-primary bg-primary-tint' : 'border-line hover:bg-canvas'}`}>
                   <div className="text-sm font-medium text-ink">Fixo</div>
-                  <div className="text-xs text-muted">Congela os contatos de agora; os próximos envios vão só para esses (mesmo se pagarem, param de receber).</div>
+                  <div className="text-xs text-muted">Congela os contatos de agora.</div>
                 </button>
               </div>
             </div>
@@ -795,7 +859,7 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
             <input type="number" min={0} max={600} value={f.delaySegundos} onChange={(e) => set('delaySegundos', e.target.value)} className="w-24 rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
             <span className="text-sm text-muted">segundos entre cada envio</span>
           </div>
-          <p className="mt-1 text-xs text-muted">Espaça os envios em vez de disparar tudo de uma vez. Deixe 0 para enviar o mais rápido possível.</p>
+          <p className="mt-1 text-xs text-muted">0 = envia o mais rápido possível.</p>
         </div>
 
         {verContatos && <ContatosModal publico={publico} onRemover={(id) => { setExcluir((p) => [...new Set([...p, id])]); setIncluir((p) => p.filter((x) => x !== id)); }} onAdicionar={(id) => { setIncluir((p) => [...new Set([...p, id])]); setExcluir((p) => p.filter((x) => x !== id)); }} onClose={() => setVerContatos(false)} />}

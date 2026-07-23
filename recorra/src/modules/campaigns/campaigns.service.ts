@@ -76,7 +76,12 @@ export function motivoExclusaoPublico(opts: {
 }
 
 /** Valores aceitos no filtro de público por situação da cobrança. */
-export const SITUACOES_PUBLICO = ['VENCIDA', 'PENDENTE', 'ABERTO', 'EM_DIA'] as const;
+export const SITUACOES_PUBLICO = ['VENCIDA', 'VENCIDA_MES', 'PENDENTE', 'ABERTO', 'EM_DIA'] as const;
+
+/** Primeiro instante do mês de `ref` (UTC), base do recorte "vencidas deste mês". */
+function inicioDoMes(ref: Date): Date {
+  return new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), 1));
+}
 
 /**
  * Fragmento de `where` que filtra o cliente pela situação das cobranças dele.
@@ -86,10 +91,13 @@ export const SITUACOES_PUBLICO = ['VENCIDA', 'PENDENTE', 'ABERTO', 'EM_DIA'] as 
  *  - EM_DIA: não tem nenhuma fatura em aberto.
  * Valor inválido/ausente → sem filtro.
  */
-export function wherePorSituacao(valor?: string | null): Prisma.CustomerWhereInput {
+export function wherePorSituacao(valor?: string | null, ref: Date = new Date()): Prisma.CustomerWhereInput {
   const emAberto: Prisma.InvoiceWhereInput = { status: { in: ['PENDENTE', 'VENCIDA'] }, gestaoCobranca: 'ATIVA' };
   switch (valor) {
     case 'VENCIDA': return { invoices: { some: { status: 'VENCIDA', gestaoCobranca: 'ATIVA' } } };
+    // Vencidas com vencimento dentro do mês corrente — recalculado a cada
+    // execução, então numa campanha mensal o mês acompanha sozinho.
+    case 'VENCIDA_MES': return { invoices: { some: { status: 'VENCIDA', gestaoCobranca: 'ATIVA', vencimento: { gte: inicioDoMes(ref) } } } };
     case 'PENDENTE': return { invoices: { some: { status: 'PENDENTE', gestaoCobranca: 'ATIVA' } } };
     case 'ABERTO': return { invoices: { some: emAberto } };
     case 'EM_DIA': return { invoices: { none: emAberto } };
@@ -119,6 +127,10 @@ export function faturasDaCampanha<T extends { status: string; vencimento: Date }
     return abertas.filter((i) => i.status === 'VENCIDA' && i.vencimento <= limite);
   }
   if (opts.filtroStatus === 'VENCIDA') return abertas.filter((i) => i.status === 'VENCIDA');
+  if (opts.filtroStatus === 'VENCIDA_MES') {
+    const desde = inicioDoMes(ref);
+    return abertas.filter((i) => i.status === 'VENCIDA' && i.vencimento >= desde);
+  }
   if (opts.filtroStatus === 'PENDENTE') return abertas.filter((i) => i.status === 'PENDENTE');
   return abertas;
 }
