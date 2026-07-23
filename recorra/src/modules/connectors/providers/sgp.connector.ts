@@ -25,14 +25,17 @@ export class SgpConnector implements SourceConnector {
   private readonly http: AxiosInstance;
   private readonly app: string;
   private readonly token: string;
+  private readonly baseUrl: string;
 
-  private static readonly LIMIT = 500;
+  // A documentação pública do SGP limita /api/ura/clientes/ a 100 por página.
+  private static readonly LIMIT = 100;
   private static readonly MAX_PAGES = 400;
 
   constructor(creds: SourceCredentials) {
+    this.baseUrl = creds.urlBase.replace(/\/$/, '');
     this.http = axios.create({
       ...safeHttpAgents(),
-      baseURL: creds.urlBase.replace(/\/$/, ''),
+      baseURL: this.baseUrl,
       headers: { 'Content-Type': 'application/json' },
       timeout: 20000,
     });
@@ -68,8 +71,11 @@ export class SgpConnector implements SourceConnector {
 
   async testConnection(): Promise<boolean> {
     try {
-      const { data } = await this.http.post('/api/ura/consultacliente', { ...this.auth(), limit: 1 });
-      this.validarResposta('/api/ura/consultacliente', data);
+      const { data } = await this.http.post('/api/ura/clientes/', {
+        ...this.auth(), limit: 1, omitir_contratos: true, omitir_titulos: true,
+      });
+      this.validarResposta('/api/ura/clientes/', data);
+      if (!Array.isArray(data?.clientes)) return false;
       return true;
     } catch {
       return false;
@@ -110,7 +116,9 @@ export class SgpConnector implements SourceConnector {
 
       let novos = 0;
       for (const r of rows) {
-        const id = String(r.id ?? r.titulo_id ?? r.cliente_id ?? '');
+        // Cliente no SGP nem sempre traz `id`; CPF/CNPJ é estável e também é o
+        // fallback usado para vincular os títulos aninhados ao cliente local.
+        const id = String(r.id ?? r.titulo_id ?? r.cliente_id ?? onlyDigits(r.cpfcnpj ?? ''));
         if (id && !vistos.has(id)) { vistos.add(id); out.push(r); novos++; }
       }
       // Página curta = último lote → snapshot completo.
@@ -123,34 +131,56 @@ export class SgpConnector implements SourceConnector {
   }
 
   async fetchCustomers(): Promise<SourceCustomer[]> {
-    const { rows } = await this.paginar('/api/ura/consultacliente', {}, (d) => d?.clientes ?? d?.dados);
+    const { rows } = await this.paginar(
+      '/api/ura/clientes/',
+      { omitir_contratos: true, omitir_titulos: true },
+      (d) => d?.clientes,
+    );
     return rows.map((r) => ({
-      externalId: String(r.id ?? r.cliente_id),
+      externalId: String(r.id ?? r.cliente_id ?? onlyDigits(r.cpfcnpj ?? '')),
       nome: r.nome ?? r.razaosocial ?? '',
       doc: onlyDigits(r.cpfcnpj ?? r.cnpj_cpf ?? ''),
-      email: r.email || undefined,
-      telefone: normalizePhoneBR(r.celular ?? r.telefone ?? ''),
-      contrato: r.contrato ? String(r.contrato) : undefined,
+      email: r.email ?? r.contatos?.emails?.[0] ?? undefined,
+      telefone: normalizePhoneBR(r.celular ?? r.telefone ?? r.contatos?.celulares?.[0] ?? r.contatos?.telefones?.[0] ?? ''),
+      contrato: r.contrato
+        ? String(r.contrato)
+        : r.contratos?.[0]?.contrato != null ? String(r.contratos[0].contrato) : undefined,
     }));
   }
 
   async fetchOpenInvoices(): Promise<SourceInvoice[]> {
-    const { rows, completo } = await this.paginar('/api/ura/titulos', { status: 'aberto' }, (d) => d?.titulos ?? d?.dados);
+    // O endpoint em lote do SGP devolve os títulos aninhados em cada cliente.
+    // Paginar clientes (e não títulos) garante que nenhuma cobrança fique fora.
+    const { rows: clientes, completo } = await this.paginar(
+      '/api/ura/clientes/',
+      { status: 'aberto', omitir_contratos: true },
+      (d) => d?.clientes,
+    );
     this.snapshotCompleto = completo;
-    return rows.map((r) => {
-      const vencimento = new Date(r.vencimento ?? r.data_vencimento);
+    return clientes.flatMap((cliente) => {
+      const customerExternalId = String(
+        cliente.id ?? cliente.cliente_id ?? onlyDigits(cliente.cpfcnpj ?? ''),
+      );
+      const titulos: any[] = Array.isArray(cliente.titulos) ? cliente.titulos : [];
+      return titulos.map((r) => {
+      const vencimento = new Date(r.vencimento ?? r.data_vencimento ?? r.dataVencimento);
+      const statusId = Number(r.statusid ?? r.status_id);
+      const statusTexto = String(r.status ?? '').toLowerCase();
+      const paga = r.pago === true || statusId === 2 || statusTexto === 'pago' || !!(r.dataPagamento ?? r.data_pagamento);
+      const link = r.linkboleto ?? r.url_boleto ?? r.link;
       return {
         externalId: String(r.id ?? r.titulo_id),
-        customerExternalId: String(r.cliente_id ?? r.cliente),
+        customerExternalId,
         valor: Number(r.valor ?? 0),
         vencimento,
         // Usa o mesmo `vencimento` resolvido (não só r.vencimento) e a borda por
         // DIA: vence hoje ainda é pendente; só vira vencida a partir de amanhã.
-        status: r.pago ? 'PAGA' : venceuAntesDeHoje(vencimento) ? 'VENCIDA' : 'PENDENTE',
-        pixCopiaCola: r.pix ?? r.pix_copia_cola ?? undefined,
-        boletoLinha: r.linhadigitavel ?? r.linha_digitavel ?? undefined,
-        boletoUrl: r.linkboleto ?? r.url_boleto ?? undefined,
+        status: paga ? 'PAGA' : venceuAntesDeHoje(vencimento) ? 'VENCIDA' : 'PENDENTE',
+        pixCopiaCola: r.pix ?? r.pix_copia_cola ?? r.codigoPix ?? r.codigopix ?? undefined,
+        boletoLinha: r.linhadigitavel ?? r.linha_digitavel ?? r.codigoBarras ?? undefined,
+        boletoUrl: link ? new URL(String(link), `${this.baseUrl}/`).toString() : undefined,
       };
+      });
     });
   }
 }
