@@ -50,12 +50,12 @@ export class AiService {
       'Gere uma régua eficaz e não invasiva, com mensagens curtas, cordiais e em português do Brasil.',
       'Responda APENAS com JSON válido neste formato exato:',
       '{"nome": string, "faixaRisco": "BOM"|"ATENCAO"|"RISCO"|null, "apenasNotificar": boolean,',
-      ' "steps": [{"offsetDias": number, "canal": "WHATSAPP_EVOLUTION"|"WHATSAPP_CLOUD"|"WHATSAPP_UAZAPI"|"EMAIL"|"SMS", "template": string}]}',
+      ' "steps": [{"offsetDias": number, "canal": "WHATSAPP_CLOUD"|"EMAIL"|"SMS", "template": string}]}',
       'Regras: offsetDias negativo = dias ANTES do vencimento, 0 = no dia, positivo = dias DEPOIS.',
       'Use as variáveis quando fizer sentido: {{nome}} {{valor}} {{vencimento}} {{pix}} {{link}}.',
       'SEMPRE inclua a forma de pagamento em pelo menos uma mensagem: use {{pix}} (copia e cola) e/ou {{link}} — de preferência na mensagem do dia do vencimento (offsetDias 0) e nas de cobrança (offsetDias positivo).',
       'Mesmo em tom leve/notificador, ofereça o link/pix para facilitar o pagamento. apenasNotificar deve ser false quando houver cobrança/pagamento envolvido.',
-      'Prefira o canal WHATSAPP_EVOLUTION salvo se o usuário indicar e-mail/SMS. Máximo de passos = número de toques informado.',
+      'Prefira o canal WHATSAPP_CLOUD salvo se o usuário indicar e-mail/SMS. Máximo de passos = número de toques informado.',
     ].join(' ');
 
     const user = brief.descricaoLivre
@@ -66,7 +66,7 @@ export class AiService {
           `Tom: ${brief.tom || 'amigável'}`,
           `Começar ${brief.inicioDias ?? 3} dias antes do vencimento e insistir até ${brief.fimDias ?? 15} dias depois`,
           `Total de toques: ${brief.toques ?? 4}`,
-          `Canais disponíveis: ${(brief.canais || ['WHATSAPP_EVOLUTION']).join(', ')}`,
+          `Canais disponíveis: ${(brief.canais || ['WHATSAPP_CLOUD']).join(', ')}`,
           `Desconto/acordo: ${brief.desconto || 'não'}`,
           `Ação final: ${brief.acaoFinal || 'nenhuma'}`,
           `Empresa (assinatura): ${brief.empresa || ''}`,
@@ -76,7 +76,8 @@ export class AiService {
     let parsed: any;
     try { parsed = JSON.parse(raw); } catch { throw new BadRequestException('A IA retornou um formato inesperado. Tente novamente.'); }
     // saneia
-    const canaisOk = ['WHATSAPP_EVOLUTION', 'WHATSAPP_CLOUD', 'WHATSAPP_UAZAPI', 'EMAIL', 'SMS'];
+    // Só canais que o produto ainda cria. Evolution/uazapi saíram (não oficiais).
+    const canaisOk = ['WHATSAPP_CLOUD', 'EMAIL', 'SMS'];
     const steps = Array.isArray(parsed.steps) ? parsed.steps : [];
     return {
       nome: String(parsed.nome || 'Régua gerada por IA').slice(0, 80),
@@ -85,7 +86,7 @@ export class AiService {
       steps: steps.slice(0, 12).map((s: any, i: number) => ({
         ordem: i + 1,
         offsetDias: Number.isFinite(Number(s.offsetDias)) ? Math.max(-60, Math.min(90, Math.round(Number(s.offsetDias)))) : 0,
-        canal: canaisOk.includes(s.canal) ? s.canal : 'WHATSAPP_EVOLUTION',
+        canal: canaisOk.includes(s.canal) ? s.canal : 'WHATSAPP_CLOUD',
         template: String(s.template || '').slice(0, 1000),
       })),
     };

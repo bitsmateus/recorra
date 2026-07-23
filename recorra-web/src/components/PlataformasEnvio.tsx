@@ -125,7 +125,6 @@ const inputCls = 'w-full rounded border border-line px-3 py-2 outline-none focus
 
 function NxModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [apelido, setApelido] = useState('');
-  const [oficial, setOficial] = useState(false);
   const [url, setUrl] = useState('');
   const [token, setToken] = useState('');
   const [msg, setMsg] = useState('');
@@ -146,7 +145,8 @@ function NxModal({ onClose, onCreated }: { onClose: () => void; onCreated: () =>
     if (!apelido.trim()) return setMsg('Dê um nome para a integração.');
     setBusy(true); setMsg('');
     try {
-      await api('/canais', { method: 'POST', body: { canal: 'NX_SYSTEMS', apelido, credentials: { nxBaseUrl: url, nxToken: token, nxOficial: oficial } } });
+      // Só API oficial (WABA): a via não oficial (Evolution/QR) saiu do produto.
+      await api('/canais', { method: 'POST', body: { canal: 'NX_SYSTEMS', apelido, credentials: { nxBaseUrl: url, nxToken: token, nxOficial: true } } });
       onCreated();
     } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro'); setBusy(false); }
   }
@@ -157,18 +157,8 @@ function NxModal({ onClose, onCreated }: { onClose: () => void; onCreated: () =>
         <input value={apelido} onChange={(e) => setApelido(e.target.value)} placeholder="Ex.: Atendimento NX" className={inputCls} />
       </label>
 
-      <div className="mb-3 text-sm">
-        <span className="mb-1 block text-xs text-muted">Tipo de API</span>
-        <div className="space-y-2 rounded-lg border border-line p-3">
-          <label className="flex cursor-pointer items-start gap-2">
-            <input type="radio" name="nxtipo" checked={!oficial} onChange={() => setOficial(false)} className="mt-1" />
-            <span><span className="font-medium text-ink">Não oficial (Evolution)</span> <span className="block text-xs text-muted">Você conectou lendo o QR Code. Permite texto livre e template.</span></span>
-          </label>
-          <label className="flex cursor-pointer items-start gap-2">
-            <input type="radio" name="nxtipo" checked={oficial} onChange={() => setOficial(true)} className="mt-1" />
-            <span><span className="font-medium text-ink">Oficial (WhatsApp Business / WABA)</span> <span className="block text-xs text-muted">Número aprovado pela Meta. Só envia por template.</span></span>
-          </label>
-        </div>
+      <div className="mb-3 rounded-lg border border-primary/30 bg-primary-tint/40 p-3 text-xs text-primary">
+        <b>Oficial (WhatsApp Business / WABA).</b> <span className="text-ink">A cobrança sai por número aprovado pela Meta, sempre via template aprovado — é o único modo entregue com segurança.</span>
       </div>
 
       <label className="mb-3 block text-sm"><span className="mb-1 block text-xs text-muted">URL base</span>

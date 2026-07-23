@@ -44,9 +44,32 @@ export class SgpConnector implements SourceConnector {
     return { app: this.app, token: this.token };
   }
 
+  /**
+   * Mantém a mensagem útil do SGP sem devolver credenciais ou o request inteiro
+   * para a interface. O Axios, por padrão, acabava virando apenas HTTP 500.
+   */
+  private erro(endpoint: string, e: unknown): Error {
+    if (!axios.isAxiosError(e)) return e instanceof Error ? e : new Error(String(e));
+    const status = e.response?.status;
+    const body = e.response?.data;
+    const detalhe = typeof body === 'string'
+      ? body
+      : body?.detail ?? body?.message ?? body?.mensagem ?? body?.error ?? body?.erro;
+    const sufixo = detalhe ? `: ${String(detalhe).slice(0, 300)}` : '';
+    return new Error(`SGP ${endpoint} respondeu ${status ?? 'sem status'}${sufixo}`);
+  }
+
+  private validarResposta(endpoint: string, data: any): void {
+    const detalhe = data?.detail ?? data?.message ?? data?.mensagem ?? data?.error ?? data?.erro;
+    if (detalhe && data?.success !== true && data?.sucesso !== true) {
+      throw new Error(`SGP ${endpoint}: ${String(detalhe).slice(0, 300)}`);
+    }
+  }
+
   async testConnection(): Promise<boolean> {
     try {
-      await this.http.post('/api/ura/consultacliente', { ...this.auth(), limit: 1 });
+      const { data } = await this.http.post('/api/ura/consultacliente', { ...this.auth(), limit: 1 });
+      this.validarResposta('/api/ura/consultacliente', data);
       return true;
     } catch {
       return false;
@@ -67,13 +90,22 @@ export class SgpConnector implements SourceConnector {
     const out: any[] = [];
     const vistos = new Set<string>();
     for (let page = 0; page < SgpConnector.MAX_PAGES; page++) {
-      const { data } = await this.http.post(endpoint, {
-        ...this.auth(),
-        ...extra,
-        limit: SgpConnector.LIMIT,
-        offset: page * SgpConnector.LIMIT,
-      });
+      let data: any;
+      try {
+        ({ data } = await this.http.post(endpoint, {
+          ...this.auth(),
+          ...extra,
+          limit: SgpConnector.LIMIT,
+          offset: page * SgpConnector.LIMIT,
+        }));
+        this.validarResposta(endpoint, data);
+      } catch (e) {
+        throw this.erro(endpoint, e);
+      }
       const rows: any[] = extrair(data);
+      if (!Array.isArray(rows)) {
+        throw new Error(`SGP ${endpoint}: formato de resposta não reconhecido`);
+      }
       if (rows.length === 0) return { rows: out, completo: true };
 
       let novos = 0;
@@ -91,7 +123,7 @@ export class SgpConnector implements SourceConnector {
   }
 
   async fetchCustomers(): Promise<SourceCustomer[]> {
-    const { rows } = await this.paginar('/api/ura/consultacliente', {}, (d) => d?.clientes ?? d?.dados ?? []);
+    const { rows } = await this.paginar('/api/ura/consultacliente', {}, (d) => d?.clientes ?? d?.dados);
     return rows.map((r) => ({
       externalId: String(r.id ?? r.cliente_id),
       nome: r.nome ?? r.razaosocial ?? '',
@@ -103,7 +135,7 @@ export class SgpConnector implements SourceConnector {
   }
 
   async fetchOpenInvoices(): Promise<SourceInvoice[]> {
-    const { rows, completo } = await this.paginar('/api/ura/titulos', { status: 'aberto' }, (d) => d?.titulos ?? d?.dados ?? []);
+    const { rows, completo } = await this.paginar('/api/ura/titulos', { status: 'aberto' }, (d) => d?.titulos ?? d?.dados);
     this.snapshotCompleto = completo;
     return rows.map((r) => {
       const vencimento = new Date(r.vencimento ?? r.data_vencimento);

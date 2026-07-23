@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadGatewayException, Injectable, Logger } from '@nestjs/common';
 import { InvoiceStatus } from '@prisma/client';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { canTransition } from '@/modules/payments/invoice-status';
@@ -20,13 +20,23 @@ export class SyncService {
   ) {}
 
   async syncAll(tenantId: string, integrationId: string) {
-    const clientes = await this.syncCustomers(tenantId, integrationId);
-    const { sincronizadas, quitadas } = await this.syncInvoices(tenantId, integrationId);
-    await this.prisma.sourceIntegration.update({
-      where: { id: integrationId },
-      data: { ultimaSync: new Date(), status: 'ok' },
-    });
-    return { clientes, faturas: sincronizadas, quitadas };
+    try {
+      const clientes = await this.syncCustomers(tenantId, integrationId);
+      const { sincronizadas, quitadas } = await this.syncInvoices(tenantId, integrationId);
+      await this.prisma.sourceIntegration.update({
+        where: { id: integrationId },
+        data: { ultimaSync: new Date(), status: 'ok' },
+      });
+      return { clientes, faturas: sincronizadas, quitadas };
+    } catch (e) {
+      const mensagem = e instanceof Error ? e.message : String(e);
+      this.logger.error(`Falha na sincronização da integração ${integrationId}: ${mensagem}`);
+      await this.prisma.sourceIntegration.updateMany({
+        where: { id: integrationId, tenantId },
+        data: { status: 'falha' },
+      }).catch(() => undefined);
+      throw new BadGatewayException(mensagem || 'O ERP não respondeu corretamente');
+    }
   }
 
   async syncCustomers(tenantId: string, integrationId: string): Promise<number> {
