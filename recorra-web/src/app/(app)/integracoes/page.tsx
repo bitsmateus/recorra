@@ -50,14 +50,49 @@ export default function IntegracoesPage() {
   }, []);
   useEffect(() => { carregar(); }, [carregar]);
 
+  // O sync roda no servidor; aqui só acompanhamos o progresso. Sem isto a tela
+  // ficava "Sincronizando..." para sempre em ERP grande (estoura o timeout).
+  const [sincronizando, setSincronizando] = useState<string | null>(null);
+
   async function sincronizar(id: string) {
-    setMsg('Sincronizando... pode levar alguns segundos.');
+    setMsg('Sincronizando... isso roda no servidor, pode fechar a tela.');
+    setSincronizando(id);
     try {
-      const r = await api<{ clientes: number; faturas: number; quitadas?: number }>(`/integracoes/${id}/sincronizar`, { method: 'POST' });
-      const quit = r.quitadas ? ` · ${r.quitadas} baixada(s) como paga(s)` : '';
-      setMsg(`✓ ${r.clientes} clientes e ${r.faturas} faturas sincronizados${quit}`);
-    } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro ao sincronizar'); }
+      const r = await api<{ iniciado: boolean; jaRodando: boolean }>(`/integracoes/${id}/sincronizar`, { method: 'POST' });
+      if (!r.iniciado && r.jaRodando) setMsg('Já existe uma sincronização em andamento — acompanhando...');
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Erro ao sincronizar');
+      setSincronizando(null);
+    }
   }
+
+  interface SyncEtapa { quantidade: number; erros: number; detalhe: string | null; emCurso: boolean }
+  interface SyncStatus { rodando: boolean; erro: string | null; clientes: SyncEtapa | null; faturas: SyncEtapa | null }
+
+  useEffect(() => {
+    if (!sincronizando) return;
+    const id = sincronizando;
+    let vivo = true;
+    const tick = async () => {
+      const s = await api<SyncStatus>(`/integracoes/${id}/sync-status`).catch(() => null);
+      if (!vivo || !s) return;
+      const partes = [
+        s.clientes ? `${s.clientes.quantidade} cliente(s)` : null,
+        s.faturas ? `${s.faturas.quantidade} fatura(s)` : null,
+      ].filter(Boolean).join(' · ');
+      if (s.rodando) {
+        setMsg(`Sincronizando... ${partes || 'buscando dados no ERP'}`);
+        return;
+      }
+      setSincronizando(null);
+      carregar();
+      if (s.erro) setMsg(`✗ Falha na sincronização: ${s.erro}`);
+      else setMsg(`✓ Sincronização concluída — ${partes || 'nada novo'}`);
+    };
+    tick();
+    const t = setInterval(tick, 3000);
+    return () => { vivo = false; clearInterval(t); };
+  }, [sincronizando, carregar]);
   const [testando, setTestando] = useState<string | null>(null);
   async function testar(id: string) {
     setTestando(id);
@@ -102,7 +137,7 @@ export default function IntegracoesPage() {
               <div className="mb-3"><StatusChip status={i.status} /></div>
               <div className="flex gap-2">
                 <button onClick={() => testar(i.id)} disabled={testando === i.id} className="rounded border border-line px-3 py-1.5 text-xs hover:bg-canvas disabled:opacity-60">{testando === i.id ? 'Testando...' : 'Testar'}</button>
-                <button onClick={() => sincronizar(i.id)} className="flex items-center gap-1 rounded bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary-hover"><RefreshCw size={12} /> Sincronizar</button>
+                <button onClick={() => sincronizar(i.id)} disabled={sincronizando === i.id} className="flex items-center gap-1 rounded bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary-hover disabled:opacity-60"><RefreshCw size={12} className={sincronizando === i.id ? 'animate-spin' : ''} /> {sincronizando === i.id ? 'Sincronizando...' : 'Sincronizar'}</button>
               </div>
             </div>
           ))}

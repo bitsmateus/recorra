@@ -16,8 +16,27 @@ export interface SegmentFilter {
   ativo?: boolean;
   etiqueta?: string;
   aba?: 'geral' | 'aberto' | 'incompleto';
+  /** Recorte do cadastro incompleto: falta telefone, e-mail ou os dois. */
+  falta?: 'telefone' | 'email' | 'ambos';
   page?: string | number;
   pageSize?: string | number;
+}
+
+/** Campo de contato vazio = null ou string em branco (o ERP manda os dois). */
+const semTelefone: Prisma.CustomerWhereInput = { OR: [{ telefone: null }, { telefone: '' }] };
+const semEmail: Prisma.CustomerWhereInput = { OR: [{ email: null }, { email: '' }] };
+const semAmbos: Prisma.CustomerWhereInput = { AND: [semTelefone, semEmail] };
+/** Incompleto = falta pelo menos um dos dois contatos. */
+const incompletoCond: Prisma.CustomerWhereInput = {
+  OR: [{ email: null }, { email: '' }, { telefone: null }, { telefone: '' }],
+};
+
+/** Condição da aba "cadastro incompleto" conforme o recorte escolhido. */
+export function condicaoFalta(falta?: string): Prisma.CustomerWhereInput {
+  if (falta === 'telefone') return semTelefone;
+  if (falta === 'email') return semEmail;
+  if (falta === 'ambos') return semAmbos;
+  return incompletoCond;
 }
 
 @Injectable()
@@ -128,21 +147,26 @@ export class CustomersService {
     // "Em aberto" = tem fatura PENDENTE/VENCIDA em gestão ATIVA (mesma definição do
     // dashboard/cobranças — não conta CANCELADA/ESTORNADA nem legado). "Incompleto" = sem e-mail ou telefone.
     const abertoCond: Prisma.CustomerWhereInput = { invoices: { some: { status: { in: ['PENDENTE', 'VENCIDA'] }, gestaoCobranca: 'ATIVA' } } };
-    const incompletoCond: Prisma.CustomerWhereInput = { OR: [{ email: null }, { email: '' }, { telefone: null }, { telefone: '' }] };
-    const whereAba = f.aba === 'aberto' ? { AND: [base, abertoCond] } : f.aba === 'incompleto' ? { AND: [base, incompletoCond] } : base;
+    // Na aba de cadastro incompleto o recorte (`falta`) escolhe telefone/e-mail/os dois.
+    const faltaCond = condicaoFalta(f.falta);
+    const whereAba = f.aba === 'aberto' ? { AND: [base, abertoCond] } : f.aba === 'incompleto' ? { AND: [base, faltaCond] } : base;
 
     const pageSize = Math.min(200, Math.max(1, Math.floor(Number(f.pageSize)) || 50));
     const page = Math.max(1, Math.floor(Number(f.page)) || 1);
 
-    const [customers, geral, aberto, incompleto] = await Promise.all([
+    const [customers, geral, aberto, incompleto, faltaTelefone, faltaEmail, faltaAmbos] = await Promise.all([
       // Desempate por id: `nome` não é único, então a ordenação por nome sozinha
       // não é determinística entre páginas (pularia/repetiria no "Ver mais").
       this.prisma.customer.findMany({ where: whereAba, orderBy: [{ nome: 'asc' }, { id: 'asc' }], skip: (page - 1) * pageSize, take: pageSize }),
       this.prisma.customer.count({ where: base }),
       this.prisma.customer.count({ where: { AND: [base, abertoCond] } }),
       this.prisma.customer.count({ where: { AND: [base, incompletoCond] } }),
+      this.prisma.customer.count({ where: { AND: [base, semTelefone] } }),
+      this.prisma.customer.count({ where: { AND: [base, semEmail] } }),
+      this.prisma.customer.count({ where: { AND: [base, semAmbos] } }),
     ]);
-    const total = f.aba === 'aberto' ? aberto : f.aba === 'incompleto' ? incompleto : geral;
+    const totalIncompleto = f.falta === 'telefone' ? faltaTelefone : f.falta === 'email' ? faltaEmail : f.falta === 'ambos' ? faltaAmbos : incompleto;
+    const total = f.aba === 'aberto' ? aberto : f.aba === 'incompleto' ? totalIncompleto : geral;
 
     // Anexa contagem de cobranças (total e pagas) por cliente da página.
     const custIds = customers.map((c) => c.id);
@@ -156,7 +180,13 @@ export class CustomersService {
       if (g.status === 'PAGA') pagaBy.set(g.customerId, (pagaBy.get(g.customerId) ?? 0) + g._count._all);
     }
     const items = customers.map((c) => ({ ...c, cobrancasTotal: totalBy.get(c.id) ?? 0, cobrancasPagas: pagaBy.get(c.id) ?? 0 }));
-    return { items, total, contagens: { geral, aberto, incompleto } };
+    return {
+      items,
+      total,
+      contagens: { geral, aberto, incompleto },
+      // Quebra do cadastro incompleto para a tela mostrar de bate-pronto.
+      faltando: { telefone: faltaTelefone, email: faltaEmail, ambos: faltaAmbos },
+    };
   }
 
   /** Adiciona/remove tags de um cliente. */

@@ -29,6 +29,7 @@ export class CustomersController {
     @Query('faixa') faixa?: RiskBand,
     @Query('etiqueta') etiqueta?: string,
     @Query('aba') aba?: 'geral' | 'aberto' | 'incompleto',
+    @Query('falta') falta?: 'telefone' | 'email' | 'ambos',
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
@@ -42,6 +43,7 @@ export class CustomersController {
       faixa,
       etiqueta,
       aba,
+      falta,
       page,
       pageSize,
     });

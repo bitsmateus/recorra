@@ -29,6 +29,8 @@ const UFS = ['', 'AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT
 
 type Etiqueta = { nome: string; cor?: string | null };
 type Aba = 'geral' | 'aberto' | 'incompleto';
+/** Recorte da aba de cadastro incompleto. '' = qualquer campo faltando. */
+type Falta = '' | 'telefone' | 'email' | 'ambos';
 
 const CORES_ETIQUETA = ['#14857C', '#7C3AED', '#F0A93B', '#EF4444', '#22A45D', '#3B82F6', '#EC4899', '#64748B'];
 
@@ -67,6 +69,7 @@ export default function ClientesPage() {
   const [wizard, setWizard] = useState(false);
   const [etiquetas, setEtiquetas] = useState<Etiqueta[]>([]);
   const [aba, setAba] = useState<Aba>('geral');
+  const [falta, setFalta] = useState<Falta>('');
   const [etiquetasModal, setEtiquetasModal] = useState(false);
   const [confirmarExclusao, setConfirmarExclusao] = useState<Customer | null>(null);
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
@@ -75,6 +78,7 @@ export default function ClientesPage() {
   const [total, setTotal] = useState(0);
   const [pagina, setPagina] = useState(1);
   const [contagens, setContagens] = useState({ geral: 0, aberto: 0, incompleto: 0 });
+  const [faltando, setFaltando] = useState({ telefone: 0, email: 0, ambos: 0 });
 
   const toggleSel = (id: string) => setSelecionados((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const reloadEtiquetas = useCallback(() => { api<Etiqueta[]>('/clientes/etiquetas').then(setEtiquetas).catch(() => {}); }, []);
@@ -87,6 +91,7 @@ export default function ClientesPage() {
     const params = new URLSearchParams();
     Object.entries(aplicados).forEach(([k, v]) => v && params.set(k, v));
     params.set('aba', aba); params.set('page', String(pg)); params.set('pageSize', String(POR_PAGINA));
+    if (aba === 'incompleto' && falta) params.set('falta', falta);
     return params;
   };
 
@@ -98,14 +103,15 @@ export default function ClientesPage() {
   const carregar = useCallback(async () => {
     const my = ++seq.current;
     setLoading(true);
-    const r = await api<{ items: Customer[]; total: number; contagens: { geral: number; aberto: number; incompleto: number } }>(`/clientes?${paramsClientes(1).toString()}`).catch(() => null);
+    const r = await api<{ items: Customer[]; total: number; contagens: { geral: number; aberto: number; incompleto: number }; faltando?: { telefone: number; email: number; ambos: number } }>(`/clientes?${paramsClientes(1).toString()}`).catch(() => null);
     if (seq.current !== my) return; // superada
     setLoading(false);
     if (!r) return;
     setClientes(r.items); setTotal(r.total); setContagens(r.contagens); setPagina(1);
+    if (r.faltando) setFaltando(r.faltando);
     fetchRiscos(r.items);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aplicados, aba]);
+  }, [aplicados, aba, falta]);
 
   async function verMais() {
     if (carregandoMais) return;
@@ -173,13 +179,39 @@ export default function ClientesPage() {
         {([['geral', 'Visão geral'], ['aberto', 'Em aberto'], ['incompleto', 'Cadastro incompleto']] as [Aba, string][]).map(([k, label]) => (
           <button
             key={k}
-            onClick={() => { setAba(k); setSelecionados(new Set()); }}
+            onClick={() => { setAba(k); setFalta(''); setSelecionados(new Set()); }}
             className={`-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-sm transition ${aba === k ? 'border-primary font-medium text-primary' : 'border-transparent text-muted hover:text-ink'}`}
           >
             {label} <span className="tabular text-xs text-muted">({contagem[k]})</span>
           </button>
         ))}
       </div>
+
+      {/* Recorte do cadastro incompleto: bate o olho e já sabe o que falta. */}
+      {aba === 'incompleto' && (
+        <div className="mb-4 rounded-lg border border-line bg-surface p-3">
+          <div className="mb-2 text-xs font-medium text-muted">O que está faltando</div>
+          <div className="flex flex-wrap gap-2">
+            {([
+              ['', 'Qualquer um', contagem.incompleto],
+              ['telefone', 'Sem telefone', faltando.telefone],
+              ['email', 'Sem e-mail', faltando.email],
+              ['ambos', 'Sem os dois', faltando.ambos],
+            ] as [Falta, string, number][]).map(([k, label, n]) => (
+              <button
+                key={k || 'qualquer'}
+                onClick={() => { setFalta(k); setSelecionados(new Set()); }}
+                className={`rounded-full border px-3 py-1.5 text-xs transition ${falta === k ? 'border-primary bg-primary-tint font-medium text-primary' : 'border-line text-muted hover:bg-canvas'}`}
+              >
+                {label} <span className="tabular font-semibold">{n}</span>
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-muted">
+            Sem telefone não dá para mandar WhatsApp/SMS; sem e-mail não dá para mandar e-mail. Quem está em <b className="text-ink">Sem os dois</b> não recebe cobrança por nenhum canal.
+          </p>
+        </div>
+      )}
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <button onClick={() => setModal({ open: true, edit: null })} className="flex items-center gap-2 rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover"><UserPlus size={16} /> Novo cliente</button>

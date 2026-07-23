@@ -19,6 +19,74 @@ export class SyncService {
     private readonly connectors: ConnectorFactory,
   ) {}
 
+  /** Um sync parado há mais que isto é considerado interrompido (queda/restart). */
+  private static readonly SYNC_TRAVADO_MS = 30 * 60 * 1000;
+
+  /**
+   * Dispara a sincronização em SEGUNDO PLANO e responde na hora.
+   *
+   * Importar um ERP grande leva minutos — bem mais que o timeout do navegador e
+   * do proxy. Rodando dentro da requisição, a tela ficava "Sincronizando..."
+   * para sempre mesmo com o servidor tendo terminado. O progresso agora é lido
+   * por `syncStatus`.
+   */
+  async iniciarSync(tenantId: string, integrationId: string) {
+    await this.prisma.sourceIntegration.findFirstOrThrow({ where: { id: integrationId, tenantId } });
+    const emAndamento = await this.rodando(tenantId, integrationId);
+    if (emAndamento) return { iniciado: false, jaRodando: true };
+    // O erro fica registrado no SyncLog/status da integração — aqui só evitamos
+    // derrubar o processo com uma promise rejeitada sem dono.
+    void this.syncAll(tenantId, integrationId).catch(() => undefined);
+    return { iniciado: true, jaRodando: false };
+  }
+
+  /** Sync ainda em curso (ignora log preso por queda do servidor). */
+  private async rodando(tenantId: string, integrationId: string) {
+    const aberto = await this.prisma.syncLog.findFirst({
+      where: { tenantId, integrationId, terminadoEm: null },
+      orderBy: { iniciadoEm: 'desc' },
+    });
+    if (!aberto) return null;
+    if (Date.now() - aberto.iniciadoEm.getTime() > SyncService.SYNC_TRAVADO_MS) return null;
+    return aberto;
+  }
+
+  /** Progresso da sincronização para a tela acompanhar sem travar. */
+  async syncStatus(tenantId: string, integrationId: string) {
+    const integ = await this.prisma.sourceIntegration.findFirstOrThrow({
+      where: { id: integrationId, tenantId },
+      select: { status: true, ultimaSync: true },
+    });
+    const logs = await this.prisma.syncLog.findMany({
+      where: { tenantId, integrationId },
+      orderBy: { iniciadoEm: 'desc' },
+      take: 4,
+    });
+    const resumo = (tipo: 'CLIENTES' | 'FATURAS') => {
+      const l = logs.find((x) => x.tipo === tipo);
+      if (!l) return null;
+      return {
+        quantidade: l.quantidade,
+        erros: l.erros,
+        detalhe: l.detalhe,
+        emCurso: !l.terminadoEm,
+        iniciadoEm: l.iniciadoEm,
+        terminadoEm: l.terminadoEm,
+      };
+    };
+    const emAndamento = await this.rodando(tenantId, integrationId);
+    // Só reporta erro do ciclo mais recente (o log mais novo que trouxe detalhe).
+    const erro = logs.find((l) => l.detalhe)?.detalhe ?? null;
+    return {
+      rodando: !!emAndamento,
+      status: integ.status,
+      ultimaSync: integ.ultimaSync,
+      clientes: resumo('CLIENTES'),
+      faturas: resumo('FATURAS'),
+      erro: emAndamento ? null : erro,
+    };
+  }
+
   async syncAll(tenantId: string, integrationId: string) {
     try {
       const clientes = await this.syncCustomers(tenantId, integrationId);
@@ -53,6 +121,8 @@ export class SyncService {
 
     let count = 0;
     let erros = 0;
+    // Guarda o motivo da falha para a tela poder mostrar (e não só 'falha').
+    let detalhe: string | null = null;
     try {
       const clientes = await connector.fetchCustomers();
       for (const c of clientes) {
@@ -85,10 +155,13 @@ export class SyncService {
           this.logger.warn(`Falha ao sincronizar cliente ${c.externalId}: ${String(e)}`);
         }
       }
+    } catch (e) {
+      detalhe = (e instanceof Error ? e.message : String(e)).slice(0, 500);
+      throw e;
     } finally {
       await this.prisma.syncLog.update({
         where: { id: log.id },
-        data: { quantidade: count, erros, terminadoEm: new Date() },
+        data: { quantidade: count, erros, detalhe, terminadoEm: new Date() },
       });
     }
     return count;
@@ -105,6 +178,8 @@ export class SyncService {
     let count = 0;
     let erros = 0;
     let quitadas = 0;
+    // Guarda o motivo da falha para a tela poder mostrar (e não só 'falha').
+    let detalhe: string | null = null;
     try {
       const faturas = await connector.fetchOpenInvoices();
       const presentes = new Set<string>();
@@ -179,10 +254,13 @@ export class SyncService {
         }
         if (quitadas > 0) this.logger.log(`Conciliação por ausência (${integ.sistema}): ${quitadas} fatura(s) quitada(s)`);
       }
+    } catch (e) {
+      detalhe = (e instanceof Error ? e.message : String(e)).slice(0, 500);
+      throw e;
     } finally {
       await this.prisma.syncLog.update({
         where: { id: log.id },
-        data: { quantidade: count, erros, terminadoEm: new Date() },
+        data: { quantidade: count, erros, detalhe, terminadoEm: new Date() },
       });
     }
     return { sincronizadas: count, quitadas };
