@@ -862,7 +862,7 @@ model Campaign {
   templateNome     String? // nome do template WABA aprovado (canal oficial)
   templateParams   String[]          @default([]) // tokens p/ cada {{n}} (ex.: "{{nome}}", "texto fixo")
   escopoFatura     String            @default("TODAS")
-  delaySegundos    Int               @default(5)
+  delaySegundos    Int               @default(20) // padrão anti-banimento do WhatsApp
 
   filtroTodos      Boolean   @default(false)
   filtroEtiqueta   String?

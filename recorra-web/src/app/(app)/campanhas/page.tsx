@@ -457,7 +457,7 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
     channelAccountId: edit?.channelAccountId || '',
     templateNome: edit?.templateNome || '',
     escopoFatura: edit?.escopoFatura || 'TODAS',
-    delaySegundos: edit?.delaySegundos != null ? String(edit.delaySegundos) : '5',
+    delaySegundos: edit?.delaySegundos != null ? String(edit.delaySegundos) : '20',
     filtroTodos: edit?.filtroTodos ?? true,
     filtroEtiqueta: edit?.filtroEtiqueta || '',
     filtroValorMin: edit?.filtroValorMin ? String(edit.filtroValorMin) : '',

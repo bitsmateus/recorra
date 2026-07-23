@@ -75,6 +75,12 @@ export function motivoExclusaoPublico(opts: {
   return null;
 }
 
+/**
+ * Intervalo padrão entre mensagens de uma campanha. Disparar em rajada é o que
+ * mais derruba número no WhatsApp; 20s espaça o suficiente sem arrastar demais.
+ */
+export const PADRAO_DELAY_SEGUNDOS = 20;
+
 /** Valores aceitos no filtro de público por situação da cobrança. */
 export const SITUACOES_PUBLICO = ['VENCIDA', 'VENCIDA_MES', 'PENDENTE', 'ABERTO', 'EM_DIA'] as const;
 
@@ -276,7 +282,7 @@ export class CampaignsService {
       templateNome: comTemplate ? input.templateNome || null : null,
       templateParams: comTemplate && input.templateNome ? (input.templateParams ?? []) : [],
       escopoFatura: input.escopoFatura || 'TODAS',
-      delaySegundos: input.delaySegundos != null ? Math.max(0, Math.min(600, Math.floor(input.delaySegundos))) : 5,
+      delaySegundos: input.delaySegundos != null ? Math.max(0, Math.min(600, Math.floor(input.delaySegundos))) : PADRAO_DELAY_SEGUNDOS,
       filtroTodos: !!input.filtroTodos,
       filtroEtiqueta: input.filtroEtiqueta || null,
       filtroValorMin: input.filtroValorMin ?? null,
@@ -880,7 +886,7 @@ export class CampaignsService {
 
     // Dispara em segundo plano, respeitando o intervalo entre mensagens (anti-banimento).
     // Não bloqueia a resposta; o relatório atualiza conforme os envios acontecem.
-    void this.enviarComDelay(imediatos, camp.delaySegundos ?? 5);
+    void this.enviarComDelay(imediatos, camp.delaySegundos ?? PADRAO_DELAY_SEGUNDOS);
 
     const novoStatus = camp.agendamento === 'UMA_VEZ' ? 'CONCLUIDA' : 'ATIVA';
     const proxima = camp.agendamento === 'UMA_VEZ' ? null : this.calcularProxima(camp.agendamento, camp.diaDoMes);
