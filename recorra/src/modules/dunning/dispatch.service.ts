@@ -35,8 +35,14 @@ export class DispatchService {
     const destino = this.destino(d.canal, d.customer.telefone, d.customer.email);
     if (!destino) {
       if (await this.tentarFallback(d, ['sem destino'])) throw new Error('fallback: sem destino, tentando proximo canal');
-      await this.marcar(d.id, 'IGNORADO', 'Sem destino para o canal');
-      return 'IGNORADO';
+      // Cadastro sem contato é FALHA, não "ignorado": ignorado não entra na conta
+      // de erros e o furo passava batido — a cobrança ficava em aberto sem
+      // ninguém ser avisado. Como erro, aparece em Disparos e no resumo.
+      const motivo = d.canal === 'EMAIL'
+        ? 'Cliente sem e-mail cadastrado — não foi possível enviar. Complete o cadastro.'
+        : 'Cliente sem telefone cadastrado — não foi possível enviar. Complete o cadastro.';
+      await this.marcar(d.id, 'FALHA', motivo);
+      return 'FALHA';
     }
 
     // WhatsApp sem template: a Meta não entrega. Falha aqui com motivo claro em vez de

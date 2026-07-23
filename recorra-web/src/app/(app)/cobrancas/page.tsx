@@ -18,6 +18,8 @@ function parseValorBR(v: string): number {
 
 interface Invoice {
   id: string;
+  /** Cliente sem telefone e sem e-mail: nenhuma mensagem chega nele. */
+  semContato?: boolean;
   valor: number;
   vencimento: string;
   status: string;
@@ -97,6 +99,8 @@ function AjudaStatus() {
 interface ResumoCobrancas {
   total: number; soma: number; emAberto: number; ticketMedio: number; clientesDistintos: number;
   critico: { n: number; valor: number }; porStatus: Record<string, { n: number; valor: number; clientes?: number }>;
+  /** Em aberto de clientes sem telefone E sem e-mail — não recebem cobrança nenhuma. */
+  semContato?: { n: number; valor: number };
 }
 
 export default function CobrancasPage() {
@@ -445,6 +449,11 @@ export default function CobrancasPage() {
                 Atraso +30d: <span className="tabular font-semibold text-danger">{resumo.critico.n}</span> · <span className="tabular font-semibold text-danger">{brl(resumo.critico.valor)}</span>
               </span>
             )}
+            {!!resumo.semContato?.n && (
+              <span title="Clientes sem telefone e sem e-mail: a régua e as campanhas não conseguem avisar ninguém. Complete o cadastro em Clientes > Cadastro incompleto.">
+                ⚠️ Sem contato: <span className="tabular font-semibold text-[#854F0B]">{resumo.semContato.n}</span> · <span className="tabular font-semibold text-[#854F0B]">{brl(resumo.semContato.valor)}</span>
+              </span>
+            )}
           </div>
         )}
       </div>
@@ -475,7 +484,14 @@ export default function CobrancasPage() {
             {invoices.map((inv) => (
               <tr key={inv.id} className={`border-b border-line last:border-0 ${selecionados.has(inv.id) ? 'bg-primary-tint/40' : ''}`}>
                 <td className="px-4 py-3"><input type="checkbox" checked={selecionados.has(inv.id)} onChange={() => toggleSel(inv.id)} className="h-4 w-4 cursor-pointer accent-primary" aria-label={`Selecionar cobrança de ${inv.customer?.nome || 'cliente'}`} /></td>
-                <td className="px-4 py-3 font-medium text-ink">{inv.customer?.nome || '—'}</td>
+                <td className="px-4 py-3 font-medium text-ink">
+                  {inv.customer?.nome || '—'}
+                  {inv.semContato && (
+                    <span title="Sem telefone e sem e-mail: nenhuma cobrança chega neste cliente. Complete o cadastro em Clientes > Cadastro incompleto." className="ml-2 whitespace-nowrap rounded-full bg-warning-tint px-2 py-0.5 text-[11px] font-medium text-[#854F0B]">
+                      ⚠️ sem contato
+                    </span>
+                  )}
+                </td>
                 <td className="tabular px-4 py-3">{brl(Number(inv.valor))}</td>
                 <td className="px-4 py-3 text-muted">{new Date(inv.vencimento).toLocaleDateString('pt-BR')}</td>
                 <td className="px-4 py-3 text-muted">{inv.metodo}</td>

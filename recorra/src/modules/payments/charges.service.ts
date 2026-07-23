@@ -374,7 +374,9 @@ export class ChargesService {
     const [items, total] = await Promise.all([
       this.prisma.invoice.findMany({
         where,
-        include: { customer: { select: { nome: true, doc: true } } },
+        // telefone/e-mail entram para marcar na linha quem não tem como ser
+        // avisado — a cobrança aparecia normal e nunca saía mensagem nenhuma.
+        include: { customer: { select: { nome: true, doc: true, telefone: true, email: true } } },
         // Desempate por id: ordenar só por valor/vencimento (não únicos) não é
         // determinístico entre páginas — o id estabiliza e evita pular/repetir.
         orderBy: [{ [campo]: dir }, { id: dir }],
@@ -383,7 +385,12 @@ export class ChargesService {
       }),
       this.prisma.invoice.count({ where }),
     ]);
-    return { items, total, page, pageSize };
+    // `semContato`: sem telefone E sem e-mail = não recebe por canal nenhum.
+    const comAviso = items.map((i) => {
+      const c = i.customer as { telefone?: string | null; email?: string | null } | null;
+      return { ...i, semContato: !c?.telefone?.trim() && !c?.email?.trim() };
+    });
+    return { items: comAviso, total, page, pageSize };
   }
 
   /** Resumo agregado sobre a base FILTRADA inteira (não só a página). */
@@ -392,13 +399,26 @@ export class ChargesService {
     // Início do dia (UTC), como no resto da plataforma — não o instante atual.
     const n = new Date();
     const limite30 = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate() - 30));
-    const [agg, porStatusRaw, clientes, critico, clientesPorStatusRaw] = await Promise.all([
+    const [agg, porStatusRaw, clientes, critico, clientesPorStatusRaw, semContato] = await Promise.all([
       this.prisma.invoice.aggregate({ where, _sum: { valor: true }, _count: true }),
       this.prisma.invoice.groupBy({ by: ['status'], where, _sum: { valor: true }, _count: { _all: true } }),
       this.prisma.invoice.findMany({ where, select: { customerId: true }, distinct: ['customerId'] }),
       this.prisma.invoice.aggregate({ where: { AND: [where, { status: 'VENCIDA', vencimento: { lt: limite30 } }] }, _sum: { valor: true }, _count: true }),
       // Clientes distintos por status (uma linha por par status+cliente).
       this.prisma.invoice.groupBy({ by: ['status', 'customerId'], where }),
+      // Em aberto de quem não tem NENHUM contato: essas cobranças nunca geram
+      // mensagem, então ficariam paradas sem nenhum aviso na tela.
+      this.prisma.invoice.aggregate({
+        where: {
+          AND: [
+            where,
+            { status: { in: ['PENDENTE', 'VENCIDA'] } },
+            { customer: { AND: [{ OR: [{ telefone: null }, { telefone: '' }] }, { OR: [{ email: null }, { email: '' }] }] } },
+          ],
+        },
+        _sum: { valor: true },
+        _count: true,
+      }),
     ]);
     const clientesPorStatus: Record<string, number> = {};
     for (const g of clientesPorStatusRaw) clientesPorStatus[g.status] = (clientesPorStatus[g.status] ?? 0) + 1;
@@ -418,6 +438,8 @@ export class ChargesService {
       ticketMedio: total ? soma / total : 0,
       clientesDistintos: clientes.length,
       critico: { n: critico._count, valor: Number(critico._sum.valor ?? 0) },
+      // Em aberto que hoje NÃO gera cobrança nenhuma (cliente sem telefone e sem e-mail).
+      semContato: { n: semContato._count, valor: Number(semContato._sum.valor ?? 0) },
       porStatus,
     };
   }
