@@ -1,4 +1,4 @@
-import { BadGatewayException, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, UnprocessableEntityException } from '@nestjs/common';
 import { InvoiceStatus } from '@prisma/client';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { canTransition } from '@/modules/payments/invoice-status';
@@ -35,7 +35,11 @@ export class SyncService {
         where: { id: integrationId, tenantId },
         data: { status: 'falha' },
       }).catch(() => undefined);
-      throw new BadGatewayException(mensagem || 'O ERP não respondeu corretamente');
+      // Não usar HTTP 502 aqui: alguns proxies (incluindo a configuração atual
+      // do EasyPanel) substituem respostas 502 e removem os cabeçalhos CORS. O
+      // navegador então esconde a mensagem real e mostra apenas "Failed to
+      // fetch". 422 preserva o detalhe seguro retornado pelo conector.
+      throw new UnprocessableEntityException(mensagem || 'O ERP não respondeu corretamente');
     }
   }
 
