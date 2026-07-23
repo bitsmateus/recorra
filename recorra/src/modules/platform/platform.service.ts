@@ -1,7 +1,7 @@
-import { BadRequestException, ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
-import { PlanTier } from '@prisma/client';
+import { PlanTier, UserRole } from '@prisma/client';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { env } from '@/config/env';
 import { generateTotpSecret, totpAuthUrl, verifyTotp } from '@/common/auth/totp';
@@ -114,6 +114,129 @@ export class PlatformService {
       data: { nome: patch.nome, cnpj: patch.cnpj, ativo: patch.ativo, plano: patch.plano, ...(patch.planId !== undefined ? { planId: patch.planId } : {}) },
       select: { id: true, nome: true, cnpj: true, ativo: true, plano: true, planId: true },
     });
+  }
+
+  // ---------------- Exclusão de tenant ----------------
+
+  /**
+   * O que será apagado junto com o tenant. Serve para o superadmin confirmar de
+   * forma consciente — a exclusão é irreversível e leva TODOS os dados junto.
+   */
+  async tenantDeletePreview(id: string) {
+    const tenant = await this.prisma.tenant.findUnique({ where: { id }, select: { id: true, nome: true } });
+    if (!tenant) throw new NotFoundException('Tenant não encontrado');
+    const [usuarios, clientes, faturas, disparos, campanhas, reguas, faturasSaas] = await Promise.all([
+      this.prisma.user.count({ where: { tenantId: id } }),
+      this.prisma.customer.count({ where: { tenantId: id } }),
+      this.prisma.invoice.count({ where: { tenantId: id } }),
+      this.prisma.messageDispatch.count({ where: { tenantId: id } }),
+      this.prisma.campaign.count({ where: { tenantId: id } }),
+      this.prisma.dunningRule.count({ where: { tenantId: id } }),
+      this.prisma.platformInvoice.count({ where: { tenantId: id } }),
+    ]);
+    return { tenant, apagara: { usuarios, clientes, faturas, disparos, campanhas, reguas, faturasSaas } };
+  }
+
+  /**
+   * Exclui o tenant e todo o dado dele. Exige o nome exato da empresa como
+   * confirmação (evita apagar o tenant errado por clique acidental).
+   * As faturas do SaaS não têm FK com o tenant, então são removidas à mão —
+   * sem isso ficariam órfãs e sujando o financeiro da plataforma.
+   */
+  async deleteTenant(id: string, confirmacaoNome: string) {
+    const tenant = await this.prisma.tenant.findUnique({ where: { id }, select: { id: true, nome: true } });
+    if (!tenant) throw new NotFoundException('Tenant não encontrado');
+    if ((confirmacaoNome ?? '').trim() !== tenant.nome.trim()) {
+      throw new BadRequestException(`Digite exatamente "${tenant.nome}" para confirmar a exclusão.`);
+    }
+    await this.prisma.$transaction([
+      this.prisma.platformInvoice.deleteMany({ where: { tenantId: id } }),
+      this.prisma.tenant.delete({ where: { id } }),
+    ]);
+    return { ok: true, nome: tenant.nome };
+  }
+
+  // ---------------- Usuários do tenant ----------------
+
+  private readonly userSelect = {
+    id: true, nome: true, email: true, role: true, ativo: true,
+    emailVerify: true, twoFaEnabled: true, convidado: true, provider: true, createdAt: true,
+  } as const;
+
+  listTenantUsers(tenantId: string) {
+    return this.prisma.user.findMany({ where: { tenantId }, orderBy: [{ ativo: 'desc' }, { nome: 'asc' }], select: this.userSelect });
+  }
+
+  private async acharUsuario(tenantId: string, userId: string) {
+    const user = await this.prisma.user.findFirst({ where: { id: userId, tenantId } });
+    if (!user) throw new NotFoundException('Usuário não encontrado neste tenant');
+    return user;
+  }
+
+  /**
+   * Impede deixar o tenant sem nenhum OWNER ativo — sem isso, o cliente perderia
+   * o acesso administrativo à própria conta e só o superadmin poderia devolver.
+   */
+  private async assertNaoEUltimoOwner(tenantId: string, userId: string, atual: { role: UserRole; ativo: boolean }, novo: { role?: UserRole; ativo?: boolean }) {
+    const perdeOwner = (novo.role !== undefined && novo.role !== 'OWNER') || novo.ativo === false;
+    if (atual.role !== 'OWNER' || !atual.ativo || !perdeOwner) return;
+    const outros = await this.prisma.user.count({ where: { tenantId, role: 'OWNER', ativo: true, id: { not: userId } } });
+    if (outros === 0) throw new BadRequestException('Este é o único OWNER ativo do tenant. Promova outro usuário a OWNER antes de rebaixar, desativar ou excluir este.');
+  }
+
+  async createTenantUser(tenantId: string, input: { nome: string; email: string; senha: string; role?: UserRole }) {
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { id: true } });
+    if (!tenant) throw new NotFoundException('Tenant não encontrado');
+    const nome = input.nome?.trim();
+    const email = input.email?.trim().toLowerCase();
+    if (!nome || !email) throw new BadRequestException('Nome e e-mail são obrigatórios');
+    if (!input.senha || input.senha.length < 8) throw new BadRequestException('A senha precisa ter ao menos 8 caracteres');
+    const existe = await this.prisma.user.findFirst({ where: { tenantId, email } });
+    if (existe) throw new ConflictException('Já existe um usuário com este e-mail neste tenant');
+    const senhaHash = await argon2.hash(input.senha, { type: argon2.argon2id });
+    return this.prisma.user.create({
+      data: { tenantId, nome, email, senhaHash, role: input.role ?? 'OPERADOR', emailVerify: true },
+      select: this.userSelect,
+    });
+  }
+
+  async updateTenantUser(tenantId: string, userId: string, patch: { nome?: string; email?: string; role?: UserRole; ativo?: boolean }) {
+    const user = await this.acharUsuario(tenantId, userId);
+    await this.assertNaoEUltimoOwner(tenantId, userId, user, patch);
+    const email = patch.email?.trim().toLowerCase();
+    if (email && email !== user.email) {
+      const existe = await this.prisma.user.findFirst({ where: { tenantId, email, id: { not: userId } } });
+      if (existe) throw new ConflictException('Já existe um usuário com este e-mail neste tenant');
+    }
+    const atualizado = await this.prisma.user.update({
+      where: { id: userId },
+      data: { nome: patch.nome?.trim(), email, role: patch.role, ativo: patch.ativo },
+      select: this.userSelect,
+    });
+    // Desativar precisa derrubar a sessão na hora, senão o usuário segue navegando
+    // com o refresh token que já tinha.
+    if (patch.ativo === false) await this.prisma.refreshToken.deleteMany({ where: { userId } });
+    return atualizado;
+  }
+
+  /** Define uma nova senha para o usuário e derruba as sessões ativas dele. */
+  async resetTenantUserSenha(tenantId: string, userId: string, senha: string) {
+    await this.acharUsuario(tenantId, userId);
+    if (!senha || senha.length < 8) throw new BadRequestException('A senha precisa ter ao menos 8 caracteres');
+    const senhaHash = await argon2.hash(senha, { type: argon2.argon2id });
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { senhaHash, resetToken: null, resetTokenExp: null, emailVerify: true },
+    });
+    await this.prisma.refreshToken.deleteMany({ where: { userId } });
+    return { ok: true };
+  }
+
+  async deleteTenantUser(tenantId: string, userId: string) {
+    const user = await this.acharUsuario(tenantId, userId);
+    await this.assertNaoEUltimoOwner(tenantId, userId, user, { ativo: false });
+    await this.prisma.user.delete({ where: { id: userId } });
+    return { ok: true };
   }
 
   async tenantHealth(tenantId: string) {

@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Request } from 'express';
-import { PlanTier } from '@prisma/client';
+import { PlanTier, UserRole } from '@prisma/client';
 import { PlatformService, PlanoInput } from './platform.service';
 import { PlatformGuard, PlatformPayload } from './platform.guard';
 import { BillingSaasService } from './billing-saas.service';
@@ -158,6 +158,52 @@ export class PlatformController {
   @UseGuards(PlatformGuard)
   updateTenant(@Param('id') id: string, @Body() body: { nome?: string; cnpj?: string; ativo?: boolean; plano?: PlanTier; planId?: string | null }) {
     return this.platform.updateTenant(id, body);
+  }
+
+  /** Prévia do que a exclusão vai apagar (mostrada na confirmação). */
+  @Get('tenants/:id/exclusao')
+  @UseGuards(PlatformGuard)
+  tenantDeletePreview(@Param('id') id: string) {
+    return this.platform.tenantDeletePreview(id);
+  }
+
+  /** Exclui o tenant e todos os dados. Exige o nome exato da empresa no corpo. */
+  @Delete('tenants/:id')
+  @UseGuards(PlatformGuard)
+  deleteTenant(@Param('id') id: string, @Body('confirmacao') confirmacao: string) {
+    return this.platform.deleteTenant(id, confirmacao);
+  }
+
+  // ---- Usuários do tenant ----
+
+  @Get('tenants/:id/usuarios')
+  @UseGuards(PlatformGuard)
+  listTenantUsers(@Param('id') id: string) {
+    return this.platform.listTenantUsers(id);
+  }
+
+  @Post('tenants/:id/usuarios')
+  @UseGuards(PlatformGuard)
+  createTenantUser(@Param('id') id: string, @Body() body: { nome: string; email: string; senha: string; role?: UserRole }) {
+    return this.platform.createTenantUser(id, body);
+  }
+
+  @Patch('tenants/:id/usuarios/:userId')
+  @UseGuards(PlatformGuard)
+  updateTenantUser(@Param('id') id: string, @Param('userId') userId: string, @Body() body: { nome?: string; email?: string; role?: UserRole; ativo?: boolean }) {
+    return this.platform.updateTenantUser(id, userId, body);
+  }
+
+  @Post('tenants/:id/usuarios/:userId/senha')
+  @UseGuards(PlatformGuard)
+  resetTenantUserSenha(@Param('id') id: string, @Param('userId') userId: string, @Body('senha') senha: string) {
+    return this.platform.resetTenantUserSenha(id, userId, senha);
+  }
+
+  @Delete('tenants/:id/usuarios/:userId')
+  @UseGuards(PlatformGuard)
+  deleteTenantUser(@Param('id') id: string, @Param('userId') userId: string) {
+    return this.platform.deleteTenantUser(id, userId);
   }
 
   @Get('tenants/:id/saude')

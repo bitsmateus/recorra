@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { LogOut, Plus } from 'lucide-react';
+import { LogOut, Plus, Pencil, Trash2, X, KeyRound, UserPlus, ShieldCheck, MailCheck } from 'lucide-react';
 import { adminApi, getAdminToken, clearAdminToken } from '@/lib/adminApi';
 import { Logo } from '@/components/Logo';
 import { Metric, brl } from '@/components/ui';
@@ -217,6 +217,8 @@ function TenantsTab() {
   const [tenants, setTenants] = useState<any[]>([]);
   const [novo, setNovo] = useState(false);
   const [detalhe, setDetalhe] = useState<string | null>(null);
+  const [editando, setEditando] = useState<any>(null);
+  const [excluindo, setExcluindo] = useState<any>(null);
   const tiersLegado = ['TRIAL', 'NOTIFICADOR', 'ESSENCIAL', 'PROFISSIONAL', 'ESCALA', 'ENTERPRISE'];
   const [planosDb, setPlanosDb] = useState<any[]>([]);
   const load = useCallback(() => { adminApi<any[]>('/admin/tenants').then(setTenants).catch(() => {}); }, []);
@@ -233,7 +235,7 @@ function TenantsTab() {
       {novo && <NovoTenant onDone={() => { setNovo(false); load(); }} />}
       <div className="overflow-hidden rounded-lg border border-line bg-surface">
         <div className="w-full overflow-x-auto"><table className="w-full min-w-[640px] text-sm">
-          <thead className="border-b border-line bg-canvas text-left text-xs uppercase text-muted"><tr><th className="px-4 py-3">Empresa</th><th className="px-4 py-3">Plano</th><th className="px-4 py-3">Uso</th><th className="px-4 py-3">Status</th></tr></thead>
+          <thead className="border-b border-line bg-canvas text-left text-xs uppercase text-muted"><tr><th className="px-4 py-3">Empresa</th><th className="px-4 py-3">Plano</th><th className="px-4 py-3">Uso</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Ações</th></tr></thead>
           <tbody>
             {tenants.map((t) => (
               <tr key={t.id} className="border-b border-line last:border-0">
@@ -250,18 +252,100 @@ function TenantsTab() {
                 </td>
                 <td className="px-4 py-3 text-xs text-muted">{t.uso.clientes} cli · {t.uso.faturas} fat · {t.uso.disparos} disp</td>
                 <td className="px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    <button onClick={async () => { await adminApi(`/admin/tenants/${t.id}`, { method: 'PATCH', body: { ativo: !t.ativo } }); load(); }} className={`rounded-full px-2.5 py-1 text-xs font-medium ${t.ativo ? 'bg-success-tint text-[#0F6E56]' : 'bg-danger-tint text-[#A32D2D]'}`}>{t.ativo ? 'Ativo' : 'Suspenso'}</button>
-                    <button onClick={() => setDetalhe(detalhe === t.id ? null : t.id)} className="rounded border border-line px-2 py-1 text-xs hover:bg-canvas">Detalhes</button>
+                  <button onClick={async () => { await adminApi(`/admin/tenants/${t.id}`, { method: 'PATCH', body: { ativo: !t.ativo } }); load(); }} title={t.ativo ? 'Suspender acesso' : 'Reativar acesso'} className={`rounded-full px-2.5 py-1 text-xs font-medium ${t.ativo ? 'bg-success-tint text-[#0F6E56]' : 'bg-danger-tint text-[#A32D2D]'}`}>{t.ativo ? 'Ativo' : 'Suspenso'}</button>
+                </td>
+                <td className="px-4 py-3">
+                  <div className="flex items-center justify-end gap-1">
+                    <button onClick={() => setDetalhe(detalhe === t.id ? null : t.id)} className={`rounded border px-2 py-1 text-xs ${detalhe === t.id ? 'border-primary bg-primary-tint text-primary' : 'border-line hover:bg-canvas'}`}>Detalhes</button>
+                    <button onClick={() => setEditando(t)} title="Editar empresa" className="rounded p-1.5 text-muted hover:bg-canvas hover:text-primary"><Pencil size={15} /></button>
+                    <button onClick={() => setExcluindo(t)} title="Excluir tenant" className="rounded p-1.5 text-muted hover:bg-danger-tint hover:text-danger"><Trash2 size={15} /></button>
                   </div>
                 </td>
               </tr>
             ))}
+            {tenants.length === 0 && <tr><td colSpan={5} className="px-4 py-10 text-center text-muted">Nenhum tenant ainda.</td></tr>}
           </tbody>
         </table></div>
       </div>
       {detalhe && <TenantDetalhe tenantId={detalhe} onChange={load} />}
+      {editando && <EditarTenant tenant={editando} onClose={() => setEditando(null)} onSaved={() => { setEditando(null); load(); }} />}
+      {excluindo && <ExcluirTenant tenant={excluindo} onClose={() => setExcluindo(null)} onDone={() => { setExcluindo(null); setDetalhe(null); load(); }} />}
     </div>
+  );
+}
+
+/** Editar dados cadastrais da empresa (nome e CNPJ). */
+function EditarTenant({ tenant, onClose, onSaved }: { tenant: any; onClose: () => void; onSaved: () => void }) {
+  const [f, setF] = useState({ nome: tenant.nome ?? '', cnpj: tenant.cnpj ?? '' });
+  const [msg, setMsg] = useState('');
+  const [salvando, setSalvando] = useState(false);
+  async function salvar() {
+    if (!f.nome.trim()) return setMsg('O nome da empresa é obrigatório.');
+    setSalvando(true); setMsg('');
+    try {
+      await adminApi(`/admin/tenants/${tenant.id}`, { method: 'PATCH', body: { nome: f.nome.trim(), cnpj: f.cnpj.trim() || null } });
+      onSaved();
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro'); setSalvando(false); }
+  }
+  return (
+    <Modal titulo="Editar empresa" onClose={onClose}>
+      <label className="mb-3 block text-sm"><span className="mb-1 block text-xs text-muted">Nome da empresa *</span>
+        <input value={f.nome} onChange={(e) => setF({ ...f, nome: e.target.value })} className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary" />
+      </label>
+      <label className="mb-3 block text-sm"><span className="mb-1 block text-xs text-muted">CNPJ</span>
+        <input value={f.cnpj} onChange={(e) => setF({ ...f, cnpj: e.target.value })} placeholder="opcional" className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary" />
+      </label>
+      {msg && <p className="mb-2 text-sm text-danger">{msg}</p>}
+      <div className="flex justify-end gap-2">
+        <button onClick={onClose} className="rounded border border-line px-4 py-2 text-sm hover:bg-canvas">Cancelar</button>
+        <button onClick={salvar} disabled={salvando} className="rounded bg-primary px-5 py-2 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-60">{salvando ? 'Salvando...' : 'Salvar'}</button>
+      </div>
+    </Modal>
+  );
+}
+
+/** Exclusão do tenant: mostra o que será apagado e exige o nome exato digitado. */
+function ExcluirTenant({ tenant, onClose, onDone }: { tenant: any; onClose: () => void; onDone: () => void }) {
+  const [prev, setPrev] = useState<any>(null);
+  const [txt, setTxt] = useState('');
+  const [msg, setMsg] = useState('');
+  const [excluindo, setExcluindo] = useState(false);
+  useEffect(() => { adminApi(`/admin/tenants/${tenant.id}/exclusao`).then(setPrev).catch(() => setPrev(null)); }, [tenant.id]);
+  const confere = txt.trim() === (tenant.nome ?? '').trim();
+  async function excluir() {
+    setExcluindo(true); setMsg('');
+    try {
+      await adminApi(`/admin/tenants/${tenant.id}`, { method: 'DELETE', body: { confirmacao: txt.trim() } });
+      onDone();
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro'); setExcluindo(false); }
+  }
+  const a = prev?.apagara;
+  return (
+    <Modal titulo="Excluir tenant" onClose={onClose}>
+      <p className="mb-3 text-sm text-ink">
+        Você vai apagar <b>{tenant.nome}</b> e <b>todos os dados</b> dele. Esta ação é <b className="text-danger">irreversível</b> — não há como desfazer nem recuperar.
+      </p>
+      {a && (
+        <div className="mb-3 rounded-lg border border-danger/30 bg-danger-tint/40 p-3 text-xs text-ink">
+          <div className="mb-1.5 font-semibold text-danger">Será apagado junto:</div>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+            <span>{a.usuarios} usuário(s)</span><span>{a.clientes} cliente(s)</span>
+            <span>{a.faturas} cobrança(s)</span><span>{a.disparos} disparo(s)</span>
+            <span>{a.campanhas} campanha(s)</span><span>{a.reguas} régua(s)</span>
+            <span className="col-span-2">{a.faturasSaas} fatura(s) do SaaS deste tenant</span>
+          </div>
+        </div>
+      )}
+      <label className="mb-3 block text-sm">
+        <span className="mb-1 block text-xs text-muted">Para confirmar, digite exatamente: <b className="text-ink">{tenant.nome}</b></span>
+        <input value={txt} onChange={(e) => setTxt(e.target.value)} placeholder={tenant.nome} className="w-full rounded border border-line px-3 py-2 outline-none focus:border-danger" />
+      </label>
+      {msg && <p className="mb-2 text-sm text-danger">{msg}</p>}
+      <div className="flex justify-end gap-2">
+        <button onClick={onClose} className="rounded border border-line px-4 py-2 text-sm hover:bg-canvas">Cancelar</button>
+        <button onClick={excluir} disabled={!confere || excluindo} className="rounded bg-danger px-5 py-2 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40">{excluindo ? 'Excluindo...' : 'Excluir definitivamente'}</button>
+      </div>
+    </Modal>
   );
 }
 
@@ -290,8 +374,201 @@ function TenantDetalhe({ tenantId, onChange }: { tenantId: string; onChange: () 
         <div><span className="text-muted">Recuperado: </span><b>{brl(d.uso.recuperado)}</b></div>
       </div>
       {h && h.anomalias?.length > 0 && <div className="mb-2 space-y-1">{h.anomalias.map((a: any, i: number) => <p key={i} className={a.severidade === 'critico' ? 'text-sm text-danger' : 'text-sm text-[#854F0B]'}>⚠ {a.mensagem}</p>)}</div>}
-      <div className="text-xs text-muted">Usuários: {d.usuarios.map((u: any) => `${u.nome} (${u.role})`).join(', ')}</div>
       {msg && <p className="mt-2 text-sm text-primary">{msg}</p>}
+      <UsuariosDoTenant tenantId={tenantId} />
+    </div>
+  );
+}
+
+const ROLES = ['OWNER', 'ADMIN', 'FINANCEIRO', 'OPERADOR', 'LEITURA'];
+
+/** Usuários do tenant: ver, criar, mudar papel/acesso, redefinir senha e excluir. */
+function UsuariosDoTenant({ tenantId }: { tenantId: string }) {
+  const [users, setUsers] = useState<any[]>([]);
+  const [msg, setMsg] = useState('');
+  const [erro, setErro] = useState('');
+  const [novo, setNovo] = useState(false);
+  const [editando, setEditando] = useState<any>(null);
+  const [senhaDe, setSenhaDe] = useState<any>(null);
+  const [excluindo, setExcluindo] = useState<any>(null);
+
+  const load = useCallback(() => { adminApi<any[]>(`/admin/tenants/${tenantId}/usuarios`).then(setUsers).catch(() => setUsers([])); }, [tenantId]);
+  useEffect(load, [load]);
+
+  /** Ações inline (papel/ativo) compartilham o mesmo tratamento de erro do backend. */
+  async function patch(u: any, body: any) {
+    setErro(''); setMsg('');
+    try {
+      await adminApi(`/admin/tenants/${tenantId}/usuarios/${u.id}`, { method: 'PATCH', body });
+      setMsg('✓ Usuário atualizado');
+      load();
+    } catch (e) { setErro(e instanceof Error ? e.message : 'Erro'); }
+  }
+
+  return (
+    <div className="mt-4 border-t border-line pt-4">
+      <div className="mb-2 flex items-center justify-between">
+        <h4 className="text-sm font-medium text-ink">Usuários <span className="font-normal text-muted">({users.length})</span></h4>
+        <button onClick={() => setNovo(true)} className="flex items-center gap-1.5 rounded border border-line px-3 py-1 text-xs hover:bg-canvas"><UserPlus size={14} /> Novo usuário</button>
+      </div>
+      {erro && <p className="mb-2 rounded bg-danger-tint px-3 py-2 text-xs text-danger">{erro}</p>}
+      {msg && <p className="mb-2 text-xs text-primary">{msg}</p>}
+      <div className="overflow-hidden rounded-lg border border-line">
+        <div className="w-full overflow-x-auto"><table className="w-full min-w-[680px] text-sm">
+          <thead className="border-b border-line bg-canvas text-left text-xs uppercase text-muted">
+            <tr><th className="px-3 py-2">Usuário</th><th className="px-3 py-2">Papel</th><th className="px-3 py-2">Situação</th><th className="px-3 py-2 text-right">Ações</th></tr>
+          </thead>
+          <tbody>
+            {users.map((u) => (
+              <tr key={u.id} className="border-b border-line last:border-0">
+                <td className="px-3 py-2">
+                  <div className="font-medium text-ink">{u.nome}</div>
+                  <div className="text-xs text-muted">{u.email}</div>
+                </td>
+                <td className="px-3 py-2">
+                  <select value={u.role} onChange={(e) => patch(u, { role: e.target.value })} className="rounded border border-line px-2 py-1 text-xs">
+                    {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                </td>
+                <td className="px-3 py-2">
+                  <div className="flex flex-wrap items-center gap-1">
+                    <button onClick={() => patch(u, { ativo: !u.ativo })} title={u.ativo ? 'Desativar acesso' : 'Reativar acesso'} className={`rounded-full px-2 py-0.5 text-xs font-medium ${u.ativo ? 'bg-success-tint text-[#0F6E56]' : 'bg-danger-tint text-[#A32D2D]'}`}>{u.ativo ? 'Ativo' : 'Inativo'}</button>
+                    {u.twoFaEnabled && <span title="2FA ativo" className="flex items-center gap-0.5 rounded-full bg-primary-tint px-2 py-0.5 text-xs text-primary"><ShieldCheck size={11} /> 2FA</span>}
+                    {u.emailVerify
+                      ? <span title="E-mail verificado" className="flex items-center gap-0.5 rounded-full bg-canvas px-2 py-0.5 text-xs text-muted"><MailCheck size={11} /> ok</span>
+                      : <span title="E-mail não verificado" className="rounded-full bg-warning-tint px-2 py-0.5 text-xs text-[#854F0B]">e-mail pendente</span>}
+                  </div>
+                </td>
+                <td className="px-3 py-2">
+                  <div className="flex items-center justify-end gap-1">
+                    <button onClick={() => setEditando(u)} title="Editar nome/e-mail" className="rounded p-1.5 text-muted hover:bg-canvas hover:text-primary"><Pencil size={14} /></button>
+                    <button onClick={() => setSenhaDe(u)} title="Redefinir senha" className="rounded p-1.5 text-muted hover:bg-canvas hover:text-primary"><KeyRound size={14} /></button>
+                    <button onClick={() => setExcluindo(u)} title="Excluir usuário" className="rounded p-1.5 text-muted hover:bg-danger-tint hover:text-danger"><Trash2 size={14} /></button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {users.length === 0 && <tr><td colSpan={4} className="px-3 py-6 text-center text-muted">Nenhum usuário.</td></tr>}
+          </tbody>
+        </table></div>
+      </div>
+      <p className="mt-2 text-xs text-muted">Desativar ou redefinir a senha derruba as sessões abertas do usuário na hora.</p>
+
+      {novo && <NovoUsuario tenantId={tenantId} onClose={() => setNovo(false)} onDone={() => { setNovo(false); setMsg('✓ Usuário criado'); load(); }} />}
+      {editando && <EditarUsuario tenantId={tenantId} user={editando} onClose={() => setEditando(null)} onDone={() => { setEditando(null); setMsg('✓ Usuário atualizado'); load(); }} />}
+      {senhaDe && <RedefinirSenha tenantId={tenantId} user={senhaDe} onClose={() => setSenhaDe(null)} onDone={() => { setSenhaDe(null); setMsg('✓ Senha redefinida'); }} />}
+      {excluindo && <ExcluirUsuario tenantId={tenantId} user={excluindo} onClose={() => setExcluindo(null)} onDone={() => { setExcluindo(null); setMsg('✓ Usuário excluído'); load(); }} />}
+    </div>
+  );
+}
+
+function NovoUsuario({ tenantId, onClose, onDone }: { tenantId: string; onClose: () => void; onDone: () => void }) {
+  const [f, setF] = useState({ nome: '', email: '', senha: '', role: 'OPERADOR' });
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  async function salvar() {
+    setBusy(true); setMsg('');
+    try { await adminApi(`/admin/tenants/${tenantId}/usuarios`, { method: 'POST', body: f }); onDone(); }
+    catch (e) { setMsg(e instanceof Error ? e.message : 'Erro'); setBusy(false); }
+  }
+  return (
+    <Modal titulo="Novo usuário" onClose={onClose}>
+      <div className="space-y-3">
+        <label className="block text-sm"><span className="mb-1 block text-xs text-muted">Nome *</span><input value={f.nome} onChange={(e) => setF({ ...f, nome: e.target.value })} className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary" /></label>
+        <label className="block text-sm"><span className="mb-1 block text-xs text-muted">E-mail *</span><input value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary" /></label>
+        <label className="block text-sm"><span className="mb-1 block text-xs text-muted">Senha * <span className="text-muted">(mín. 8 caracteres)</span></span><input type="text" value={f.senha} onChange={(e) => setF({ ...f, senha: e.target.value })} className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary" /></label>
+        <label className="block text-sm"><span className="mb-1 block text-xs text-muted">Papel</span><select value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })} className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary">{ROLES.map((r) => <option key={r} value={r}>{r}</option>)}</select></label>
+      </div>
+      {msg && <p className="mt-2 text-sm text-danger">{msg}</p>}
+      <div className="mt-4 flex justify-end gap-2">
+        <button onClick={onClose} className="rounded border border-line px-4 py-2 text-sm hover:bg-canvas">Cancelar</button>
+        <button onClick={salvar} disabled={busy} className="rounded bg-primary px-5 py-2 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-60">{busy ? 'Criando...' : 'Criar usuário'}</button>
+      </div>
+    </Modal>
+  );
+}
+
+function EditarUsuario({ tenantId, user, onClose, onDone }: { tenantId: string; user: any; onClose: () => void; onDone: () => void }) {
+  const [f, setF] = useState({ nome: user.nome ?? '', email: user.email ?? '', role: user.role });
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  async function salvar() {
+    setBusy(true); setMsg('');
+    try { await adminApi(`/admin/tenants/${tenantId}/usuarios/${user.id}`, { method: 'PATCH', body: f }); onDone(); }
+    catch (e) { setMsg(e instanceof Error ? e.message : 'Erro'); setBusy(false); }
+  }
+  return (
+    <Modal titulo="Editar usuário" onClose={onClose}>
+      <div className="space-y-3">
+        <label className="block text-sm"><span className="mb-1 block text-xs text-muted">Nome</span><input value={f.nome} onChange={(e) => setF({ ...f, nome: e.target.value })} className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary" /></label>
+        <label className="block text-sm"><span className="mb-1 block text-xs text-muted">E-mail <span className="text-muted">(é o login dele)</span></span><input value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary" /></label>
+        <label className="block text-sm"><span className="mb-1 block text-xs text-muted">Papel</span><select value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })} className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary">{ROLES.map((r) => <option key={r} value={r}>{r}</option>)}</select></label>
+      </div>
+      {msg && <p className="mt-2 text-sm text-danger">{msg}</p>}
+      <div className="mt-4 flex justify-end gap-2">
+        <button onClick={onClose} className="rounded border border-line px-4 py-2 text-sm hover:bg-canvas">Cancelar</button>
+        <button onClick={salvar} disabled={busy} className="rounded bg-primary px-5 py-2 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-60">{busy ? 'Salvando...' : 'Salvar'}</button>
+      </div>
+    </Modal>
+  );
+}
+
+function RedefinirSenha({ tenantId, user, onClose, onDone }: { tenantId: string; user: any; onClose: () => void; onDone: () => void }) {
+  const [senha, setSenha] = useState('');
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  async function salvar() {
+    setBusy(true); setMsg('');
+    try { await adminApi(`/admin/tenants/${tenantId}/usuarios/${user.id}/senha`, { method: 'POST', body: { senha } }); onDone(); }
+    catch (e) { setMsg(e instanceof Error ? e.message : 'Erro'); setBusy(false); }
+  }
+  return (
+    <Modal titulo="Redefinir senha" onClose={onClose}>
+      <p className="mb-3 text-sm text-muted">Nova senha de <b className="text-ink">{user.nome}</b> ({user.email}). As sessões abertas dele serão encerradas.</p>
+      <label className="block text-sm"><span className="mb-1 block text-xs text-muted">Nova senha (mín. 8 caracteres)</span>
+        <input type="text" value={senha} onChange={(e) => setSenha(e.target.value)} className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary" />
+      </label>
+      {msg && <p className="mt-2 text-sm text-danger">{msg}</p>}
+      <div className="mt-4 flex justify-end gap-2">
+        <button onClick={onClose} className="rounded border border-line px-4 py-2 text-sm hover:bg-canvas">Cancelar</button>
+        <button onClick={salvar} disabled={busy || senha.length < 8} className="rounded bg-primary px-5 py-2 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-40">{busy ? 'Salvando...' : 'Redefinir'}</button>
+      </div>
+    </Modal>
+  );
+}
+
+function ExcluirUsuario({ tenantId, user, onClose, onDone }: { tenantId: string; user: any; onClose: () => void; onDone: () => void }) {
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  async function excluir() {
+    setBusy(true); setMsg('');
+    try { await adminApi(`/admin/tenants/${tenantId}/usuarios/${user.id}`, { method: 'DELETE' }); onDone(); }
+    catch (e) { setMsg(e instanceof Error ? e.message : 'Erro'); setBusy(false); }
+  }
+  return (
+    <Modal titulo="Excluir usuário" onClose={onClose}>
+      <p className="mb-3 text-sm text-ink">Excluir <b>{user.nome}</b> ({user.email})? Ele perde o acesso imediatamente. Esta ação é <b className="text-danger">irreversível</b>.</p>
+      <p className="mb-3 text-xs text-muted">Se a intenção for só bloquear o acesso temporariamente, use <b>Inativo</b> em vez de excluir.</p>
+      {msg && <p className="mb-2 text-sm text-danger">{msg}</p>}
+      <div className="flex justify-end gap-2">
+        <button onClick={onClose} className="rounded border border-line px-4 py-2 text-sm hover:bg-canvas">Cancelar</button>
+        <button onClick={excluir} disabled={busy} className="rounded bg-danger px-5 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60">{busy ? 'Excluindo...' : 'Excluir'}</button>
+      </div>
+    </Modal>
+  );
+}
+
+/** Caixa de diálogo simples reaproveitada pelas ações do superadmin. */
+function Modal({ titulo, onClose, children }: { titulo: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="max-h-[90vh] w-full max-w-md overflow-auto rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-base font-semibold text-ink">{titulo}</h3>
+          <button onClick={onClose} className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>
+        </div>
+        {children}
+      </div>
     </div>
   );
 }
