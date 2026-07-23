@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
-import { UserPlus, Download, RefreshCw, Eye, Pencil, Trash2, X, Tag, Plus, Check, Search } from 'lucide-react';
+import { UserPlus, Download, RefreshCw, Eye, Pencil, Trash2, X, Tag, Plus, Check, Search, FileDown } from 'lucide-react';
+import { toCsv, baixarArquivo } from '@/lib/csv';
 import { api } from '@/lib/api';
 import { PageTitle, RiskBadge } from '@/components/ui';
 import { ImportWizard } from '@/components/ImportWizard';
@@ -113,6 +114,27 @@ export default function ClientesPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aplicados, aba, falta]);
 
+  const [exportando, setExportando] = useState(false);
+  /** Exporta a segmentação inteira do servidor (não só a página carregada). */
+  async function exportar() {
+    if (exportando) return;
+    setExportando(true);
+    try {
+      const params = paramsClientes(1);
+      params.delete('page'); params.delete('pageSize');
+      const r = await api<{ items: any[]; truncado: boolean; limite: number }>(`/clientes/exportar?${params.toString()}`);
+      const csv = toCsv(
+        ['Nome', 'CPF/CNPJ', 'Telefone', 'E-mail', 'O que falta', 'Contrato', 'Plano', 'Cidade', 'UF', 'Id no ERP', 'Ativo'],
+        r.items.map((c) => [c.nome, c.doc, c.telefone ?? '', c.email ?? '', c.falta ?? '', c.contrato ?? '', c.plano ?? '', c.cidade ?? '', c.uf ?? '', c.externalId ?? '', c.ativo ? 'sim' : 'nao']),
+      );
+      const sufixo = aba === 'incompleto' ? `-incompleto${falta ? '-' + falta : ''}` : aba === 'aberto' ? '-em-aberto' : '';
+      baixarArquivo(`clientes${sufixo}.csv`, csv);
+      if (r.truncado) alert(`A exportação foi limitada a ${r.limite} linhas. Refine os filtros para levar o resto.`);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Não foi possível exportar');
+    } finally { setExportando(false); }
+  }
+
   async function verMais() {
     if (carregandoMais) return;
     const my = seq.current;
@@ -207,15 +229,26 @@ export default function ClientesPage() {
               </button>
             ))}
           </div>
-          <p className="mt-2 text-xs text-muted">
-            Sem telefone não dá para mandar WhatsApp/SMS; sem e-mail não dá para mandar e-mail. Quem está em <b className="text-ink">Sem os dois</b> não recebe cobrança por nenhum canal.
-          </p>
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-muted">
+              Sem telefone não dá para mandar WhatsApp/SMS; sem e-mail não dá para mandar e-mail. Quem está em <b className="text-ink">Sem os dois</b> não recebe cobrança por nenhum canal.
+            </p>
+            <button
+              onClick={exportar}
+              disabled={exportando}
+              title="Baixa a lista inteira (não só a página) para corrigir no ERP e reimportar"
+              className="flex shrink-0 items-center gap-1.5 rounded border border-line bg-surface px-3 py-1.5 text-xs font-medium hover:bg-canvas disabled:opacity-60"
+            >
+              <FileDown size={14} /> {exportando ? 'Exportando...' : 'Exportar lista (CSV)'}
+            </button>
+          </div>
         </div>
       )}
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <button onClick={() => setModal({ open: true, edit: null })} className="flex items-center gap-2 rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover"><UserPlus size={16} /> Novo cliente</button>
         <button onClick={() => setEtiquetasModal(true)} className="flex items-center gap-2 rounded border border-line px-4 py-2 text-sm hover:bg-canvas"><Tag size={16} /> Etiquetas</button>
+        <button onClick={exportar} disabled={exportando} title="Exporta todos os clientes do filtro/aba atual (não só a página)" className="flex items-center gap-2 rounded border border-line px-4 py-2 text-sm hover:bg-canvas disabled:opacity-60"><FileDown size={16} /> {exportando ? 'Exportando...' : 'Exportar CSV'}</button>
         <button onClick={() => setWizard(true)} className="flex items-center gap-2 rounded border border-line px-4 py-2 text-sm hover:bg-canvas"><Download size={16} /> Importar (Excel/CSV)</button>
         {gateways.length > 0 && <button onClick={() => setImportModal(true)} className="flex items-center gap-2 rounded border border-line px-4 py-2 text-sm hover:bg-canvas"><Download size={16} /> Importar de gateway</button>}
         <button onClick={async () => { await api('/clientes/risco/recalcular-todos', { method: 'POST' }).catch(() => {}); carregar(); }} className="flex items-center gap-2 rounded border border-line px-4 py-2 text-sm hover:bg-canvas"><RefreshCw size={16} /> Recalcular risco</button>

@@ -189,6 +189,37 @@ export class CustomersService {
     };
   }
 
+  /**
+   * Exporta a segmentação inteira (não só a página) para corrigir o cadastro
+   * fora e reimportar. Mesmos filtros/aba da tela — inclusive o recorte `falta`.
+   */
+  async exportSegment(tenantId: string, f: SegmentFilter) {
+    const base = this.buildSegmentWhere(tenantId, f);
+    const abertoCond: Prisma.CustomerWhereInput = { invoices: { some: { status: { in: ['PENDENTE', 'VENCIDA'] }, gestaoCobranca: 'ATIVA' } } };
+    const where = f.aba === 'aberto' ? { AND: [base, abertoCond] }
+      : f.aba === 'incompleto' ? { AND: [base, condicaoFalta(f.falta)] }
+      : base;
+
+    const CAP = 20000;
+    // CAP+1 para distinguir "deu exatamente o limite" de "truncou de verdade".
+    const rows = await this.prisma.customer.findMany({
+      where,
+      orderBy: [{ nome: 'asc' }, { id: 'asc' }],
+      take: CAP + 1,
+      select: {
+        id: true, nome: true, doc: true, email: true, telefone: true,
+        contrato: true, plano: true, cidade: true, uf: true, externalId: true, ativo: true,
+      },
+    });
+    const truncado = rows.length > CAP;
+    const items = (truncado ? rows.slice(0, CAP) : rows).map((c) => ({
+      ...c,
+      // Deixa explícito no arquivo o que precisa ser preenchido.
+      falta: [!c.telefone?.trim() ? 'telefone' : null, !c.email?.trim() ? 'e-mail' : null].filter(Boolean).join(' + '),
+    }));
+    return { items, truncado, limite: CAP };
+  }
+
   /** Adiciona/remove tags de um cliente. */
   async setTags(tenantId: string, id: string, tags: string[]) {
     await this.getOrThrow(tenantId, id);

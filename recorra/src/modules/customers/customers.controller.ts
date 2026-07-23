@@ -49,6 +49,35 @@ export class CustomersController {
     });
   }
 
+  /** Exporta a segmentação inteira (declarado ANTES de :id para não cair nele). */
+  @Get('exportar')
+  exportar(
+    @TenantId() tenantId: string,
+    @Query('q') q?: string,
+    @Query('tags') tags?: string,
+    @Query('plano') plano?: string,
+    @Query('uf') uf?: string,
+    @Query('valorMin') valorMin?: string,
+    @Query('valorMax') valorMax?: string,
+    @Query('faixa') faixa?: RiskBand,
+    @Query('etiqueta') etiqueta?: string,
+    @Query('aba') aba?: 'geral' | 'aberto' | 'incompleto',
+    @Query('falta') falta?: 'telefone' | 'email' | 'ambos',
+  ) {
+    return this.customers.exportSegment(tenantId, {
+      q,
+      tags: tags ? tags.split(',').map((t) => t.trim()).filter(Boolean) : undefined,
+      plano,
+      uf,
+      valorMin: parseNumberFilter(valorMin),
+      valorMax: parseNumberFilter(valorMax),
+      faixa,
+      etiqueta,
+      aba,
+      falta,
+    });
+  }
+
   @Get('etiquetas')
   etiquetas(@TenantId() tenantId: string) {
     return this.customers.listEtiquetas(tenantId);
