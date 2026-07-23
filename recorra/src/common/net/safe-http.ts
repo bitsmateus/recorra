@@ -41,20 +41,31 @@ export function isPrivateIp(ip: string): boolean {
   return false;
 }
 
-/** `lookup` para agentes HTTP que bloqueia resolução para IPs internos. */
+/**
+ * `lookup` para agentes HTTP que bloqueia resolução para IPs internos.
+ *
+ * Resolve SEMPRE todos os endereços (mesmo quando quem chamou pediu só um) por
+ * dois motivos: validar cada IP contra rebinding, e poder **preferir IPv4**.
+ * Muitos hosts de ERP publicam A e AAAA, mas o container do servidor costuma não
+ * ter rota IPv6 — tentar o AAAA primeiro trava até estourar o timeout e o erro
+ * chega sem resposta HTTP ("sem status"), sem pista do que houve.
+ */
 export function safeLookup(hostname: string, options: unknown, callback: (...args: unknown[]) => void): void {
+  const opts = (typeof options === 'object' && options !== null ? options : {}) as Record<string, unknown>;
+  const queriaTodos = opts.all === true;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  dnsLookup(hostname, options as any, (err: NodeJS.ErrnoException | null, address: unknown, family: unknown) => {
-    if (err) return callback(err, address, family);
-    const list = Array.isArray(address)
-      ? address.map((a: { address: string }) => a.address)
-      : [String(address)];
-    for (const ip of list) {
-      if (isPrivateIp(ip)) {
-        return callback(new Error(`SSRF bloqueado: ${hostname} resolve para IP interno (${ip})`), address, family);
+  dnsLookup(hostname, { ...opts, all: true } as any, (err: NodeJS.ErrnoException | null, enderecos: unknown) => {
+    if (err) return callback(err);
+    const lista = (Array.isArray(enderecos) ? enderecos : []) as { address: string; family: number }[];
+    for (const e of lista) {
+      if (isPrivateIp(e.address)) {
+        return callback(new Error(`SSRF bloqueado: ${hostname} resolve para IP interno (${e.address})`));
       }
     }
-    callback(null, address, family);
+    if (lista.length === 0) return callback(new Error(`DNS não retornou endereço para ${hostname}`));
+    const ordenados = [...lista.filter((e) => e.family === 4), ...lista.filter((e) => e.family !== 4)];
+    if (queriaTodos) return callback(null, ordenados);
+    callback(null, ordenados[0].address, ordenados[0].family);
   });
 }
 

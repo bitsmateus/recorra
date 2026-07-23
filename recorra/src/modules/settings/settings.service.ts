@@ -87,7 +87,10 @@ export class SettingsService {
       await this.prisma.sourceIntegration.update({ where: { id }, data: { status: ok ? 'ok' : 'falha' } });
       return { ok };
     } catch (e) {
-      return { ok: false, erro: String(e) };
+      // O conector pode lançar com o motivo (token, rede, endpoint). Marca falha
+      // e devolve a mensagem limpa — sem o prefixo "Error:" na cara do usuário.
+      await this.prisma.sourceIntegration.update({ where: { id }, data: { status: 'falha' } }).catch(() => undefined);
+      return { ok: false, erro: e instanceof Error ? e.message : String(e) };
     }
   }
 

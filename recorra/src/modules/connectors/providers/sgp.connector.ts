@@ -59,7 +59,14 @@ export class SgpConnector implements SourceConnector {
       ? body
       : body?.detail ?? body?.message ?? body?.mensagem ?? body?.error ?? body?.erro;
     const sufixo = detalhe ? `: ${String(detalhe).slice(0, 300)}` : '';
-    return new Error(`SGP ${endpoint} respondeu ${status ?? 'sem status'}${sufixo}`);
+    if (!status) {
+      // Sem response = DNS, TLS, timeout ou conexão recusada. Expor somente o
+      // código e a mensagem do transporte; config/headers (com token) nunca vão
+      // para a interface.
+      const transporte = [e.code, e.message].filter(Boolean).join(' — ');
+      return new Error(`Não foi possível conectar ao SGP ${endpoint}${transporte ? `: ${transporte}` : ''}`);
+    }
+    return new Error(`SGP ${endpoint} respondeu ${status}${sufixo}`);
   }
 
   private validarResposta(endpoint: string, data: any): void {
@@ -69,17 +76,25 @@ export class SgpConnector implements SourceConnector {
     }
   }
 
+  /**
+   * Propaga o motivo da falha em vez de devolver só `false`: sem isso a tela
+   * mostrava "Falha na conexão" sem dizer se foi token, rede ou endpoint.
+   */
   async testConnection(): Promise<boolean> {
+    const endpoint = '/api/ura/clientes/';
+    let data: unknown;
     try {
-      const { data } = await this.http.post('/api/ura/clientes/', {
+      ({ data } = await this.http.post(endpoint, {
         ...this.auth(), limit: 1, omitir_contratos: true, omitir_titulos: true,
-      });
-      this.validarResposta('/api/ura/clientes/', data);
-      if (!Array.isArray(data?.clientes)) return false;
-      return true;
-    } catch {
-      return false;
+      }));
+    } catch (e) {
+      throw this.erro(endpoint, e);
     }
+    this.validarResposta(endpoint, data);
+    if (!Array.isArray((data as { clientes?: unknown })?.clientes)) {
+      throw new Error(`SGP ${endpoint}: resposta sem a lista "clientes" — confira a URL base e o token.`);
+    }
+    return true;
   }
 
   /**
