@@ -13,7 +13,7 @@ import { onlyDigits, normalizePhoneBR } from '@/common/util/normalize';
  * Conector SGP.
  * Autenticação por token gerado em Administração > Integrações > Tokens.
  * A API do SGP costuma receber `app`, `token` e `contrato/cpfcnpj` no corpo.
- * Endpoints (ajuste conforme a instância): /api/ura/clientes, /api/ura/titulos.
+ * Endpoint: /api/ura/clientes/ (títulos vêm aninhados no cliente com status=aberto).
  * Ref.: bookstack.sgp.net.br/books/api
  */
 export class SgpConnector implements SourceConnector {
@@ -125,7 +125,14 @@ export class SgpConnector implements SourceConnector {
       }
       const rows: any[] = extrair(data);
       if (!Array.isArray(rows)) {
-        throw new Error(`SGP ${endpoint}: formato de resposta não reconhecido`);
+        // Página sem a lista esperada. Se já trouxemos dados, tratamos como fim
+        // (sem garantir completude); na 1ª página é erro de endpoint/token — e aí
+        // mostramos o formato que veio, em vez de um "não reconhecido" cego.
+        if (out.length > 0) return { rows: out, completo: false };
+        const forma = data && typeof data === 'object'
+          ? `chaves recebidas: ${Object.keys(data).slice(0, 10).join(', ') || '(objeto vazio)'}`
+          : `tipo recebido: ${typeof data}`;
+        throw new Error(`SGP ${endpoint}: resposta sem a lista de dados esperada (${forma}). Confira se o endpoint e o token estão corretos para esta instância.`);
       }
       if (rows.length === 0) return { rows: out, completo: true };
 
