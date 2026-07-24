@@ -272,8 +272,33 @@ export default function ReguasPage() {
   async function salvar() {
     if (!sel) return;
     setMsg('Salvando...');
-    // renumera ordem
-    const payload = { ...sel, steps: sel.steps.map((s, i) => ({ ...s, ordem: i + 1 })), faixaRisco: sel.faixaRisco || undefined };
+    // Envia SÓ os campos que o backend aceita. A régua carregada traz extras de
+    // leitura (id, campaigns, inadimplentesCobertos, steps[].id/condicoes...) que
+    // a validação estrita do servidor recusa — montamos um payload enxuto.
+    const payload = {
+      nome: sel.nome,
+      faixaRisco: sel.faixaRisco || undefined,
+      apenasNotificar: sel.apenasNotificar,
+      janelaInicio: sel.janelaInicio,
+      janelaFim: sel.janelaFim,
+      diasUteisSomente: sel.diasUteisSomente,
+      maxMsgsDia: sel.maxMsgsDia ?? undefined,
+      roteamentoPorCusto: sel.roteamentoPorCusto,
+      ativo: sel.ativo,
+      steps: sel.steps.map((s, i) => ({
+        ordem: i + 1,
+        offsetDias: s.offsetDias,
+        canal: s.canal,
+        channelAccountId: s.channelAccountId || undefined,
+        canaisFallback: s.canaisFallback,
+        template: s.template,
+        emailAssunto: s.emailAssunto || undefined,
+        templateB: s.templateB || undefined,
+        templateName: s.templateName || undefined,
+        templateParams: s.templateParams,
+        abTest: s.abTest,
+      })),
+    };
     try {
       const saved = sel.id
         ? await api<Rule>(`/reguas/${sel.id}`, { method: 'PUT', body: payload })
