@@ -666,6 +666,9 @@ model WhatsAppTemplate {
   idioma     String           @default("pt_BR")
   categoria  TemplateCategory @default(UTILITY)
   corpo      String
+  // Botões do template, espelhados da Meta na sincronização (só leitura por ora):
+  // [{ tipo: 'QUICK_REPLY' | 'URL' | 'PHONE_NUMBER', texto, url?, telefone? }]
+  botoes     Json?
   status     TemplateStatus   @default(RASCUNHO)
   externalId String?
   createdAt  DateTime         @default(now())

@@ -21,7 +21,30 @@ export interface ComponenteMeta {
   type?: string;
   text?: string;
   format?: string;
-  buttons?: { type?: string; text?: string }[];
+  buttons?: { type?: string; text?: string; url?: string; phone_number?: string }[];
+}
+
+/** Botão de template normalizado para o Recorrai (espelho da Meta, só leitura). */
+export interface BotaoTemplate {
+  tipo: 'QUICK_REPLY' | 'URL' | 'PHONE_NUMBER' | 'OUTRO';
+  texto: string;
+  url?: string;
+  telefone?: string;
+}
+
+/** Extrai os botões (do componente BUTTONS) para exibir/guardar. */
+export function botoesDeComponents(components?: ComponenteMeta[]): BotaoTemplate[] {
+  const bloco = (components || []).find((c) => (c.type || '').toUpperCase() === 'BUTTONS');
+  return (bloco?.buttons || []).map((b) => {
+    const t = (b.type || '').toUpperCase();
+    const tipo = t === 'QUICK_REPLY' || t === 'URL' || t === 'PHONE_NUMBER' ? t : 'OUTRO';
+    return {
+      tipo: tipo as BotaoTemplate['tipo'],
+      texto: b.text ?? '',
+      ...(b.url ? { url: b.url } : {}),
+      ...(b.phone_number ? { telefone: b.phone_number } : {}),
+    };
+  });
 }
 
 export interface TemplateMeta {

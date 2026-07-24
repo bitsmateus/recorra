@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { X, Check, ExternalLink, Mail, MessageCircle } from 'lucide-react';
+import { X, Check, ExternalLink, Mail, MessageCircle, Phone, CornerUpLeft } from 'lucide-react';
 import { LogoMark } from '@/components/Logo';
 import { api } from '@/lib/api';
 
@@ -72,10 +72,12 @@ function tipoDoCanal(canal: string): Tipo {
   return 'whatsapp';
 }
 
-export function MessagePreview({ canal, texto, assunto, empresa = 'Sua Empresa', onClose }: { canal: string; texto: string; assunto?: string; empresa?: string; onClose: () => void }) {
+interface BotaoPreview { tipo: string; texto: string; url?: string; telefone?: string }
+export function MessagePreview({ canal, texto, assunto, empresa = 'Sua Empresa', botoes, onClose }: { canal: string; texto: string; assunto?: string; empresa?: string; botoes?: BotaoPreview[] | null; onClose: () => void }) {
   const tipo = tipoDoCanal(canal);
   const corpo = preencherExemplo(texto || '(mensagem vazia)');
-  const temLink = /https?:\/\/|\{\{\s*(link|billing_url)\s*\}\}/.test(texto);
+  // Só mostra o botão genérico "Ver fatura" quando o template não traz botões próprios.
+  const temLink = !botoes?.length && /https?:\/\/|\{\{\s*(link|billing_url)\s*\}\}/.test(texto);
 
   const titulo = tipo === 'whatsapp' ? 'Pré-visualizar WhatsApp' : tipo === 'email' ? 'Pré-visualizar e-mail' : 'Pré-visualizar SMS';
 
@@ -103,6 +105,16 @@ export function MessagePreview({ canal, texto, assunto, empresa = 'Sua Empresa',
               {temLink && (
                 <div className="mt-2 space-y-1 border-t border-line pt-2">
                   <button className="flex w-full items-center justify-center gap-1.5 text-sm font-medium text-primary"><ExternalLink size={14} /> Ver fatura</button>
+                </div>
+              )}
+              {!!botoes?.length && (
+                <div className="mt-2 space-y-1 border-t border-line pt-1">
+                  {botoes.map((b, i) => (
+                    <button key={i} className="flex w-full items-center justify-center gap-1.5 py-1 text-sm font-medium text-primary">
+                      {b.tipo === 'URL' ? <ExternalLink size={14} /> : b.tipo === 'PHONE_NUMBER' ? <Phone size={14} /> : <CornerUpLeft size={14} />}
+                      {b.texto}
+                    </button>
+                  ))}
                 </div>
               )}
               <div className="mt-1 text-right text-[10px] text-muted">agora</div>

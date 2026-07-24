@@ -8,11 +8,29 @@ import { PageTitle } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { MessagePreview } from '@/components/MessagePreview';
 
+interface BotaoTemplate { tipo: 'QUICK_REPLY' | 'URL' | 'PHONE_NUMBER' | 'OUTRO'; texto: string; url?: string; telefone?: string }
 interface Template {
   id: string; nome: string; corpo: string; idioma: string;
   categoria: 'UTILITY' | 'MARKETING' | 'AUTHENTICATION';
   status: 'APROVADO' | 'PENDENTE' | 'REJEITADO' | 'RASCUNHO';
+  botoes?: BotaoTemplate[] | null;
   externalId?: string | null;
+}
+
+/** Ícone + rótulo por tipo de botão, para o chip da lista. */
+const botaoInfo: Record<string, string> = { QUICK_REPLY: '↩︎', URL: '🔗', PHONE_NUMBER: '📞', OUTRO: '•' };
+function ChipsBotoes({ botoes }: { botoes?: BotaoTemplate[] | null }) {
+  if (!botoes?.length) return null;
+  return (
+    <div className="mt-2 flex flex-wrap gap-1">
+      {botoes.map((b, i) => (
+        <span key={i} title={b.url || b.telefone || b.tipo} className="inline-flex max-w-full items-center gap-1 truncate rounded border border-line bg-canvas px-1.5 py-0.5 text-[11px] text-muted">
+          <span>{botaoInfo[b.tipo] ?? '•'}</span>
+          <span className="truncate text-ink">{b.texto}</span>
+        </span>
+      ))}
+    </div>
+  );
 }
 interface Conta { wabaId: string; origem: string }
 
@@ -140,7 +158,8 @@ export default function TemplatesPage() {
               <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${catInfo[t.categoria]?.cls}`}>{catInfo[t.categoria]?.label ?? t.categoria}</span>
               <span className="rounded-full bg-canvas px-2 py-0.5 text-[11px] text-muted">{t.idioma}</span>
             </div>
-            <p className="line-clamp-4 flex-1 whitespace-pre-wrap text-xs text-muted">{t.corpo || '(sem corpo)'}</p>
+            <p className="line-clamp-4 whitespace-pre-wrap text-xs text-muted">{t.corpo || '(sem corpo)'}</p>
+            <div className="flex-1"><ChipsBotoes botoes={t.botoes} /></div>
             {t.categoria === 'MARKETING' && (
               <p className="mt-2 text-[11px] text-danger">Marketing tem limite de frequência e custa mais. Em cobrança, prefira Utilidade.</p>
             )}
@@ -155,7 +174,7 @@ export default function TemplatesPage() {
       {loading && <p className="mt-3 text-sm text-muted">Carregando...</p>}
 
       {edit && <TemplateModal template={edit === 'novo' ? null : edit} contas={contas} onClose={() => setEdit(null)} onSaved={(m) => { setEdit(null); setMsg(m); carregar(); }} />}
-      {previa && <MessagePreview canal="WHATSAPP_CLOUD" texto={previa.corpo} onClose={() => setPrevia(null)} />}
+      {previa && <MessagePreview canal="WHATSAPP_CLOUD" texto={previa.corpo} botoes={previa.botoes} onClose={() => setPrevia(null)} />}
       {excluir && (
         <ConfirmDialog
           titulo="Excluir na Meta"

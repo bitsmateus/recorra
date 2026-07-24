@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { TemplateCategory, TemplateStatus } from '@prisma/client';
+import { Prisma, TemplateCategory, TemplateStatus } from '@prisma/client';
 import axios from 'axios';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { CryptoService } from '@/common/crypto/crypto.service';
@@ -7,6 +7,7 @@ import { categorizeTemplate, isCobrancaButMarketing } from './template-category'
 import {
   AcessoGraph,
   ComponenteMeta,
+  botoesDeComponents,
   TemplateMeta,
   criarTemplate,
   editarTemplate,
@@ -286,6 +287,7 @@ export class TemplatesService {
           categoria: this.mapCategoria(t.category) ?? TemplateCategory.UTILITY,
           status: this.mapStatus(t.status),
           corpo: this.corpoDeComponents(t.components),
+          botoes: botoesDeComponents(t.components) as unknown as Prisma.InputJsonValue,
         };
         const existente = await this.prisma.whatsAppTemplate.findFirst({ where: { tenantId, externalId } });
         if (existente) {
