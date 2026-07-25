@@ -108,3 +108,38 @@ describe('resolverBotoesParaEnvio — mapeamento → parâmetros do cliente', ()
     expect(resolverBotoesParaEnvio(null, render)).toEqual([]);
   });
 });
+
+import { componenteBotoesCriacao } from '@/modules/channels/meta-graph';
+
+describe('componenteBotoesCriacao — criar template com botões na Meta', () => {
+  it('URL dinâmica: url com {{1}} e example com a base + exemplo', () => {
+    const c = componenteBotoesCriacao([{ tipo: 'URL', texto: 'Ver boleto', urlBase: 'https://www.asaas.com/i/', dinamica: true, exemplo: 'abc123' }]);
+    expect(c).toEqual({ type: 'BUTTONS', buttons: [
+      { type: 'URL', text: 'Ver boleto', url: 'https://www.asaas.com/i/{{1}}', example: ['https://www.asaas.com/i/abc123'] },
+    ] });
+  });
+
+  it('COPY_CODE tem example e não tem text; quick reply tem só text', () => {
+    const c = componenteBotoesCriacao([
+      { tipo: 'COPY_CODE', exemplo: '00020126PIX' },
+      { tipo: 'QUICK_REPLY', texto: 'Falar com atendente' },
+    ]) as any;
+    expect(c.buttons[0]).toEqual({ type: 'COPY_CODE', example: ['00020126PIX'] });
+    expect(c.buttons[1]).toEqual({ type: 'QUICK_REPLY', text: 'Falar com atendente' });
+  });
+
+  it('URL fixa (não dinâmica) manda só a url, sem example', () => {
+    const c = componenteBotoesCriacao([{ tipo: 'URL', texto: 'Site', urlBase: 'https://recorrai.com.br' }]) as any;
+    expect(c.buttons[0]).toEqual({ type: 'URL', text: 'Site', url: 'https://recorrai.com.br' });
+  });
+
+  it('rótulo é cortado em 25 caracteres (limite da Meta)', () => {
+    const c = componenteBotoesCriacao([{ tipo: 'QUICK_REPLY', texto: 'x'.repeat(40) }]) as any;
+    expect(c.buttons[0].text.length).toBe(25);
+  });
+
+  it('sem botões devolve null', () => {
+    expect(componenteBotoesCriacao([])).toBeNull();
+    expect(componenteBotoesCriacao(undefined)).toBeNull();
+  });
+});

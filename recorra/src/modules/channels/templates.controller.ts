@@ -13,6 +13,7 @@ interface TemplateBody {
   categoria?: TemplateCategory;
   exemplos?: string[]; // valor de exemplo de cada {{n}} (a Meta exige quando há variáveis)
   wabaId?: string; // em qual conta criar, quando há mais de uma
+  botoes?: { tipo: 'QUICK_REPLY' | 'URL' | 'COPY_CODE'; texto?: string; urlBase?: string; dinamica?: boolean; exemplo?: string }[];
 }
 
 @Controller('config/templates')

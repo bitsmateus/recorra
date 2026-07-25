@@ -47,6 +47,17 @@ const catInfo: Record<string, { label: string; cls: string }> = {
 };
 
 const inputCls = 'w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary';
+interface BotaoNovo { tipo: 'QUICK_REPLY' | 'URL' | 'COPY_CODE'; texto?: string; urlBase?: string; dinamica?: boolean; exemplo?: string }
+
+/** Botões (formato de criação) → formato de exibição da prévia. */
+function botoesParaPreview(botoes: BotaoNovo[]): { tipo: string; texto: string; url?: string }[] {
+  return botoes.map((b) => ({
+    tipo: b.tipo,
+    texto: b.tipo === 'COPY_CODE' ? 'Copiar código' : (b.texto || (b.tipo === 'URL' ? 'Abrir' : 'Responder')),
+    ...(b.tipo === 'URL' ? { url: `${b.urlBase || ''}${b.dinamica ? '{{1}}' : ''}` } : {}),
+  }));
+}
+
 /** Posições das variáveis do corpo, na ordem: "{{1}} {{2}}" → [1, 2]. */
 const varsDoCorpo = (corpo: string): number[] => {
   const s = new Set<number>();
@@ -198,6 +209,8 @@ function TemplateModal({ template, contas, onClose, onSaved }: {
   const [categoria, setCategoria] = useState(template?.categoria || 'UTILITY');
   const [wabaId, setWabaId] = useState(contas[0]?.wabaId || '');
   const [exemplos, setExemplos] = useState<string[]>([]);
+  // Botões só na criação (na Meta os botões são fixos depois de aprovado).
+  const [botoes, setBotoes] = useState<BotaoNovo[]>([]);
   const [sugestao, setSugestao] = useState<{ categoria: string; alertaCusto: boolean } | null>(null);
   const [previa, setPrevia] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -222,7 +235,7 @@ function TemplateModal({ template, contas, onClose, onSaved }: {
     if (!sequencial) return setMsg('As variáveis precisam ser {{1}}, {{2}}, {{3}}... sem pular número.');
     setBusy(true); setMsg('');
     try {
-      const body = { nome, corpo, idioma, categoria, exemplos, wabaId: wabaId || undefined };
+      const body = { nome, corpo, idioma, categoria, exemplos, wabaId: wabaId || undefined, botoes: !editando && botoes.length ? botoes : undefined };
       if (editando) {
         await api(`/config/templates/${template!.id}`, { method: 'PUT', body });
         onSaved('✓ Enviado para revisão da Meta — o template volta a ficar disponível quando aprovarem.');
@@ -306,6 +319,49 @@ function TemplateModal({ template, contas, onClose, onSaved }: {
           </select>
         </label>
 
+        {!editando && (
+          <div className="mb-3 rounded border border-line p-2">
+            <div className="mb-1.5 flex items-center justify-between">
+              <span className="text-xs font-semibold text-muted">Botões (opcional)</span>
+              {botoes.length < 3 && (
+                <div className="flex gap-1">
+                  <button type="button" onClick={() => setBotoes((b) => [...b, { tipo: 'URL', texto: 'Ver boleto', urlBase: 'https://www.asaas.com/i/', dinamica: true, exemplo: 'abc123' }])} className="rounded border border-line px-2 py-0.5 text-[11px] hover:bg-canvas">+ Link (boleto)</button>
+                  <button type="button" onClick={() => setBotoes((b) => [...b, { tipo: 'COPY_CODE', exemplo: '00020126BR...' }])} className="rounded border border-line px-2 py-0.5 text-[11px] hover:bg-canvas">+ Copiar Pix</button>
+                  <button type="button" onClick={() => setBotoes((b) => [...b, { tipo: 'QUICK_REPLY', texto: 'Falar com atendente' }])} className="rounded border border-line px-2 py-0.5 text-[11px] hover:bg-canvas">+ Resposta</button>
+                </div>
+              )}
+            </div>
+            {botoes.length === 0 && <p className="text-[11px] text-muted">Sem botões. Adicione &quot;Link&quot; para abrir o boleto e &quot;Copiar Pix&quot; para o cliente copiar o código — depois você liga cada um ao dado do cliente na régua.</p>}
+            <div className="space-y-2">
+              {botoes.map((b, i) => {
+                const upd = (patch: Partial<BotaoNovo>) => setBotoes((arr) => arr.map((x, idx) => idx === i ? { ...x, ...patch } : x));
+                return (
+                  <div key={i} className="rounded bg-canvas p-2">
+                    <div className="mb-1 flex items-center justify-between">
+                      <span className="text-xs font-medium text-ink">{b.tipo === 'URL' ? '🔗 Link (URL)' : b.tipo === 'COPY_CODE' ? '📋 Copiar código (Pix)' : '💬 Resposta rápida'}</span>
+                      <button type="button" onClick={() => setBotoes((arr) => arr.filter((_, idx) => idx !== i))} className="text-xs text-muted hover:text-danger">remover</button>
+                    </div>
+                    {b.tipo === 'URL' && (
+                      <div className="space-y-1.5">
+                        <input value={b.texto ?? ''} onChange={(e) => upd({ texto: e.target.value })} placeholder="Rótulo do botão (ex.: Ver boleto)" maxLength={25} className={`${inputCls} text-sm`} />
+                        <input value={b.urlBase ?? ''} onChange={(e) => upd({ urlBase: e.target.value })} placeholder="Base do link (ex.: https://www.asaas.com/i/)" className={`${inputCls} font-mono text-xs`} />
+                        <label className="flex items-center gap-1.5 text-[11px] text-muted"><input type="checkbox" checked={!!b.dinamica} onChange={(e) => upd({ dinamica: e.target.checked })} /> o link muda por cliente (a Recorrai completa o final)</label>
+                        {b.dinamica && <input value={b.exemplo ?? ''} onChange={(e) => upd({ exemplo: e.target.value })} placeholder="Exemplo do final (ex.: abc123)" className={`${inputCls} text-xs`} />}
+                      </div>
+                    )}
+                    {b.tipo === 'COPY_CODE' && (
+                      <input value={b.exemplo ?? ''} onChange={(e) => upd({ exemplo: e.target.value })} placeholder="Exemplo do código Pix (só para a revisão da Meta)" className={`${inputCls} text-xs`} />
+                    )}
+                    {b.tipo === 'QUICK_REPLY' && (
+                      <input value={b.texto ?? ''} onChange={(e) => upd({ texto: e.target.value })} placeholder="Texto do botão" maxLength={25} className={`${inputCls} text-sm`} />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {sugestao && (
           <p className="mb-3 text-xs">
             Pelo texto, parece <b className="text-ink">{catInfo[sugestao.categoria]?.label ?? sugestao.categoria}</b>.
@@ -327,7 +383,7 @@ function TemplateModal({ template, contas, onClose, onSaved }: {
           <ExternalLink size={11} /> A aprovação é da Meta — a Recorrai não controla o prazo nem o resultado.
         </p>
       </div>
-      {previa && <MessagePreview canal="WHATSAPP_CLOUD" texto={corpo} onClose={() => setPrevia(false)} />}
+      {previa && <MessagePreview canal="WHATSAPP_CLOUD" texto={corpo} botoes={!editando && botoes.length ? botoesParaPreview(botoes) : undefined} onClose={() => setPrevia(false)} />}
     </div>
   );
 }

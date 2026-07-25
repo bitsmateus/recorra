@@ -7,7 +7,9 @@ import { categorizeTemplate, isCobrancaButMarketing } from './template-category'
 import {
   AcessoGraph,
   ComponenteMeta,
+  BotaoCriacao,
   botoesDeComponents,
+  componenteBotoesCriacao,
   TemplateMeta,
   criarTemplate,
   editarTemplate,
@@ -25,6 +27,7 @@ interface UpsertTemplateDto {
   categoria?: TemplateCategory; // se omitido, é sugerido pela heurística
   exemplos?: string[]; // valor de exemplo de cada {{n}} — a Meta exige quando há variáveis
   wabaId?: string; // em qual conta criar (quando o tenant tem mais de uma)
+  botoes?: BotaoCriacao[]; // botões a criar (URL / copiar código / resposta rápida)
 }
 
 // ---- Formatos da API do NX Systems (listChannels / showChannelById) ----
@@ -193,10 +196,15 @@ export class TemplatesService {
 
     let criado: { id: string; status?: string; category?: string };
     try {
-      criado = await criarTemplate(acesso, { nome: dto.nome, idioma, categoria, corpo: dto.corpo, exemplos: dto.exemplos });
+      criado = await criarTemplate(acesso, { nome: dto.nome, idioma, categoria, corpo: dto.corpo, exemplos: dto.exemplos, botoes: dto.botoes });
     } catch (e) {
       throw new BadRequestException(`A Meta recusou a criação: ${erroMeta(e)}`);
     }
+
+    // Espelha os botões localmente já na criação, para o mapeamento (link/pix)
+    // aparecer sem precisar sincronizar depois. A próxima sincronização confirma.
+    const comp = componenteBotoesCriacao(dto.botoes);
+    const botoes = comp ? botoesDeComponents([comp as ComponenteMeta]) : [];
 
     return this.prisma.whatsAppTemplate.create({
       data: {
@@ -207,6 +215,7 @@ export class TemplatesService {
         categoria: this.mapCategoria(criado.category) ?? categoria,
         status: this.mapStatus(criado.status ?? 'PENDING'),
         externalId: String(criado.id),
+        botoes: botoes.length ? (botoes as unknown as Prisma.InputJsonValue) : undefined,
       },
     });
   }

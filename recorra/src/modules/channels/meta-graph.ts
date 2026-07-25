@@ -64,6 +64,35 @@ export function botoesDinamicos(botoes?: BotaoTemplate[] | null): BotaoTemplate[
   return (botoes ?? []).filter((b) => b.dinamico);
 }
 
+/** Botão a criar num template novo (o que vem da tela "Novo template"). */
+export interface BotaoCriacao {
+  tipo: 'QUICK_REPLY' | 'URL' | 'COPY_CODE';
+  texto?: string; // rótulo (QUICK_REPLY / URL); a Meta limita a 25 caracteres
+  urlBase?: string; // URL: base fixa (ex.: https://www.asaas.com/i/)
+  dinamica?: boolean; // URL: acrescenta {{1}} — o valor muda por cliente
+  exemplo?: string; // valor de exemplo do sufixo/código (a Meta exige na revisão)
+}
+
+/**
+ * Monta o componente BUTTONS para CRIAR o template na Meta. A Meta exige `example`
+ * na URL dinâmica e no COPY_CODE (o revisor precisa ver preenchido). null = sem botões.
+ */
+export function componenteBotoesCriacao(botoes?: BotaoCriacao[]): Record<string, unknown> | null {
+  const bs = (botoes ?? []).filter((b) => b && b.tipo);
+  if (!bs.length) return null;
+  const buttons = bs.map((b) => {
+    const texto = (b.texto || '').trim().slice(0, 25);
+    if (b.tipo === 'QUICK_REPLY') return { type: 'QUICK_REPLY', text: texto || 'Responder' };
+    if (b.tipo === 'COPY_CODE') return { type: 'COPY_CODE', example: [b.exemplo?.trim() || '00020126'] };
+    const base = (b.urlBase || '').trim();
+    if (b.dinamica) {
+      return { type: 'URL', text: texto || 'Abrir', url: `${base}{{1}}`, example: [`${base}${b.exemplo?.trim() || 'exemplo'}`] };
+    }
+    return { type: 'URL', text: texto || 'Abrir', url: base };
+  });
+  return { type: 'BUTTONS', buttons };
+}
+
 /**
  * Para uma URL dinâmica `https://base/caminho/{{1}}`, a Meta só aceita o SUFIXO
  * (o que entra no lugar de `{{1}}`), não a URL inteira. Se o valor mapeado já é a
@@ -204,9 +233,10 @@ export async function listarTemplates(a: AcessoGraph): Promise<TemplateMeta[]> {
  */
 export async function criarTemplate(
   a: AcessoGraph,
-  dto: { nome: string; idioma: string; categoria: string; corpo: string; exemplos?: string[] },
+  dto: { nome: string; idioma: string; categoria: string; corpo: string; exemplos?: string[]; botoes?: BotaoCriacao[] },
 ): Promise<{ id: string; status?: string; category?: string }> {
   const vars = variaveisDoCorpo(dto.corpo);
+  const compBotoes = componenteBotoesCriacao(dto.botoes);
   const body: Record<string, unknown> = {
     name: dto.nome,
     language: dto.idioma,
@@ -217,6 +247,7 @@ export async function criarTemplate(
         text: dto.corpo,
         ...(vars.length ? { example: { body_text: [vars.map((n) => dto.exemplos?.[n - 1] || `exemplo ${n}`)] } } : {}),
       },
+      ...(compBotoes ? [compBotoes] : []),
     ],
   };
   const { data } = await axios.post(url(a, `${a.wabaId}/message_templates`), body, {

@@ -6,6 +6,7 @@ import { PaymentProviderFactory } from '@/modules/payments/payment-provider.fact
 import { DispatchQueue } from '@/queue/dispatch-queue';
 import { parseDateFilter } from '@/common/util/parse';
 import { channelChain } from '@/modules/dunning/fallback';
+import { resolverBotoesParaEnvio, BotaoMapeado } from '@/modules/channels/meta-graph';
 
 /** WhatsApp só envia por template aprovado; texto livre sobra para SMS e e-mail. */
 const WHATSAPP: ChannelType[] = ['WHATSAPP_CLOUD', 'NX_SYSTEMS', 'WHATSAPP_EVOLUTION', 'WHATSAPP_UAZAPI'];
@@ -151,6 +152,7 @@ export interface CampaignInput {
   channelAccountId?: string | null;
   templateNome?: string | null;
   templateParams?: string[];
+  templateBotoes?: { index: number; subType: 'url' | 'copy_code'; token: string; urlBase?: string }[];
   escopoFatura?: 'TODAS' | 'PROXIMA';
   filtroTodos?: boolean;
   filtroEtiqueta?: string | null;
@@ -281,6 +283,7 @@ export class CampaignsService {
       channelAccountId: input.channelAccountId || null,
       templateNome: comTemplate ? input.templateNome || null : null,
       templateParams: comTemplate && input.templateNome ? (input.templateParams ?? []) : [],
+      templateBotoes: comTemplate && input.templateNome && input.templateBotoes?.length ? (input.templateBotoes as unknown as object) : undefined,
       escopoFatura: input.escopoFatura || 'TODAS',
       delaySegundos: input.delaySegundos != null ? Math.max(0, Math.min(600, Math.floor(input.delaySegundos))) : PADRAO_DELAY_SEGUNDOS,
       filtroTodos: !!input.filtroTodos,
@@ -375,6 +378,7 @@ export class CampaignsService {
         channelAccountId: c.channelAccountId,
         templateNome: c.templateNome,
         templateParams: c.templateParams,
+        templateBotoes: c.templateBotoes ?? undefined,
         escopoFatura: c.escopoFatura,
         delaySegundos: c.delaySegundos,
         filtroTodos: c.filtroTodos,
@@ -653,6 +657,12 @@ export class CampaignsService {
       .replace(/\{\{\s*(link|linkpagamento|pagamento)\s*\}\}/gi, inv?.linkPagamento || '');
   }
 
+  /** Resolve o mapeamento de botões dinâmicos (link/pix) para este cliente/fatura. */
+  private resolverBotoes(mapa: unknown, cliente: { nome: string; doc?: string | null }, inv: unknown): object | undefined {
+    const resolvidos = resolverBotoesParaEnvio(mapa as BotaoMapeado[] | null, (tok) => this.render(tok, cliente, inv as never));
+    return resolvidos.length ? (resolvidos as unknown as object) : undefined;
+  }
+
   private temVariavelFatura(txt?: string | null): boolean {
     return /\{\{\s*(valor|vencimento|pix|boleto|link|linkpagamento|pagamento)\s*\}\}/i.test(txt || '');
   }
@@ -785,6 +795,7 @@ export class CampaignsService {
                 channelAccountId: camp.channelAccountId ?? undefined,
                 templateName: usaTpl ? camp.templateNome : undefined,
                 templateParams: paramsLembrete,
+                templateBotoes: usaTpl ? this.resolverBotoes(camp.templateBotoes, cliente, inv) : undefined,
                 assunto: this.render(camp.emailAssunto, cliente, inv) || null,
                 conteudo: usaTpl
                   ? `[template: ${camp.templateNome}] ${paramsLembrete.join(' | ')}`
@@ -826,6 +837,7 @@ export class CampaignsService {
               channelAccountId: camp.channelAccountId ?? undefined,
               templateName: usaTemplate ? camp.templateNome : undefined,
               templateParams,
+              templateBotoes: usaTemplate ? this.resolverBotoes(camp.templateBotoes, cliente, inv) : undefined,
               assunto: this.render(camp.emailAssunto, cliente, inv) || null,
               conteudo: usaTemplate
                 ? `[template: ${camp.templateNome}] ${templateParams.join(' | ')}`
@@ -858,6 +870,7 @@ export class CampaignsService {
                 template: step.template,
                 templateName: usaTpl ? step.templateName : undefined,
                 templateParams: paramsStep,
+                templateBotoes: usaTpl ? this.resolverBotoes(step.templateBotoes, cliente, invRegua) : undefined,
                 assunto: this.render(step.emailAssunto, cliente, invRegua) || null,
                 conteudo: usaTpl
                   ? `[template: ${step.templateName}] ${paramsStep.join(' | ')}`

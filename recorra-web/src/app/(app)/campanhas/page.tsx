@@ -16,7 +16,7 @@ interface Campaign {
   id: string; nome: string;
   tipoEnvio: 'REGUA' | 'MENSAGEM' | 'LEMBRETE';
   ruleId?: string; rule?: { id: string; nome: string };
-  mensagem?: string; emailAssunto?: string; canal?: string; channelAccountId?: string; templateNome?: string; templateParams?: string[]; escopoFatura?: 'TODAS' | 'PROXIMA'; delaySegundos?: number;
+  mensagem?: string; emailAssunto?: string; canal?: string; channelAccountId?: string; templateNome?: string; templateParams?: string[]; templateBotoes?: BotaoMapeado[]; escopoFatura?: 'TODAS' | 'PROXIMA'; delaySegundos?: number;
   filtroTodos: boolean; filtroEtiqueta?: string; filtroValorMin?: number; filtroValorMax?: number; filtroFaixa?: string; filtroStatus?: string; filtroDiasAtraso?: number; filtroPlano?: string; filtroCidade?: string;
   incluirIds?: string[]; excluirIds?: string[];
   publicoDinamico: boolean;
@@ -86,7 +86,9 @@ function conexoesDisponiveis(contas: ContaCanal[]): Conexao[] {
     });
 }
 
-interface Template { id: string; nome: string; corpo: string; status: string; idioma?: string }
+interface BotaoTpl { tipo: string; texto: string; url?: string; index: number; dinamico: boolean }
+interface BotaoMapeado { index: number; subType: 'url' | 'copy_code'; token: string; urlBase?: string }
+interface Template { id: string; nome: string; corpo: string; status: string; idioma?: string; botoes?: BotaoTpl[] }
 /** Extrai as variáveis do corpo do template, na ordem (ex.: {{1}} {{2}} ou {{nome}}). */
 function templateVars(corpo: string): string[] {
   const out: string[] = [];
@@ -357,13 +359,17 @@ export default function CampanhasPage() {
 }
 
 /** Escolha do template aprovado + mapeamento das variáveis. Usado por Mensagem única e Lembrete. */
-function BlocoTemplate({ templates, valor, onChange, params, setParam }: {
+function BlocoTemplate({ templates, valor, onChange, params, setParam, botoes, setBotao }: {
   templates: Template[]; valor: string; onChange: (v: string) => void;
   params: string[]; setParam: (i: number, v: string) => void;
+  botoes: BotaoMapeado[]; setBotao: (index: number, token: string) => void;
 }) {
   const aprovados = templates.filter((t) => t.status === 'APROVADO');
   const sel = templates.find((t) => t.nome === valor);
   const vars = sel ? templateVars(sel.corpo) : [];
+  const botoesDin = (sel?.botoes ?? []).filter((b) => b.dinamico);
+  const tokenBotao = (idx: number) => botoes.find((m) => m.index === idx)?.token ?? '';
+  const labelBotao = (b: BotaoTpl) => b.tipo === 'COPY_CODE' ? 'copiar código' : 'link';
   return (
     <div className="space-y-2">
       <div className="rounded bg-primary-tint px-3 py-2 text-xs text-primary">O WhatsApp entrega cobrança <b>só por template aprovado</b>. Escolha um e ligue cada variável a um dado do cliente.</div>
@@ -392,6 +398,21 @@ function BlocoTemplate({ templates, valor, onChange, params, setParam }: {
               </div>
             );
           })}
+        </div>
+      )}
+      {sel && botoesDin.length > 0 && (
+        <div className="space-y-2 rounded border border-line p-2">
+          <span className="block text-xs font-semibold text-muted">O que cada botão leva</span>
+          {botoesDin.map((b) => (
+            <div key={b.index} className="flex flex-wrap items-center gap-2 text-sm">
+              <span className="shrink-0 rounded bg-canvas px-2 py-1 text-xs font-medium text-ink">🔘 {b.texto} <span className="font-normal text-muted">({labelBotao(b)})</span></span>
+              <span className="text-muted">→</span>
+              <select value={tokenBotao(b.index)} onChange={(e) => setBotao(b.index, e.target.value)} className="min-w-0 flex-1 rounded border border-line px-2 py-1 text-sm outline-none focus:border-primary">
+                <option value="">Selecione o dado...</option>
+                {MAP_OPCOES.filter((o) => o.v !== '__FIXO__').map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
+              </select>
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -483,8 +504,10 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
   const templateSel = templates.find((t) => t.nome === f.templateNome);
   const varsTemplate = templateSel ? templateVars(templateSel.corpo) : [];
   const [templateParams, setTemplateParams] = useState<string[]>(edit?.templateParams || []);
+  const [templateBotoes, setTemplateBotoes] = useState<BotaoMapeado[]>(edit?.templateBotoes || []);
   const templateAnterior = useRef(edit?.templateNome || '');
   const setParam = (i: number, v: string) => setTemplateParams((p) => { const n = [...p]; n[i] = v; return n; });
+  const setBotao = (index: number, token: string) => setTemplateBotoes((p) => p.map((m) => m.index === index ? { ...m, token } : m));
   // Modo "personalizado" do atraso: começa ligado quando a campanha salva usa
   // um número que não é preset.
   const [atrasoCustom, setAtrasoCustom] = useState(!!edit?.filtroDiasAtraso && !['30', '60', '90'].includes(String(edit.filtroDiasAtraso)));
@@ -550,11 +573,22 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
     if (!f.templateNome) {
       templateAnterior.current = '';
       setTemplateParams([]);
+      setTemplateBotoes([]);
       return;
     }
     if (!templateSel) return;
     const mudouTemplate = templateAnterior.current !== f.templateNome;
     setTemplateParams((prev) => varsTemplate.map((_, i) => mudouTemplate ? '{{nome}}' : (prev[i] ?? '{{nome}}')));
+    // Botões dinâmicos: ao trocar de template, prepara o mapeamento (palpite link/pix).
+    if (mudouTemplate) {
+      const din = (templateSel.botoes ?? []).filter((b) => b.dinamico);
+      setTemplateBotoes(din.map((b) => ({
+        index: b.index,
+        subType: b.tipo === 'COPY_CODE' ? 'copy_code' : 'url',
+        token: b.tipo === 'COPY_CODE' ? '{{pix}}' : '{{link}}',
+        ...(b.url ? { urlBase: b.url.replace(/\{\{\s*\d+\s*\}\}.*$/, '') } : {}),
+      })));
+    }
     templateAnterior.current = f.templateNome;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [f.templateNome, templateSel?.corpo]);
@@ -594,6 +628,7 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
       // WhatsApp vai por template; SMS/e-mail vão por texto livre.
       templateNome: comTemplate ? (f.templateNome || null) : null,
       templateParams: comTemplate && f.templateNome ? templateParams : [],
+      templateBotoes: comTemplate && f.templateNome && templateBotoes.length ? templateBotoes : undefined,
       escopoFatura: f.escopoFatura,
       delaySegundos: Number(f.delaySegundos) || 0,
       filtroTodos: f.filtroTodos,
@@ -651,7 +686,7 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
                 <select value={f.channelAccountId} onChange={(e) => { const c = conexoes.find((x) => x.id === e.target.value); setF((s) => ({ ...s, channelAccountId: e.target.value, canal: c?.canal || '' })); }} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">{conexoes.length === 0 && <option value="">Nenhum canal conectado</option>}{conexoes.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}</select>
               </div>
               {isWhats ? (
-                <BlocoTemplate templates={templates} valor={f.templateNome} onChange={(v) => set('templateNome', v)} params={templateParams} setParam={setParam} />
+                <BlocoTemplate templates={templates} valor={f.templateNome} onChange={(v) => set('templateNome', v)} params={templateParams} setParam={setParam} botoes={templateBotoes} setBotao={setBotao} />
               ) : isEmail ? (
                 <BlocoEmail assunto={f.emailAssunto} corpo={f.mensagem} onAssunto={(v) => set('emailAssunto', v)} onCorpo={(v) => set('mensagem', v)} />
               ) : (
@@ -688,7 +723,7 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
               </div>
 
               {isWhats ? (
-                <BlocoTemplate templates={templates} valor={f.templateNome} onChange={(v) => set('templateNome', v)} params={templateParams} setParam={setParam} />
+                <BlocoTemplate templates={templates} valor={f.templateNome} onChange={(v) => set('templateNome', v)} params={templateParams} setParam={setParam} botoes={templateBotoes} setBotao={setBotao} />
               ) : isEmail ? (
                 <BlocoEmail assunto={f.emailAssunto} corpo={f.mensagem} onAssunto={(v) => set('emailAssunto', v)} onCorpo={(v) => set('mensagem', v)} />
               ) : (
