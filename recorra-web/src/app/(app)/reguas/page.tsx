@@ -22,7 +22,11 @@ interface Step {
   abTest?: boolean;
   templateName?: string; // nome do template aprovado (canal oficial)
   templateParams?: string[]; // variáveis Recorrai que preenchem {{1}}, {{2}}...
+  templateBotoes?: BotaoMapeado[]; // mapeamento dos botões dinâmicos (link/pix)
 }
+
+interface BotaoTpl { tipo: string; texto: string; url?: string; index: number; dinamico: boolean }
+interface BotaoMapeado { index: number; subType: 'url' | 'copy_code'; token: string; urlBase?: string }
 interface Rule {
   id?: string;
   nome: string;
@@ -296,6 +300,7 @@ export default function ReguasPage() {
         templateB: s.templateB || undefined,
         templateName: s.templateName || undefined,
         templateParams: s.templateParams,
+        templateBotoes: s.templateBotoes && s.templateBotoes.length ? s.templateBotoes : undefined,
         abTest: s.abTest,
       })),
     };
@@ -689,9 +694,9 @@ function StepCard({
   const conn = conectados.find((c) => c.id === canalSelId);
 
   // Templates aprovados (API oficial do WhatsApp)
-  const [templates, setTemplates] = useState<{ id: string; nome: string; corpo: string; status: string }[]>([]);
+  const [templates, setTemplates] = useState<{ id: string; nome: string; corpo: string; status: string; botoes?: BotaoTpl[] }[]>([]);
   async function sincronizarTemplates() {
-    setTemplates(await api<{ id: string; nome: string; corpo: string; status: string }[]>('/config/templates').catch(() => []));
+    setTemplates(await api<{ id: string; nome: string; corpo: string; status: string; botoes?: BotaoTpl[] }[]>('/config/templates').catch(() => []));
   }
 
   // Modelos de e-mail salvos — atalho para preencher assunto + corpo do passo.
@@ -711,18 +716,36 @@ function StepCard({
   const params = step.templateParams ?? [];
   const previewTexto = temTemplate ? aplicarMapa(corpoTpl, params) : step.template;
 
+  // Botões do template selecionado que precisam de valor por cliente (link/pix).
+  const tplSel = templates.find((x) => x.nome === step.templateName);
+  const botoesDin: BotaoTpl[] = (tplSel?.botoes ?? []).filter((b) => b.dinamico);
+  const mapaBotoes = step.templateBotoes ?? [];
+  const tokenDoBotao = (idx: number) => mapaBotoes.find((m) => m.index === idx)?.token ?? '';
+  const labelBotao = (b: BotaoTpl) => b.tipo === 'COPY_CODE' ? 'copiar código' : 'link';
+
   function selecionarTemplate(id: string) {
     const t = templates.find((x) => x.id === id);
     if (!t) return;
     const n = maxVarPos(t.corpo);
     const inicial = Array.from({ length: n }, (_, i) => (i === 0 ? '{{nome}}' : ''));
-    onChange({ templateName: t.nome, template: t.corpo, templateParams: inicial });
+    // Prepara o mapeamento dos botões dinâmicos (token vazio = ainda não escolhido).
+    const botoes: BotaoMapeado[] = (t.botoes ?? []).filter((b) => b.dinamico).map((b) => ({
+      index: b.index,
+      subType: b.tipo === 'COPY_CODE' ? 'copy_code' : 'url',
+      token: b.tipo === 'COPY_CODE' ? '{{pix}}' : '{{link}}', // palpite útil, editável
+      ...(b.url ? { urlBase: b.url.replace(/\{\{\s*\d+\s*\}\}.*$/, '') } : {}),
+    }));
+    onChange({ templateName: t.nome, template: t.corpo, templateParams: inicial, templateBotoes: botoes });
   }
   function setPos(i: number, token: string) {
     const novo = Array.from({ length: nVars }, (_, idx) => (idx === i ? token : params[idx] || ''));
     onChange({ templateParams: novo });
   }
-  function limparTemplate() { onChange({ templateName: undefined, templateParams: [] }); }
+  function setBotao(idx: number, token: string) {
+    const novo = mapaBotoes.map((m) => (m.index === idx ? { ...m, token } : m));
+    onChange({ templateBotoes: novo });
+  }
+  function limparTemplate() { onChange({ templateName: undefined, templateParams: [], templateBotoes: [] }); }
 
   const Icon = canalLabel[step.canal]?.icon ?? MessageCircle;
 
@@ -833,6 +856,26 @@ function StepCard({
                     ))}
                   </div>
                 </>
+              )}
+
+              {/* Mapeamento dos botões dinâmicos (URL / copiar código) */}
+              {botoesDin.length > 0 && (
+                <div className="mt-3 border-t border-line pt-3">
+                  <p className="mb-2 text-xs text-muted">O que cada botão do template leva:</p>
+                  <div className="space-y-2">
+                    {botoesDin.map((b) => (
+                      <div key={b.index} className="flex flex-wrap items-center gap-2">
+                        <span className="shrink-0 rounded bg-canvas px-2 py-1 text-xs font-medium text-ink">🔘 {b.texto} <span className="font-normal text-muted">({labelBotao(b)})</span></span>
+                        <span className="text-muted">→</span>
+                        <select value={tokenDoBotao(b.index)} onChange={(e) => setBotao(b.index, e.target.value)} className="min-w-0 flex-1 rounded border border-line px-2 py-1.5 text-sm outline-none focus:border-primary">
+                          <option value="">Selecione o dado...</option>
+                          {RECORRA_VARS.map((v) => <option key={v.token} value={v.token}>{v.label} · {v.token}</option>)}
+                        </select>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="mt-1.5 text-[11px] text-muted">Ex.: botão &quot;Ver boleto&quot; → Link de pagamento; &quot;Copiar Pix&quot; → Pix copia e cola.</p>
+                </div>
               )}
             </div>
           )}

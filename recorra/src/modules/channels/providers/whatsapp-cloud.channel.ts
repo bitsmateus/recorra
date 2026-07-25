@@ -5,6 +5,7 @@ import {
   SendMessageResult,
   ChannelCredentials,
 } from '../message-channel.interface';
+import { botoesComponents } from '../meta-graph';
 
 /**
  * WhatsApp Cloud API (oficial da Meta).
@@ -41,9 +42,13 @@ export class WhatsAppCloudChannel implements MessageChannel {
             template: {
               name: input.templateName,
               language: { code: input.templateLanguage || 'pt_BR' },
-              components: input.templateParams?.length
-                ? [{ type: 'body', parameters: input.templateParams.map((t) => ({ type: 'text', text: t })) }]
-                : undefined,
+              components: (() => {
+                const comps = [
+                  ...(input.templateParams?.length ? [{ type: 'body', parameters: input.templateParams.map((t) => ({ type: 'text', text: t })) }] : []),
+                  ...botoesComponents(input.templateButtons),
+                ];
+                return comps.length ? comps : undefined;
+              })(),
             },
           }
         : {

@@ -54,6 +54,11 @@ export class StepDto {
   @IsString({ each: true })
   templateParams?: string[];
 
+  /** Mapeamento dos botões dinâmicos: [{index, subType, token, urlBase?}]. */
+  @IsOptional()
+  @IsArray()
+  templateBotoes?: { index: number; subType: 'url' | 'copy_code'; token: string; urlBase?: string }[];
+
   @IsOptional()
   @IsBoolean()
   abTest?: boolean;

@@ -24,27 +24,107 @@ export interface ComponenteMeta {
   buttons?: { type?: string; text?: string; url?: string; phone_number?: string }[];
 }
 
-/** Botão de template normalizado para o Recorrai (espelho da Meta, só leitura). */
+/** Botão de template normalizado para o Recorrai (espelho da Meta). */
 export interface BotaoTemplate {
-  tipo: 'QUICK_REPLY' | 'URL' | 'PHONE_NUMBER' | 'OUTRO';
+  tipo: 'QUICK_REPLY' | 'URL' | 'PHONE_NUMBER' | 'COPY_CODE' | 'OUTRO';
   texto: string;
   url?: string;
   telefone?: string;
+  /** Posição do botão na lista — é o `index` que o envio da Meta exige. */
+  index: number;
+  /**
+   * true quando o botão precisa de um valor no envio (varia por cliente):
+   *  - URL com `{{n}}` na URL (só o sufixo é dinâmico; a base é fixa no template)
+   *  - COPY_CODE (o código a copiar, ex.: Pix copia-e-cola)
+   * QUICK_REPLY, telefone e URL fixa NÃO são dinâmicos.
+   */
+  dinamico: boolean;
 }
 
 /** Extrai os botões (do componente BUTTONS) para exibir/guardar. */
 export function botoesDeComponents(components?: ComponenteMeta[]): BotaoTemplate[] {
   const bloco = (components || []).find((c) => (c.type || '').toUpperCase() === 'BUTTONS');
-  return (bloco?.buttons || []).map((b) => {
+  return (bloco?.buttons || []).map((b, index) => {
     const t = (b.type || '').toUpperCase();
-    const tipo = t === 'QUICK_REPLY' || t === 'URL' || t === 'PHONE_NUMBER' ? t : 'OUTRO';
+    const tipo = (['QUICK_REPLY', 'URL', 'PHONE_NUMBER', 'COPY_CODE'].includes(t) ? t : 'OUTRO') as BotaoTemplate['tipo'];
+    const urlDinamica = tipo === 'URL' && !!b.url && /\{\{\s*\d+\s*\}\}/.test(b.url);
     return {
-      tipo: tipo as BotaoTemplate['tipo'],
+      tipo,
       texto: b.text ?? '',
+      index,
+      dinamico: tipo === 'COPY_CODE' || urlDinamica,
       ...(b.url ? { url: b.url } : {}),
       ...(b.phone_number ? { telefone: b.phone_number } : {}),
     };
   });
+}
+
+/** Só os botões que exigem um valor por cliente no envio (URL dinâmica / copiar código). */
+export function botoesDinamicos(botoes?: BotaoTemplate[] | null): BotaoTemplate[] {
+  return (botoes ?? []).filter((b) => b.dinamico);
+}
+
+/**
+ * Para uma URL dinâmica `https://base/caminho/{{1}}`, a Meta só aceita o SUFIXO
+ * (o que entra no lugar de `{{1}}`), não a URL inteira. Se o valor mapeado já é a
+ * URL completa e começa com a base do template, devolvemos só o pedaço final.
+ * Sem base identificável, mandamos o valor como veio (melhor esforço).
+ */
+export function sufixoUrlDinamica(urlTemplate: string | undefined, valor: string): string {
+  const v = (valor ?? '').trim();
+  if (!urlTemplate) return v;
+  const base = urlTemplate.replace(/\{\{\s*\d+\s*\}\}.*$/, ''); // tudo antes do {{n}}
+  if (base && v.startsWith(base)) return v.slice(base.length);
+  return v;
+}
+
+/** Mapeamento de um botão dinâmico do passo/campanha (o que preenche cada botão). */
+export interface BotaoMapeado {
+  index: number;
+  subType: 'url' | 'copy_code';
+  token: string; // variável Recorra, ex.: "{{link}}", "{{pix}}"
+  urlBase?: string; // base fixa da URL do template (para extrair o sufixo dinâmico)
+}
+
+/** Parâmetro de botão já resolvido (valor final do cliente), pronto para o envio. */
+export interface BotaoParamResolvido {
+  index: number;
+  subType: 'url' | 'copy_code';
+  text: string;
+}
+
+/**
+ * Resolve o mapeamento dos botões em parâmetros de envio, usando `render` para
+ * trocar o token pela variável do cliente. Na URL dinâmica, manda só o sufixo.
+ */
+export function resolverBotoesParaEnvio(
+  mapeados: BotaoMapeado[] | null | undefined,
+  render: (token: string) => string,
+): BotaoParamResolvido[] {
+  return (mapeados ?? [])
+    .filter((m) => m.token && m.token.trim())
+    .map((m) => {
+      const valor = render(m.token);
+      return { index: m.index, subType: m.subType, text: m.subType === 'url' ? sufixoUrlDinamica(m.urlBase, valor) : valor };
+    });
+}
+
+/**
+ * Componentes de botão para o envio do template na Meta (Cloud API / NX WABA),
+ * a partir dos parâmetros já resolvidos por cliente. Botão com valor vazio é
+ * omitido — a Meta recusa parâmetro em branco.
+ */
+export function botoesComponents(resolvidos?: BotaoParamResolvido[] | null): Record<string, unknown>[] {
+  return (resolvidos ?? [])
+    .filter((b) => b.text && b.text.trim())
+    .map((b) => ({
+      type: 'button',
+      sub_type: b.subType,
+      index: String(b.index),
+      parameters: b.subType === 'copy_code'
+        ? [{ type: 'coupon_code', coupon_code: b.text }]
+        : [{ type: 'text', text: b.text }],
+    }));
 }
 
 export interface TemplateMeta {

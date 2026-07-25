@@ -545,6 +545,9 @@ model DunningStep {
   abTest           Boolean       @default(false)
   templateName     String? // nome do template aprovado (envio oficial via NX/Meta)
   templateParams   String[]      @default([]) // variáveis Recorra que preenchem {{1}}, {{2}}...
+  // Mapeamento dos botões dinâmicos do template: [{index, subType:'url'|'copy_code', token}].
+  // token é a variável Recorra (ex.: "{{link}}", "{{pix}}") resolvida por cliente no envio.
+  templateBotoes   Json?
   condicoes        Json?
   ativo            Boolean       @default(true)
 
@@ -570,6 +573,8 @@ model MessageDispatch {
   assunto           String? // assunto do e-mail já resolvido para este cliente
   templateName      String? // template aprovado a enviar (canal oficial)
   templateParams    String[]       @default([]) // parâmetros já resolvidos p/ este cliente
+  // Botões dinâmicos já resolvidos p/ este cliente: [{index, subType, text}].
+  templateBotoes    Json?
   variante          String?
   tentativaFallback Int            @default(0)
   status            DispatchStatus @default(FILA)
@@ -864,6 +869,8 @@ model Campaign {
   channelAccountId String? // conexão específica (ex.: qual WhatsApp oficial)
   templateNome     String? // nome do template WABA aprovado (canal oficial)
   templateParams   String[]          @default([]) // tokens p/ cada {{n}} (ex.: "{{nome}}", "texto fixo")
+  // Botões dinâmicos do template: [{index, subType, token}] (mesmo formato do passo da régua).
+  templateBotoes   Json?
   escopoFatura     String            @default("TODAS")
   delaySegundos    Int               @default(20) // padrão anti-banimento do WhatsApp
 

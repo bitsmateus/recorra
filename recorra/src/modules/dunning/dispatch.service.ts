@@ -78,6 +78,10 @@ export class DispatchService {
         templateName: d.templateName ?? undefined,
         templateParams: d.templateParams?.length ? d.templateParams : undefined,
         templateLanguage,
+        // Botões dinâmicos (link/pix) já resolvidos no enfileiramento.
+        templateButtons: Array.isArray(d.templateBotoes) && d.templateBotoes.length
+          ? (d.templateBotoes as { index: number; subType: 'url' | 'copy_code'; text: string }[])
+          : undefined,
       });
       if (res.status === 'ENVIADO') {
         await this.prisma.messageDispatch.update({

@@ -7,6 +7,7 @@ import {
   SendMessageResult,
   ChannelCredentials,
 } from '../message-channel.interface';
+import { botoesComponents } from '../meta-graph';
 
 /**
  * Integração nativa com a NX Systems (central de atendimento).
@@ -56,6 +57,11 @@ export class NxSystemsChannel implements MessageChannel {
       // ----- Template WABA -----
       if (input.templateName) {
         const params = input.templateParams ?? [];
+        const botoes = botoesComponents(input.templateButtons);
+        const components = [
+          ...(params.length ? [{ type: 'body', parameters: params.map((t) => ({ type: 'text', text: t })) }] : []),
+          ...botoes,
+        ];
         const templateData: Record<string, unknown> = {
           messaging_product: 'whatsapp',
           to: number,
@@ -63,12 +69,11 @@ export class NxSystemsChannel implements MessageChannel {
           template: {
             name: input.templateName,
             language: { code: input.templateLanguage || 'pt_BR' },
-            ...(params.length
-              ? { components: [{ type: 'body', parameters: params.map((t) => ({ type: 'text', text: t })) }] }
-              : {}),
+            ...(components.length ? { components } : {}),
           },
         };
-        const path = params.length ? '/templateBody' : '/template';
+        // /templateBody aceita components; /template é o atalho sem parâmetros.
+        const path = components.length ? '/templateBody' : '/template';
         const { data } = await this.http.post(path, { number, isClosed: true, templateData });
         return { providerMsgId: this.ticketId(data), status: 'ENVIADO' };
       }

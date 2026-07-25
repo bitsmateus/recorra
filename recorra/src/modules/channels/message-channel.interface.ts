@@ -8,6 +8,8 @@ export interface SendMessageInput {
   templateName?: string; // nome do template aprovado (WhatsApp Cloud utility)
   templateParams?: string[];
   templateLanguage?: string; // idioma do template aprovado (ex.: 'en', 'pt_BR'); default pt_BR
+  // Botões dinâmicos já resolvidos: URL dinâmica (sufixo) e copiar código (Pix).
+  templateButtons?: { index: number; subType: 'url' | 'copy_code'; text: string }[];
 }
 
 export interface SendMessageResult {

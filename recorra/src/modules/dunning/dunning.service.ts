@@ -7,6 +7,7 @@ import { renderTemplate, renderPositional, money, dateBR } from './template.util
 import { isWithinWindow, nextAllowedSlot, withinDailyLimit, zonedSlotToUtc } from './windows';
 import { channelChain } from './fallback';
 import { pickVariant } from './abtest';
+import { resolverBotoesParaEnvio, BotaoMapeado } from '@/modules/channels/meta-graph';
 
 type RuleWithSteps = DunningRule & { steps: DunningStep[] };
 
@@ -101,6 +102,10 @@ export class DunningService {
     const usaTemplate = !!step.templateName;
     const templateParams = usaTemplate ? step.templateParams.map((tok) => renderTemplate(tok, vars)) : [];
     const conteudo = usaTemplate ? renderPositional(template, templateParams) : renderTemplate(template, vars);
+    // Botões dinâmicos (link/pix): resolve o token de cada botão por cliente.
+    const templateBotoes = usaTemplate
+      ? resolverBotoesParaEnvio(step.templateBotoes as BotaoMapeado[] | null, (tok) => renderTemplate(tok, vars))
+      : [];
 
     const cadeia = channelChain(step.canal, step.canaisFallback) as ChannelType[];
     const agendadoPara = this.proximoSlot(timezone, rule);
@@ -120,6 +125,7 @@ export class DunningService {
         assunto: step.emailAssunto ? renderTemplate(step.emailAssunto, vars) : null,
         templateName: usaTemplate ? step.templateName : null,
         templateParams,
+        templateBotoes: templateBotoes.length ? (templateBotoes as unknown as object) : undefined,
         variante,
         status: 'FILA',
         agendadoPara,
