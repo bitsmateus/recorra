@@ -5,9 +5,10 @@ import { RulesService } from './rules.service';
 import { RulesController } from './rules.controller';
 import { ChannelsModule } from '@/modules/channels/channels.module';
 import { RiskModule } from '@/modules/risk/risk.module';
+import { PaymentsModule } from '@/modules/payments/payments.module';
 
 @Module({
-  imports: [ChannelsModule, RiskModule],
+  imports: [ChannelsModule, RiskModule, PaymentsModule],
   controllers: [RulesController],
   providers: [DunningService, DispatchService, RulesService],
   exports: [DunningService, DispatchService, RulesService],

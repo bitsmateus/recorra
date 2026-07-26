@@ -8,6 +8,7 @@ import { isWithinWindow, nextAllowedSlot, withinDailyLimit, zonedSlotToUtc } fro
 import { channelChain } from './fallback';
 import { pickVariant } from './abtest';
 import { resolverBotoesParaEnvio, BotaoMapeado } from '@/modules/channels/meta-graph';
+import { PaymentProviderFactory } from '@/modules/payments/payment-provider.factory';
 
 type RuleWithSteps = DunningRule & { steps: DunningStep[] };
 
@@ -27,6 +28,11 @@ export function selecionarRegua<T extends { id: string; faixaRisco: string | nul
     ?? null;
 }
 
+/** Algum dos textos referencia a variável {{pix}}? (puro/testável) */
+export function referenciaPix(...textos: (string | null | undefined)[]): boolean {
+  return /\{\{\s*pix\s*\}\}/i.test(textos.filter(Boolean).join(' '));
+}
+
 @Injectable()
 export class DunningService {
   private readonly logger = new Logger(DunningService.name);
@@ -35,7 +41,28 @@ export class DunningService {
     private readonly prisma: PrismaService,
     private readonly channels: ChannelFactory,
     private readonly risk: RiskScoringService,
+    private readonly payments: PaymentProviderFactory,
   ) {}
+
+  /** O passo referencia {{pix}} em algum lugar (corpo, params, assunto ou botão)? */
+  private usaPix(step: DunningStep): boolean {
+    const botoes = Array.isArray(step.templateBotoes) ? JSON.stringify(step.templateBotoes) : '';
+    return referenciaPix(step.template, step.emailAssunto, ...(step.templateParams ?? []), botoes);
+  }
+
+  /** Busca o Pix copia-e-cola no gateway quando a fatura ainda não tem (ex.: importada). */
+  private async garantirPix<T extends { id: string; pixCopiaCola?: string | null; externalId?: string | null; providerAccountId?: string | null }>(inv: T): Promise<T> {
+    if (inv.pixCopiaCola || !inv.externalId || !inv.providerAccountId) return inv;
+    try {
+      const provider = await this.payments.forAccount(inv.providerAccountId);
+      const pix = provider.getPixCopiaCola ? await provider.getPixCopiaCola(inv.externalId) : null;
+      if (pix) {
+        await this.prisma.invoice.update({ where: { id: inv.id }, data: { pixCopiaCola: pix } });
+        return { ...inv, pixCopiaCola: pix };
+      }
+    } catch { /* mantém sem pix — o worker sinaliza campo vazio no envio */ }
+    return inv;
+  }
 
   async runForTenant(tenantId: string, ref: Date = new Date()) {
     const stepsInc = { steps: { where: { ativo: true }, orderBy: { ordem: 'asc' as const } } };
@@ -76,7 +103,7 @@ export class DunningService {
   private async enqueueDispatch(
     tenantId: string,
     timezone: string,
-    invoice: { id: string; customerId: string; valor: unknown; vencimento: Date; pixCopiaCola: string | null; linkPagamento: string | null; customer: { nome: string; contrato: string | null } },
+    invoice: { id: string; customerId: string; valor: unknown; vencimento: Date; pixCopiaCola: string | null; linkPagamento: string | null; externalId?: string | null; providerAccountId?: string | null; customer: { nome: string; contrato: string | null } },
     step: DunningStep,
     rule: RuleWithSteps,
   ) {
@@ -87,13 +114,18 @@ export class DunningService {
       if (variante === 'B') template = step.templateB;
     }
 
+    // Se o passo usa {{pix}} e a fatura ainda não tem o Pix salvo, busca no
+    // gateway agora — senão o {{pix}} iria vazio e o WhatsApp recusa o template.
+    let inv = invoice;
+    if (this.usaPix(step) && !invoice.pixCopiaCola) inv = await this.garantirPix(invoice);
+
     const vars = {
-      nome: invoice.customer.nome.split(' ')[0],
-      valor: money(Number(invoice.valor)),
-      vencimento: dateBR(invoice.vencimento),
-      pix: invoice.pixCopiaCola ?? '',
-      link: invoice.linkPagamento ?? '',
-      contrato: invoice.customer.contrato ?? '',
+      nome: inv.customer.nome.split(' ')[0],
+      valor: money(Number(inv.valor)),
+      vencimento: dateBR(inv.vencimento),
+      pix: inv.pixCopiaCola ?? '',
+      link: inv.linkPagamento ?? '',
+      contrato: inv.customer.contrato ?? '',
     };
 
     // Canal oficial: envia como template aprovado (nome + parâmetros na ordem {{1}}, {{2}}...).
