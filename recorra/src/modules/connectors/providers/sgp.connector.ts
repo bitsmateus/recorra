@@ -28,8 +28,12 @@ export class SgpConnector implements SourceConnector {
   private readonly baseUrl: string;
 
   // A documentação pública do SGP limita /api/ura/clientes/ a 100 por página.
-  private static readonly LIMIT = 100;
-  private static readonly MAX_PAGES = 400;
+  // Usamos 50: página menor responde mais rápido e evita o timeout de instâncias
+  // lentas (o motivo do ECONNABORTED). MAX_PAGES cobre até 40 mil clientes.
+  private static readonly LIMIT = 50;
+  private static readonly MAX_PAGES = 800;
+  private static readonly TIMEOUT_MS = 60000;
+  private static readonly TENTATIVAS = 3;
 
   constructor(creds: SourceCredentials) {
     this.baseUrl = creds.urlBase.replace(/\/$/, '');
@@ -37,7 +41,9 @@ export class SgpConnector implements SourceConnector {
       ...safeHttpAgents(),
       baseURL: this.baseUrl,
       headers: { 'Content-Type': 'application/json' },
-      timeout: 20000,
+      // Instâncias do SGP às vezes demoram para montar uma página inteira — 60s
+      // dá folga; a resposta normal continua chegando em 1–2s.
+      timeout: SgpConnector.TIMEOUT_MS,
     });
     this.app = creds.extra?.app ?? 'recorra';
     this.token = creds.token;
@@ -103,6 +109,29 @@ export class SgpConnector implements SourceConnector {
    * vazia). Se a API não avançar com o offset (devolve sempre a mesma página),
    * para e marca `completo=false` — o chamador então não confia na completude.
    */
+  /** Timeout/queda de conexão é transitório no SGP — repete algumas vezes antes de desistir. */
+  private ehTransitorio(e: unknown): boolean {
+    if (!axios.isAxiosError(e)) return false;
+    const code = e.code ?? '';
+    return ['ECONNABORTED', 'ETIMEDOUT', 'ECONNRESET', 'ENETUNREACH', 'EAI_AGAIN'].includes(code) || !e.response;
+  }
+
+  /** POST com retry em erro transitório (timeout/rede), com espera crescente. */
+  private async postComRetry(endpoint: string, body: Record<string, unknown>): Promise<any> {
+    let ultimo: unknown;
+    for (let tentativa = 1; tentativa <= SgpConnector.TENTATIVAS; tentativa++) {
+      try {
+        const { data } = await this.http.post(endpoint, body);
+        return data;
+      } catch (e) {
+        ultimo = e;
+        if (!this.ehTransitorio(e) || tentativa === SgpConnector.TENTATIVAS) throw e;
+        await new Promise((r) => setTimeout(r, 1500 * tentativa)); // 1.5s, 3s...
+      }
+    }
+    throw ultimo;
+  }
+
   private async paginar(
     endpoint: string,
     extra: Record<string, unknown>,
@@ -113,12 +142,12 @@ export class SgpConnector implements SourceConnector {
     for (let page = 0; page < SgpConnector.MAX_PAGES; page++) {
       let data: any;
       try {
-        ({ data } = await this.http.post(endpoint, {
+        data = await this.postComRetry(endpoint, {
           ...this.auth(),
           ...extra,
           limit: SgpConnector.LIMIT,
           offset: page * SgpConnector.LIMIT,
-        }));
+        });
         this.validarResposta(endpoint, data);
       } catch (e) {
         throw this.erro(endpoint, e);
