@@ -83,7 +83,12 @@ export function componenteBotoesCriacao(botoes?: BotaoCriacao[]): Record<string,
   const buttons = bs.map((b) => {
     const texto = (b.texto || '').trim().slice(0, 25);
     if (b.tipo === 'QUICK_REPLY') return { type: 'QUICK_REPLY', text: texto || 'Responder' };
-    if (b.tipo === 'COPY_CODE') return { type: 'COPY_CODE', example: [b.exemplo?.trim() || '00020126'] };
+    if (b.tipo === 'COPY_CODE') {
+      // A Meta exige o example como STRING (não array) e o botão de código só
+      // aceita um código curto alfanumérico (≤ 15) — não um Pix copia-e-cola longo.
+      const ex = (b.exemplo || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 15) || 'PIX12345';
+      return { type: 'COPY_CODE', example: ex };
+    }
     const base = (b.urlBase || '').trim();
     if (b.dinamica) {
       return { type: 'URL', text: texto || 'Abrir', url: `${base}{{1}}`, example: [`${base}${b.exemplo?.trim() || 'exemplo'}`] };

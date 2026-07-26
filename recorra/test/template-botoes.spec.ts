@@ -124,7 +124,8 @@ describe('componenteBotoesCriacao — criar template com botões na Meta', () =>
       { tipo: 'COPY_CODE', exemplo: '00020126PIX' },
       { tipo: 'QUICK_REPLY', texto: 'Falar com atendente' },
     ]) as any;
-    expect(c.buttons[0]).toEqual({ type: 'COPY_CODE', example: ['00020126PIX'] });
+    // A Meta exige o example como STRING (não array) e alfanumérico curto.
+    expect(c.buttons[0]).toEqual({ type: 'COPY_CODE', example: '00020126PIX' });
     expect(c.buttons[1]).toEqual({ type: 'QUICK_REPLY', text: 'Falar com atendente' });
   });
 

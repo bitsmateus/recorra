@@ -326,12 +326,12 @@ function TemplateModal({ template, contas, onClose, onSaved }: {
               {botoes.length < 3 && (
                 <div className="flex gap-1">
                   <button type="button" onClick={() => setBotoes((b) => [...b, { tipo: 'URL', texto: 'Ver boleto', urlBase: 'https://www.asaas.com/i/', dinamica: true, exemplo: 'abc123' }])} className="rounded border border-line px-2 py-0.5 text-[11px] hover:bg-canvas">+ Link (boleto)</button>
-                  <button type="button" onClick={() => setBotoes((b) => [...b, { tipo: 'COPY_CODE', exemplo: '00020126BR...' }])} className="rounded border border-line px-2 py-0.5 text-[11px] hover:bg-canvas">+ Copiar Pix</button>
+                  <button type="button" onClick={() => setBotoes((b) => [...b, { tipo: 'COPY_CODE', exemplo: 'PIX12345' }])} className="rounded border border-line px-2 py-0.5 text-[11px] hover:bg-canvas">+ Copiar código</button>
                   <button type="button" onClick={() => setBotoes((b) => [...b, { tipo: 'QUICK_REPLY', texto: 'Falar com atendente' }])} className="rounded border border-line px-2 py-0.5 text-[11px] hover:bg-canvas">+ Resposta</button>
                 </div>
               )}
             </div>
-            {botoes.length === 0 && <p className="text-[11px] text-muted">Sem botões. Adicione &quot;Link&quot; para abrir o boleto e &quot;Copiar Pix&quot; para o cliente copiar o código — depois você liga cada um ao dado do cliente na régua.</p>}
+            {botoes.length === 0 && <p className="text-[11px] text-muted">Sem botões. O mais útil é <b>Link (boleto)</b>: abre a página de pagamento do cliente (com Pix e boleto). Depois você liga o botão ao link do cliente na régua/campanha.</p>}
             <div className="space-y-2">
               {botoes.map((b, i) => {
                 const upd = (patch: Partial<BotaoNovo>) => setBotoes((arr) => arr.map((x, idx) => idx === i ? { ...x, ...patch } : x));
@@ -350,7 +350,10 @@ function TemplateModal({ template, contas, onClose, onSaved }: {
                       </div>
                     )}
                     {b.tipo === 'COPY_CODE' && (
-                      <input value={b.exemplo ?? ''} onChange={(e) => upd({ exemplo: e.target.value })} placeholder="Exemplo do código Pix (só para a revisão da Meta)" className={`${inputCls} text-xs`} />
+                      <div className="space-y-1">
+                        <input value={b.exemplo ?? ''} onChange={(e) => upd({ exemplo: e.target.value.replace(/[^A-Za-z0-9]/g, '').slice(0, 15) })} placeholder="Código de exemplo (só p/ revisão)" maxLength={15} className={`${inputCls} text-xs`} />
+                        <p className="text-[11px] text-[#854F0B]">⚠️ Só cabe código curto (até 15 caracteres). Um <b>Pix copia-e-cola</b> completo NÃO cabe aqui — para Pix, use o botão <b>Link (boleto)</b> (abre a página de pagamento com o Pix) ou deixe o Pix no corpo da mensagem.</p>
+                      </div>
                     )}
                     {b.tipo === 'QUICK_REPLY' && (
                       <input value={b.texto ?? ''} onChange={(e) => upd({ texto: e.target.value })} placeholder="Texto do botão" maxLength={25} className={`${inputCls} text-sm`} />
