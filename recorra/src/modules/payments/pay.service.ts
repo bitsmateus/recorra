@@ -7,6 +7,16 @@ import { verificarPagamento } from './pay-token';
 const brl = (n: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(n);
 const esc = (s: string) =>
   (s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+const COR_PADRAO = '#0f6e56';
+/** Cor hex válida ou o padrão — a cor entra no CSS, então precisa ser segura. */
+const corSegura = (c?: string) => (/^#[0-9a-f]{3}([0-9a-f]{3})?$/i.test((c ?? '').trim()) ? (c as string).trim() : COR_PADRAO);
+/** Só http(s) vira src/href — evita javascript:/data: na página. */
+const urlSegura = (u?: string) => (/^https?:\/\//i.test((u ?? '').trim()) ? (u as string).trim() : null);
+
+/** Site da Recorrai para o selo no rodapé (promoção para o cliente final). */
+const RECORRAI_SITE = 'https://recorrai.com.br';
+
+interface Marca { empresa?: string; cor?: string; logoUrl?: string; assinatura?: string }
 
 /**
  * Página pública de pagamento (`/pay/:token`) — o destino do botão do WhatsApp.
@@ -52,9 +62,12 @@ export class PayService {
 
     const inv = await this.prisma.invoice.findUnique({
       where: { id: invoiceId },
-      include: { customer: { select: { nome: true } }, tenant: { select: { nome: true } } },
+      include: { customer: { select: { nome: true } }, tenant: { select: { nome: true, config: true } } },
     });
     if (!inv) return { status: 404, body: this.pagina('Cobrança não encontrada', '<p>Não encontramos esta cobrança.</p>') };
+
+    const marca = ((inv.tenant?.config as { emailMarca?: Marca } | null)?.emailMarca) ?? {};
+    const cor = corSegura(marca.cor);
 
     // Garante Pix/boleto atualizados (busca no SGP/gateway se ainda não tiver).
     let pix = inv.pixCopiaCola;
@@ -67,12 +80,16 @@ export class PayService {
       boletoLinha = d.boletoLinha ?? boletoLinha;
     } catch { /* segue com o que já tem salvo */ }
 
-    const empresa = esc(inv.tenant?.nome || 'Pagamento');
+    const empresa = esc(marca.empresa || inv.tenant?.nome || 'Pagamento');
+    const logo = urlSegura(marca.logoUrl);
     const nome = esc(inv.customer?.nome?.split(' ')[0] || '');
     const venc = new Date(inv.vencimento).toLocaleDateString('pt-BR', { timeZone: 'UTC' });
 
+    const cabecalho = logo
+      ? `<img class="logo" src="${esc(logo)}" alt="${empresa}">`
+      : `<div class="empresa">${empresa}</div>`;
     const blocos: string[] = [
-      `<div class="head"><div class="empresa">${empresa}</div><div class="valor">${brl(Number(inv.valor))}</div><div class="venc">Vencimento: ${venc}</div></div>`,
+      `<div class="head">${cabecalho}<div class="valor">${brl(Number(inv.valor))}</div><div class="venc">Vencimento: ${venc}</div></div>`,
     ];
     if (pix) {
       const qr = await this.qrSvg(pix);
@@ -96,22 +113,26 @@ export class PayService {
     }
 
     const saudacao = nome ? `<p class="oi">Olá, ${nome}!</p>` : '';
-    return { status: 200, body: this.pagina(`Pagar · ${empresa}`, saudacao + blocos.join('\n')) };
+    const assinatura = marca.assinatura ? `<div class="assinatura">${esc(marca.assinatura)}</div>` : '';
+    // Selo da Recorrai: o cliente final vê quem faz a cobrança rodar (propaganda).
+    const selo = `<div class="selo">Cobrança automatizada por <a href="${RECORRAI_SITE}" target="_blank" rel="noreferrer">Recorrai</a> · régua de cobrança e Pix no WhatsApp</div>`;
+    return { status: 200, body: this.pagina(`Pagar · ${empresa}`, saudacao + blocos.join('\n') + assinatura + selo, cor) };
   }
 
-  private pagina(titulo: string, conteudo: string): string {
+  private pagina(titulo: string, conteudo: string, cor: string = COR_PADRAO): string {
     return `<!doctype html><html lang="pt-BR"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <title>${esc(titulo)}</title>
 <style>
-  :root{color-scheme:light dark}
+  :root{color-scheme:light dark;--cor:${cor}}
   *{box-sizing:border-box}
   body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f3f5f4;color:#1b2320;display:flex;justify-content:center;padding:20px}
   .wrap{width:100%;max-width:440px}
   .head{text-align:center;margin:18px 0 22px}
-  .empresa{font-size:14px;color:#5b6b64;font-weight:600}
-  .valor{font-size:34px;font-weight:800;margin-top:6px}
+  .empresa{font-size:16px;color:var(--cor);font-weight:700}
+  .logo{max-height:56px;max-width:200px;object-fit:contain}
+  .valor{font-size:34px;font-weight:800;margin-top:10px}
   .venc{font-size:13px;color:#5b6b64;margin-top:2px}
   .oi{text-align:center;color:#5b6b64;margin:0 0 14px}
   .card{background:#fff;border:1px solid #e3e8e6;border-radius:12px;padding:14px;margin-bottom:12px}
@@ -120,9 +141,12 @@ export class PayService {
   .qr svg{display:block;width:100%;height:auto}
   textarea{width:100%;min-height:74px;resize:none;border:1px solid #e3e8e6;border-radius:8px;padding:10px;font-family:ui-monospace,monospace;font-size:12px;background:#fafbfb;color:#1b2320}
   .btn{display:block;width:100%;text-align:center;text-decoration:none;border:1px solid #d7dedb;border-radius:10px;padding:13px;font-size:15px;font-weight:600;color:#1b2320;background:#fff;margin-top:10px;cursor:pointer}
-  .btn.primary{background:#0f6e56;border-color:#0f6e56;color:#fff}
-  .ok{display:none;text-align:center;color:#0f6e56;font-size:13px;margin-top:8px}
-  @media (prefers-color-scheme:dark){body{background:#0f1512;color:#e8ecea}.card{background:#161d1a;border-color:#232c28}textarea{background:#0f1512;color:#e8ecea;border-color:#232c28}.btn{background:#161d1a;color:#e8ecea;border-color:#232c28}}
+  .btn.primary{background:var(--cor);border-color:var(--cor);color:#fff}
+  .ok{display:none;text-align:center;color:var(--cor);font-size:13px;margin-top:8px}
+  .assinatura{text-align:center;color:#5b6b64;font-size:12px;margin-top:16px;white-space:pre-line}
+  .selo{text-align:center;color:#8a978f;font-size:11px;margin-top:22px;padding-top:14px;border-top:1px solid #e3e8e6}
+  .selo a{color:var(--cor);font-weight:600;text-decoration:none}
+  @media (prefers-color-scheme:dark){body{background:#0f1512;color:#e8ecea}.card{background:#161d1a;border-color:#232c28}textarea{background:#0f1512;color:#e8ecea;border-color:#232c28}.btn{background:#161d1a;color:#e8ecea;border-color:#232c28}.selo{border-color:#232c28}}
 </style></head><body><div class="wrap">${conteudo}</div>
 <script>
   function copiar(){var t=document.getElementById('pix');if(!t)return;t.select();t.setSelectionRange(0,99999);
