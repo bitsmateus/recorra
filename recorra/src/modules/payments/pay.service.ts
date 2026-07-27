@@ -101,7 +101,7 @@ export class PayService {
           <div class="rot">Pague com Pix — escaneie o QR ou copie o código</div>
           ${qr ? `<div class="qr">${qr}</div>` : ''}
           <textarea id="pix" readonly>${esc(pix)}</textarea>
-          <button id="btnpix" class="btn primary" onclick="copiar()">Copiar código Pix</button>
+          <button id="btnpix" class="btn primary" type="button">Copiar código Pix</button>
           <div id="ok" class="ok">Código copiado! Cole no app do seu banco.</div>
         </div>`);
     }
@@ -168,6 +168,7 @@ export class PayService {
       navigator.clipboard.writeText(texto).then(ok, manual);
     } else { manual(); }
   }
+  (function(){var b=document.getElementById('btnpix'); if(b) b.addEventListener('click', copiar);})();
 </script></body></html>`;
   }
 }
