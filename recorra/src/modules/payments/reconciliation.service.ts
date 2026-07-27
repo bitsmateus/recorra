@@ -49,30 +49,69 @@ export class ReconciliationService {
   async reconcileTenant(tenantId: string) {
     const abertas = await this.prisma.invoice.findMany({
       where: { tenantId, status: { in: ['PENDENTE', 'VENCIDA'] }, externalId: { not: null }, providerAccountId: { not: null } },
-      take: 300,
+      orderBy: { vencimento: 'asc' },
     });
+    if (!abertas.length) return { verificadas: 0, baixadas: 0 };
 
-    // Cache do provider por conta: evita decifrar credenciais a cada fatura.
-    const providers = new Map<string, Awaited<ReturnType<typeof this.factory.forAccount>>>();
-    let baixadas = 0;
+    // Agrupa por conta de gateway: dá para resolver a conta inteira de uma vez.
+    const porConta = new Map<string, typeof abertas>();
     for (const inv of abertas) {
-      try {
-        let provider = providers.get(inv.providerAccountId!);
-        if (!provider) { provider = await this.factory.forAccount(inv.providerAccountId!); providers.set(inv.providerAccountId!, provider); }
-        const st = await this.statusComRetry(provider, inv.externalId!);
-        if (!st) continue; // rate limit persistente: tenta de novo na próxima rodada
-        if (st.status === 'PAGA') {
-          if (await this.baixar(tenantId, inv.id, inv.customerId, undefined, st.pagoEm)) baixadas++;
-        } else if (st.status === 'VENCIDA' && inv.status !== 'VENCIDA') {
-          await this.prisma.invoice.update({ where: { id: inv.id }, data: { status: 'VENCIDA' } });
-        }
-      } catch (e) {
-        this.logger.warn(`Falha ao conciliar fatura ${inv.id}: ${String(e)}`);
-      }
-      // Pausa entre consultas para não estourar o rate limit do gateway.
-      await this.sleep(250);
+      const k = inv.providerAccountId!;
+      const arr = porConta.get(k);
+      if (arr) arr.push(inv); else porConta.set(k, [inv]);
     }
-    return { verificadas: abertas.length, baixadas };
+
+    let verificadas = 0;
+    let baixadas = 0;
+    for (const [accountId, invs] of porConta) {
+      let provider: Awaited<ReturnType<typeof this.factory.forAccount>>;
+      try {
+        provider = await this.factory.forAccount(accountId);
+      } catch (e) {
+        this.logger.warn(`Conta ${accountId} indisponível na conciliação: ${String(e)}`);
+        continue;
+      }
+
+      // Caminho rápido: se o gateway lista pagamentos em lote, busca TODOS de uma vez e
+      // casa por id. Cobre todas as faturas (antes só as primeiras 300 eram checadas — as
+      // pagas fora desse recorte nunca eram baixadas).
+      if (provider.listPayments) {
+        let pagamentos: Awaited<ReturnType<NonNullable<typeof provider.listPayments>>> | null = null;
+        try {
+          pagamentos = await provider.listPayments();
+        } catch (e) {
+          this.logger.warn(`listPayments falhou (conta ${accountId}): ${String(e)}`);
+        }
+        if (pagamentos) {
+          const mapa = new Map(pagamentos.map((p) => [p.externalId, p]));
+          for (const inv of invs) {
+            verificadas++;
+            const p = mapa.get(inv.externalId!);
+            if (p && p.status === 'PAGA' && (await this.baixar(tenantId, inv.id, inv.customerId, undefined, p.pagoEm))) baixadas++;
+          }
+          continue; // conta resolvida em lote
+        }
+      }
+
+      // Fallback (gateway sem listagem em lote): uma consulta por fatura, com tolerância
+      // a 429. Limita a 300 por rodada para não travar a requisição.
+      for (const inv of invs.slice(0, 300)) {
+        verificadas++;
+        try {
+          const st = await this.statusComRetry(provider, inv.externalId!);
+          if (!st) continue;
+          if (st.status === 'PAGA') {
+            if (await this.baixar(tenantId, inv.id, inv.customerId, undefined, st.pagoEm)) baixadas++;
+          } else if (st.status === 'VENCIDA' && inv.status !== 'VENCIDA') {
+            await this.prisma.invoice.update({ where: { id: inv.id }, data: { status: 'VENCIDA' } });
+          }
+        } catch (e) {
+          this.logger.warn(`Falha ao conciliar fatura ${inv.id}: ${String(e)}`);
+        }
+        await this.sleep(250);
+      }
+    }
+    return { verificadas, baixadas };
   }
 
   /** Baixa + pausa régua + confirmação (mesma lógica do webhook). */
