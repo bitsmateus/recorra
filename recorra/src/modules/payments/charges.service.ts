@@ -638,6 +638,28 @@ export class ChargesService {
    * Percorre uma a uma (em vez de deleteMany) para gerar auditoria por fatura.
    * Uma falha isolada não derruba o lote: entra em `erros` e as demais seguem.
    */
+  /**
+   * Marca em lote como CANCELADA (não exclui — preserva o histórico). Usado quando a
+   * conciliação detecta que a cobrança sumiu do gateway (foi cancelada lá). Só afeta
+   * as faturas em aberto (PENDENTE/VENCIDA) do tenant; limpa Pix/boleto.
+   */
+  async cancelarLote(tenantId: string, ids: string[]) {
+    const alvo = [...new Set(ids)].filter(Boolean);
+    if (!alvo.length) return { canceladas: 0 };
+    const r = await this.prisma.invoice.updateMany({
+      where: { id: { in: alvo }, tenantId, status: { in: ['PENDENTE', 'VENCIDA'] } },
+      data: { status: 'CANCELADA', pixCopiaCola: null, boletoLinha: null, boletoUrl: null, linkPagamento: null },
+    });
+    // Segura mensagens ainda na fila dessas faturas — não faz sentido cobrar cancelada.
+    if (r.count) {
+      await this.prisma.messageDispatch.updateMany({
+        where: { tenantId, invoiceId: { in: alvo }, status: 'FILA' },
+        data: { status: 'IGNORADO', erro: 'Cobrança cancelada (sumiu do gateway)' },
+      });
+    }
+    return { canceladas: r.count };
+  }
+
   async removeMany(tenantId: string, ids: string[], actorId?: string) {
     const alvo = [...new Set(ids)].filter(Boolean);
     const out = { total: alvo.length, excluidas: 0, erros: [] as { id: string; erro: string }[] };

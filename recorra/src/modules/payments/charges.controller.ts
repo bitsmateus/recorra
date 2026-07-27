@@ -81,6 +81,13 @@ export class ChargesController {
     return this.charges.removeMany(tenantId, invoiceIds ?? [], actor.id);
   }
 
+  /** Cancela em lote as cobranças que sumiram do gateway (detectadas na conciliação). */
+  @Post('cancelar-lote')
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
+  cancelarLote(@TenantId() tenantId: string, @Body('invoiceIds') invoiceIds?: string[]) {
+    return this.charges.cancelarLote(tenantId, invoiceIds ?? []);
+  }
+
   @Post(':invoiceId/gerar')
   @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
   gerar(

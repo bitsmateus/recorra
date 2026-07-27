@@ -122,6 +122,19 @@ export default function CobrancasPage() {
   const [filtros, setFiltros] = useState(() => ({ ...emptyFiltros, ...mesAtualISO() }));
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
+  const [sumidas, setSumidas] = useState<string[]>([]); // ids que sumiram do gateway (conciliação)
+
+  async function cancelarSumidas() {
+    if (!sumidas.length) return;
+    setBusy(true);
+    try {
+      const r = await api<{ canceladas: number }>('/cobrancas/cancelar-lote', { method: 'POST', body: { invoiceIds: sumidas } });
+      setMsg(`✓ ${r.canceladas} cobrança(s) cancelada(s) (sumiram do gateway).`);
+      setSumidas([]);
+      load();
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro ao cancelar'); }
+    setBusy(false);
+  }
   const [editar, setEditar] = useState<Invoice | null>(null);
   const [excluir, setExcluir] = useState<Invoice | null>(null);
   const [confirmarImport, setConfirmarImport] = useState(false);
@@ -201,12 +214,13 @@ export default function CobrancasPage() {
   async function conciliarPagamentos() {
     setBusy(true); setMsg('Verificando pagamentos no gateway...');
     try {
-      const r = await api<{ verificadas: number; baixadas: number; naoEncontradas?: number; exemplos?: { nome: string; valor: number; vencimento: string }[] }>('/cobrancas/conciliar', { method: 'POST' });
+      const r = await api<{ verificadas: number; baixadas: number; naoEncontradas?: number; exemplos?: { nome: string; valor: number; vencimento: string }[]; naoEncontradasIds?: string[] }>('/cobrancas/conciliar', { method: 'POST' });
       if (r.baixadas > 0) setMsg(`✓ ${r.baixadas} cobrança(s) baixada(s) como Paga (de ${r.verificadas} verificadas).`);
       else if (r.naoEncontradas && r.naoEncontradas > 0) {
         const lista = (r.exemplos ?? []).map((e) => `${e.nome} (${brl(Number(e.valor))})`).join(', ');
-        setMsg(`⚠️ Nenhuma baixada. As demais o gateway confirma em aberto. Mas ${r.naoEncontradas} cobrança(s) NÃO existem no gateway (id divergente): ${lista}. Confira essas no Asaas.`);
-      } else setMsg(`✓ Nada a atualizar — o gateway confirma as ${r.verificadas} cobrança(s) ainda em aberto (as pagas já foram baixadas).`);
+        setMsg(`⚠️ Nenhuma baixada. As demais o gateway confirma em aberto. Mas ${r.naoEncontradas} cobrança(s) NÃO existem no gateway (canceladas/apagadas lá): ${lista}.`);
+        setSumidas(r.naoEncontradasIds ?? []);
+      } else { setMsg(`✓ Nada a atualizar — o gateway confirma as ${r.verificadas} cobrança(s) ainda em aberto (as pagas já foram baixadas).`); setSumidas([]); }
       load();
     } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro ao conciliar'); }
     setBusy(false);
@@ -346,20 +360,27 @@ export default function CobrancasPage() {
             </span>
           </span>
         </div>
-        {msg && <span className="text-sm text-primary">{msg}</span>}
+        {msg && (
+          <span className="flex flex-wrap items-center gap-2 text-sm text-primary">
+            {msg}
+            {sumidas.length > 0 && (
+              <button onClick={cancelarSumidas} disabled={busy} className="rounded bg-danger px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-60">Cancelar essas {sumidas.length} aqui também</button>
+            )}
+          </span>
+        )}
       </div>
 
-      <div className="mb-4 rounded-lg border border-line bg-surface p-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+      <div className="relative mb-4 rounded-lg border border-line bg-surface p-4 pb-[4.5rem]">
+        <div className="mb-3">
           <h2 className="text-sm font-semibold text-ink">Situação das cobranças</h2>
-          <div className="flex items-center gap-2">
+          <div className="absolute bottom-4 left-4 flex items-center gap-2">
             {/* Período (com Personalizado) */}
             <div className="relative">
               <button onClick={() => { setMenuPeriodo((v) => !v); setMenuFiltros(false); }} className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium transition ${menuPeriodo ? 'border-primary bg-primary-tint text-primary' : 'border-primary/40 text-primary hover:bg-primary-tint'}`}><CalendarDays size={14} /> {periodoLabel[periodoAtual]} <ChevronDown size={14} /></button>
               {menuPeriodo && (
                 <>
                   <div className="fixed inset-0 z-10" onClick={() => setMenuPeriodo(false)} />
-                  <div className="absolute right-0 z-20 mt-1 w-72 rounded-lg border border-line bg-surface p-2 shadow-lg">
+                  <div className="absolute left-0 z-20 mt-1 w-72 rounded-lg border border-line bg-surface p-2 shadow-lg">
                     {([['hoje', 'Hoje'], ['mes', 'Este mês'], ['ano', 'Este ano'], ['tudo', 'Desde o início']] as const).map(([k, label]) => (
                       <button key={k} onClick={() => { aplicarPeriodo(k); setMenuPeriodo(false); }} className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-primary-tint">
                         <span className={`inline-block h-3.5 w-3.5 shrink-0 rounded-full border-2 ${periodoAtual === k ? 'border-4 border-primary' : 'border-line'}`} />
@@ -387,7 +408,7 @@ export default function CobrancasPage() {
               {menuFiltros && (
                 <>
                   <div className="fixed inset-0 z-10" onClick={() => setMenuFiltros(false)} />
-                  <div className="absolute right-0 z-20 mt-1 w-[min(92vw,30rem)] rounded-lg border border-line bg-surface p-4 shadow-lg">
+                  <div className="absolute left-0 z-20 mt-1 w-[min(92vw,30rem)] rounded-lg border border-line bg-surface p-4 shadow-lg">
                     <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                       <input placeholder="Cliente / CPF" value={filtros.q} onChange={(e) => setF('q', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary sm:col-span-2" />
                       <select value={filtros.status} onChange={(e) => setF('status', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">

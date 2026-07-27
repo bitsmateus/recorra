@@ -52,7 +52,7 @@ export class ReconciliationService {
       orderBy: { vencimento: 'asc' },
       include: { customer: { select: { nome: true } } },
     });
-    if (!abertas.length) return { verificadas: 0, baixadas: 0, naoEncontradas: 0, exemplos: [] };
+    if (!abertas.length) return { verificadas: 0, baixadas: 0, naoEncontradas: 0, exemplos: [], naoEncontradasIds: [] };
 
     // Agrupa por conta de gateway: dá para resolver a conta inteira de uma vez.
     const porConta = new Map<string, typeof abertas>();
@@ -66,6 +66,7 @@ export class ReconciliationService {
     let baixadas = 0;
     let naoEncontradas = 0; // faturas cujo id não existe na lista do gateway (id divergente)
     const exemplos: { nome: string; valor: number; vencimento: Date }[] = []; // as "não encontradas", para o usuário conferir
+    const naoEncontradasIds: string[] = []; // ids das que sumiram do gateway (para cancelar em lote)
     for (const [accountId, invs] of porConta) {
       let provider: Awaited<ReturnType<typeof this.factory.forAccount>>;
       try {
@@ -93,6 +94,7 @@ export class ReconciliationService {
             const p = mapa.get(inv.externalId!);
             if (!p) {
               naoEncontradas++;
+              naoEncontradasIds.push(inv.id);
               if (semMatch.length < 8) semMatch.push(inv.externalId!);
               if (exemplos.length < 10) exemplos.push({ nome: (inv as { customer?: { nome?: string } }).customer?.nome ?? '—', valor: Number(inv.valor), vencimento: inv.vencimento });
               continue;
@@ -122,7 +124,7 @@ export class ReconciliationService {
         await this.sleep(250);
       }
     }
-    return { verificadas, baixadas, naoEncontradas, exemplos };
+    return { verificadas, baixadas, naoEncontradas, exemplos, naoEncontradasIds };
   }
 
   /** Baixa + pausa régua + confirmação (mesma lógica do webhook). */
