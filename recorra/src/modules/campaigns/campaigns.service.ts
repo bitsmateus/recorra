@@ -19,6 +19,13 @@ function emLotes<T>(items: T[], tamanho = 2000): T[][] {
   return lotes;
 }
 
+/**
+ * Marcador em `excluirIds` que zera a base do público: quando presente, nenhum
+ * cliente entra pelos filtros e só os `incluirIds` (adicionados manualmente)
+ * recebem. Não é um id válido (cuid), então nunca colide com um cliente real.
+ */
+export const PUBLICO_VAZIO = '*';
+
 /** Conjunto de filtros de público — compartilhado por prévia, campanha e segmento. */
 export interface PublicoFiltros {
   filtroTodos?: boolean;
@@ -426,6 +433,12 @@ export class CampaignsService {
     delaySegundos?: number;
   incluirIds?: string[]; excluirIds?: string[];
   }) {
+    // "Desmarcar todos": o marcador PUBLICO_VAZIO em excluirIds zera a base — só os
+    // contatos adicionados manualmente (incluirIds) recebem. Evita uma coluna nova no
+    // schema e persiste no próprio String[] já existente.
+    const excl = new Set(camp.excluirIds ?? []);
+    const baseVazia = excl.has(PUBLICO_VAZIO);
+
     const where: Prisma.CustomerWhereInput = { tenantId, ativo: true };
     if (!camp.filtroTodos) {
       if (camp.filtroEtiqueta) where.tags = { has: camp.filtroEtiqueta.toLowerCase() };
@@ -453,21 +466,22 @@ export class CampaignsService {
     // Lê todo o público em páginas por cursor. Não pode haver `take` global aqui:
     // um corte silencioso faria campanhas grandes deixarem clientes aptos de fora.
     const customers: Customer[] = [];
-    const PAGE_SIZE = 2000;
-    let cursor: string | undefined;
-    while (true) {
-      const page = await this.prisma.customer.findMany({
-        where,
-        orderBy: { id: 'asc' },
-        take: PAGE_SIZE,
-        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-      });
-      customers.push(...page);
-      if (page.length < PAGE_SIZE) break;
-      cursor = page[page.length - 1].id;
+    if (!baseVazia) {
+      const PAGE_SIZE = 2000;
+      let cursor: string | undefined;
+      while (true) {
+        const page = await this.prisma.customer.findMany({
+          where,
+          orderBy: { id: 'asc' },
+          take: PAGE_SIZE,
+          ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        });
+        customers.push(...page);
+        if (page.length < PAGE_SIZE) break;
+        cursor = page[page.length - 1].id;
+      }
     }
     // Remove os excluídos manualmente e adiciona os incluídos manualmente.
-    const excl = new Set(camp.excluirIds ?? []);
     let publico = customers.filter((c) => !excl.has(c.id));
     const jaTem = new Set(publico.map((c) => c.id));
     const faltantes = (camp.incluirIds ?? []).filter((id) => !jaTem.has(id) && !excl.has(id));

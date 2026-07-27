@@ -8,6 +8,9 @@ import { PageTitle, brl } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { PreviewButton } from '@/components/MessagePreview';
 
+/** Marcador em excluirIds que zera a base do público (só recebem os adicionados à mão). Espelha PUBLICO_VAZIO do backend. */
+const PUBLICO_VAZIO = '*';
+
 interface Regua { id: string; nome: string; steps?: { canal: string }[] }
 interface ModeloEmail { id: string; nome: string; assunto: string; corpo: string }
 interface Etiqueta { nome: string }
@@ -897,7 +900,14 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
           <p className="mt-1 text-xs text-muted">0 = envia o mais rápido possível.</p>
         </div>
 
-        {verContatos && <ContatosModal publico={publico} onRemover={(id) => { setExcluir((p) => [...new Set([...p, id])]); setIncluir((p) => p.filter((x) => x !== id)); }} onAdicionar={(id) => { setIncluir((p) => [...new Set([...p, id])]); setExcluir((p) => p.filter((x) => x !== id)); }} onClose={() => setVerContatos(false)} />}
+        {verContatos && <ContatosModal
+          publico={publico}
+          somenteManuais={excluir.includes(PUBLICO_VAZIO)}
+          onRemover={(id) => { setExcluir((p) => [...new Set([...p, id])]); setIncluir((p) => p.filter((x) => x !== id)); }}
+          onAdicionar={(id) => { setIncluir((p) => [...new Set([...p, id])]); setExcluir((p) => p.filter((x) => x !== id)); }}
+          onLimparTodos={() => { setExcluir([PUBLICO_VAZIO]); setIncluir([]); }}
+          onRestaurar={() => { setExcluir((p) => p.filter((x) => x !== PUBLICO_VAZIO)); }}
+          onClose={() => setVerContatos(false)} />}
         {msg && <p className="mb-2 text-sm text-danger">{msg}</p>}
         <div className="flex justify-end gap-2">
           <button onClick={onClose} className="rounded border border-line px-4 py-2 text-sm hover:bg-canvas">Cancelar</button>
@@ -980,7 +990,7 @@ function RevisaoDisparoModal({ campanha, onConfirm, onClose }: { campanha: Campa
 const FAIXA_LABEL: Record<string, string> = { BOM: 'Bom pagador', ATENCAO: 'Atenção', RISCO: 'Risco' };
 const situacaoBadge: Record<string, string> = { VENCIDA: 'bg-danger-tint text-[#A32D2D]', PENDENTE: 'bg-warning-tint text-[#854F0B]' };
 
-function ContatosModal({ publico, onRemover, onAdicionar, onClose }: { publico: PublicoPreview | null; onRemover: (id: string) => void; onAdicionar: (id: string) => void; onClose: () => void }) {
+function ContatosModal({ publico, somenteManuais, onRemover, onAdicionar, onLimparTodos, onRestaurar, onClose }: { publico: PublicoPreview | null; somenteManuais: boolean; onRemover: (id: string) => void; onAdicionar: (id: string) => void; onLimparTodos: () => void; onRestaurar: () => void; onClose: () => void }) {
   const [busca, setBusca] = useState('');
   const [resultado, setResultado] = useState<{ id: string; nome: string; doc: string }[]>([]);
   const [q, setQ] = useState('');
@@ -989,7 +999,10 @@ function ContatosModal({ publico, onRemover, onAdicionar, onClose }: { publico: 
   useEffect(() => {
     const t = setTimeout(() => {
       if (!busca.trim()) { setResultado([]); return; }
-      api<{ id: string; nome: string; doc: string }[]>(`/clientes?q=${encodeURIComponent(busca)}`).then((l) => setResultado(l.slice(0, 15))).catch(() => setResultado([]));
+      // /clientes é paginado: { items, total, ... }, não um array cru.
+      api<{ items: { id: string; nome: string; doc: string }[] }>(`/clientes?q=${encodeURIComponent(busca)}&pageSize=15`)
+        .then((r) => setResultado(r.items ?? []))
+        .catch(() => setResultado([]));
     }, 250);
     return () => clearTimeout(t);
   }, [busca]);
@@ -998,12 +1011,13 @@ function ContatosModal({ publico, onRemover, onAdicionar, onClose }: { publico: 
   const excluidos = publico?.excluidos ?? [];
   const idsAtuais = new Set(participantes.map((c) => c.id));
   const filtrados = participantes.filter((c) => !q || c.nome.toLowerCase().includes(q.toLowerCase()) || c.doc.includes(q));
+  const total = publico?.resumo.participantes ?? 0;
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="flex max-h-[88vh] w-full max-w-2xl flex-col rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+      <div className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
         <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-base font-semibold text-ink">Quem vai receber <span className="text-sm font-normal text-muted">({publico?.resumo.participantes ?? 0})</span></h3>
+          <h3 className="text-base font-semibold text-ink">Quem vai receber <span className="text-sm font-normal text-muted">({total})</span></h3>
           <button onClick={onClose} className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>
         </div>
 
@@ -1026,26 +1040,39 @@ function ContatosModal({ publico, onRemover, onAdicionar, onClose }: { publico: 
           )}
         </div>
 
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filtrar a lista abaixo" className="mb-2 w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
-        <div className="flex-1 overflow-auto rounded-lg border border-line">
-          <div className="w-full overflow-x-auto"><table className="w-full min-w-[720px] text-sm">
+        {somenteManuais ? (
+          <div className="mb-2 flex items-center justify-between gap-2 rounded-lg border border-primary/30 bg-primary-tint px-3 py-2 text-sm">
+            <span className="text-ink">Lista limpa — só quem você adicionar acima vai receber.</span>
+            <button onClick={onRestaurar} className="shrink-0 whitespace-nowrap text-xs font-medium text-primary hover:underline">voltar aos filtros</button>
+          </div>
+        ) : (
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filtrar a lista abaixo" className="w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+            {total > 0 && <button onClick={onLimparTodos} className="shrink-0 whitespace-nowrap rounded border border-line px-3 py-2 text-xs font-medium text-muted hover:bg-canvas hover:text-danger" title="Remove todos e deixa só os que você adicionar à mão">Desmarcar todos</button>}
+          </div>
+        )}
+
+        <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-line">
+          <table className="w-full table-fixed text-sm">
             <thead className="sticky top-0 border-b border-line bg-canvas text-left text-xs uppercase text-muted">
-              <tr><th className="px-3 py-2 font-medium">Cliente</th><th className="px-3 py-2 font-medium">Situação</th><th className="px-3 py-2 font-medium">Em aberto</th><th className="px-3 py-2 font-medium">Risco</th><th className="px-3 py-2 font-medium">Motivo</th><th className="px-3 py-2"></th></tr>
+              <tr><th className="px-3 py-2 font-medium">Cliente</th><th className="w-24 px-2 py-2 font-medium">Situação</th><th className="w-28 px-2 py-2 text-right font-medium">Em aberto</th><th className="w-10 px-2 py-2"></th></tr>
             </thead>
             <tbody>
               {filtrados.map((c) => (
                 <tr key={c.id} className="border-b border-line last:border-0">
-                  <td className="px-3 py-2"><span className="text-ink">{c.nome}</span><br /><span className="tabular text-xs text-muted">{c.doc}</span></td>
-                  <td className="px-3 py-2">{c.situacao ? <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${situacaoBadge[c.situacao] || 'bg-canvas text-muted'}`}>{c.situacao}</span> : <span className="text-muted">—</span>}</td>
-                  <td className="tabular px-3 py-2 text-muted">{c.valorAberto > 0 ? brl(c.valorAberto) : '—'}</td>
-                  <td className="px-3 py-2 text-muted">{c.faixa ? FAIXA_LABEL[c.faixa] || c.faixa : '—'}</td>
-                  <td className="px-3 py-2 text-xs text-muted">{c.motivo}</td>
-                  <td className="px-3 py-2 text-right"><button onClick={() => onRemover(c.id)} title="Remover do público" className="rounded p-1 text-muted hover:bg-danger-tint hover:text-danger"><Trash2 size={14} /></button></td>
+                  <td className="px-3 py-2">
+                    <span className="text-ink">{c.nome}</span>
+                    {c.motivo === 'Adicionado manualmente' && <span className="ml-1 rounded bg-primary-tint px-1 py-0.5 text-[10px] font-medium text-primary">manual</span>}
+                    <br /><span className="tabular text-xs text-muted">{c.doc}{c.faixa ? ` · ${FAIXA_LABEL[c.faixa] || c.faixa}` : ''}</span>
+                  </td>
+                  <td className="px-2 py-2">{c.situacao ? <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${situacaoBadge[c.situacao] || 'bg-canvas text-muted'}`}>{c.situacao}</span> : <span className="text-muted">—</span>}</td>
+                  <td className="tabular px-2 py-2 text-right text-muted">{c.valorAberto > 0 ? brl(c.valorAberto) : '—'}</td>
+                  <td className="px-2 py-2 text-right"><button onClick={() => onRemover(c.id)} title="Remover do público" className="rounded p-1 text-muted hover:bg-danger-tint hover:text-danger"><Trash2 size={14} /></button></td>
                 </tr>
               ))}
-              {filtrados.length === 0 && <tr><td colSpan={6} className="px-3 py-4 text-center text-muted">{publico ? 'Nenhum participante.' : 'Carregando...'}</td></tr>}
+              {filtrados.length === 0 && <tr><td colSpan={4} className="px-3 py-4 text-center text-muted">{publico ? (somenteManuais ? 'Ninguém ainda — use a busca acima para adicionar.' : 'Nenhum participante.') : 'Carregando...'}</td></tr>}
             </tbody>
-          </table></div>
+          </table>
         </div>
         {publico?.resumo.participantesTruncados && <p className="mt-1 text-xs text-muted">Mostrando os primeiros {publico.resumo.limiteExibicao ?? 300} de {publico.resumo.participantes} que recebem. O envio atinge todos.</p>}
 
