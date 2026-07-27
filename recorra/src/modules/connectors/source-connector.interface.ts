@@ -4,12 +4,24 @@
  * dia (borda UTC), não pelo instante atual. Data inválida → não classifica como
  * vencida (evita marcar tudo por um campo faltante do ERP).
  */
-export function venceuAntesDeHoje(vencimento: Date): boolean {
+/**
+ * Vencimento efetivo com carência de fim de semana: boleto/Pix que vence em sábado
+ * ou domingo pode ser pago no próximo dia útil, então "empurra" para a segunda. Não
+ * cobre feriados (exigiria um calendário nacional/municipal). É o mesmo que o Asaas
+ * faz: a cobrança fica "aguardando" até o dia útil, não "vencida".
+ */
+function vencimentoEfetivoUtc(vencimento: Date): number {
+  const dt = new Date(Date.UTC(vencimento.getUTCFullYear(), vencimento.getUTCMonth(), vencimento.getUTCDate()));
+  const dow = dt.getUTCDay(); // 0=domingo, 6=sábado
+  if (dow === 6) dt.setUTCDate(dt.getUTCDate() + 2);
+  else if (dow === 0) dt.setUTCDate(dt.getUTCDate() + 1);
+  return dt.getTime();
+}
+
+export function venceuAntesDeHoje(vencimento: Date, hoje: Date = new Date()): boolean {
   if (Number.isNaN(vencimento.getTime())) return false;
-  const h = new Date();
-  const hojeUtc = Date.UTC(h.getUTCFullYear(), h.getUTCMonth(), h.getUTCDate());
-  const vUtc = Date.UTC(vencimento.getUTCFullYear(), vencimento.getUTCMonth(), vencimento.getUTCDate());
-  return vUtc < hojeUtc;
+  const hojeUtc = Date.UTC(hoje.getUTCFullYear(), hoje.getUTCMonth(), hoje.getUTCDate());
+  return vencimentoEfetivoUtc(vencimento) < hojeUtc;
 }
 
 /** Cliente normalizado vindo de um sistema de origem (ERP). */

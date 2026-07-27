@@ -5,6 +5,7 @@ import {
   SourceCustomer,
   SourceInvoice,
   SourceCredentials,
+  venceuAntesDeHoje,
 } from '../source-connector.interface';
 import { onlyDigits, normalizePhoneBR } from '@/common/util/normalize';
 
@@ -80,7 +81,7 @@ export class HubsoftConnector implements SourceConnector {
       customerExternalId: String(r.id_cliente),
       valor: Number(r.valor ?? r.valor_total ?? 0),
       vencimento: new Date(r.data_vencimento),
-      status: r.pago || r.status === 'pago' ? 'PAGA' : new Date(r.data_vencimento) < new Date() ? 'VENCIDA' : 'PENDENTE',
+      status: r.pago || r.status === 'pago' ? 'PAGA' : venceuAntesDeHoje(new Date(r.data_vencimento)) ? 'VENCIDA' : 'PENDENTE',
       pixCopiaCola: r.pix_copia_cola ?? r.codigo_pix ?? undefined,
       boletoLinha: r.linha_digitavel ?? undefined,
       boletoUrl: r.link_boleto ?? r.url ?? undefined,

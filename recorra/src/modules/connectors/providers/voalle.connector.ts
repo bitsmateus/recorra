@@ -5,6 +5,7 @@ import {
   SourceCustomer,
   SourceInvoice,
   SourceCredentials,
+  venceuAntesDeHoje,
 } from '../source-connector.interface';
 import { onlyDigits, normalizePhoneBR } from '@/common/util/normalize';
 
@@ -74,7 +75,7 @@ export class VoalleConnector implements SourceConnector {
       customerExternalId: String(r.personId ?? r.customerId),
       valor: Number(r.value ?? r.amount ?? 0),
       vencimento: new Date(r.dueDate),
-      status: r.paid ? 'PAGA' : new Date(r.dueDate) < new Date() ? 'VENCIDA' : 'PENDENTE',
+      status: r.paid ? 'PAGA' : venceuAntesDeHoje(new Date(r.dueDate)) ? 'VENCIDA' : 'PENDENTE',
       pixCopiaCola: r.pixEmv ?? r.pixCopiaCola ?? undefined,
       boletoLinha: r.digitableLine ?? undefined,
       boletoUrl: r.bankSlipUrl ?? undefined,

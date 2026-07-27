@@ -8,6 +8,7 @@ import { ReconciliationService } from '@/modules/payments/reconciliation.service
 import { ChargesService } from '@/modules/payments/charges.service';
 import { BillingSaasService } from '@/modules/platform/billing-saas.service';
 import { DispatchQueue } from '@/queue/dispatch-queue';
+import { venceuAntesDeHoje } from '@/modules/connectors/source-connector.interface';
 import { CampaignsService } from '@/modules/campaigns/campaigns.service';
 import { SyncService } from '@/modules/connectors/sync.service';
 
@@ -47,11 +48,17 @@ export class SchedulerService implements OnApplicationBootstrap {
     try {
       const n = new Date();
       const hojeUtc = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate()));
-      const r = await this.prisma.invoice.updateMany({
+      // Candidatas: PENDENTE cujo vencimento já passou. Filtra pela carência de fim de
+      // semana (venc. em sáb/dom só vence depois do próximo dia útil — igual ao Asaas).
+      const candidatas = await this.prisma.invoice.findMany({
         where: { status: 'PENDENTE', vencimento: { lt: hojeUtc } },
-        data: { status: 'VENCIDA' },
+        select: { id: true, vencimento: true },
       });
-      if (r.count > 0) this.logger.log(`Faturas marcadas como vencidas: ${r.count}`);
+      const ids = candidatas.filter((c) => venceuAntesDeHoje(c.vencimento, n)).map((c) => c.id);
+      if (ids.length) {
+        const r = await this.prisma.invoice.updateMany({ where: { id: { in: ids } }, data: { status: 'VENCIDA' } });
+        this.logger.log(`Faturas marcadas como vencidas: ${r.count}`);
+      }
     } catch (e) {
       this.logger.error(`Falha ao marcar vencidas: ${String(e)}`);
     }

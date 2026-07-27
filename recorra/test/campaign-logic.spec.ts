@@ -28,24 +28,25 @@ describe('proximaExecucao (recorrência de campanha)', () => {
 });
 
 describe('venceuAntesDeHoje (borda de vencimento do ERP)', () => {
-  const hojeUtc = () => { const h = new Date(); return new Date(Date.UTC(h.getUTCFullYear(), h.getUTCMonth(), h.getUTCDate())); };
+  // Datas fixas em dias ÚTEIS para não depender do dia da semana em que o teste roda
+  // (a carência de fim de semana é testada em vencida-carencia.spec.ts).
+  const hoje = new Date('2026-07-22T00:00:00Z'); // quarta-feira
+  const d = (s: string) => new Date(s + 'T00:00:00Z');
 
   it('vence HOJE ainda é pendente (não vencida)', () => {
-    expect(venceuAntesDeHoje(hojeUtc())).toBe(false);
+    expect(venceuAntesDeHoje(d('2026-07-22'), hoje)).toBe(false);
   });
 
-  it('venceu ontem → vencida', () => {
-    const ontem = new Date(hojeUtc().getTime() - 86400000);
-    expect(venceuAntesDeHoje(ontem)).toBe(true);
+  it('venceu ontem (dia útil) → vencida', () => {
+    expect(venceuAntesDeHoje(d('2026-07-21'), hoje)).toBe(true); // terça
   });
 
   it('vence amanhã → pendente', () => {
-    const amanha = new Date(hojeUtc().getTime() + 86400000);
-    expect(venceuAntesDeHoje(amanha)).toBe(false);
+    expect(venceuAntesDeHoje(d('2026-07-23'), hoje)).toBe(false); // quinta
   });
 
   it('data inválida não é classificada como vencida (evita marcar tudo)', () => {
-    expect(venceuAntesDeHoje(new Date('lixo'))).toBe(false);
+    expect(venceuAntesDeHoje(new Date('lixo'), hoje)).toBe(false);
   });
 });
 

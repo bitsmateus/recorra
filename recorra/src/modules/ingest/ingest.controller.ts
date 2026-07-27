@@ -1,6 +1,7 @@
 import { BadRequestException, Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { PrismaService } from '@/common/prisma/prisma.service';
+import { venceuAntesDeHoje } from '@/modules/connectors/source-connector.interface';
 import { onlyDigits } from '@/common/util/normalize';
 import { isValidCpfCnpj, isValidEmail, toE164BR } from '@/common/util/validators';
 import { ApiKeyGuard } from './api-key.guard';
@@ -132,7 +133,7 @@ export class IngestController {
         sourceExternalId: f.externalId,
         valor,
         vencimento,
-        status: (vencimento < new Date() ? 'VENCIDA' : 'PENDENTE') as 'VENCIDA' | 'PENDENTE',
+        status: (venceuAntesDeHoje(vencimento) ? 'VENCIDA' : 'PENDENTE') as 'VENCIDA' | 'PENDENTE',
         pixCopiaCola: f.pixCopiaCola,
         boletoLinha: f.boletoLinha,
         boletoUrl: f.boletoUrl,

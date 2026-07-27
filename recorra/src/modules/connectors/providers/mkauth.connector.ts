@@ -5,6 +5,7 @@ import {
   SourceCustomer,
   SourceInvoice,
   SourceCredentials,
+  venceuAntesDeHoje,
 } from '../source-connector.interface';
 import { onlyDigits, normalizePhoneBR } from '@/common/util/normalize';
 
@@ -59,7 +60,7 @@ export class MkAuthConnector implements SourceConnector {
       customerExternalId: String(r.id_cliente ?? r.login),
       valor: Number(r.valor ?? 0),
       vencimento: new Date(r.datavenc ?? r.data_vencimento),
-      status: r.datapag ? 'PAGA' : new Date(r.datavenc) < new Date() ? 'VENCIDA' : 'PENDENTE',
+      status: r.datapag ? 'PAGA' : venceuAntesDeHoje(new Date(r.datavenc)) ? 'VENCIDA' : 'PENDENTE',
       pixCopiaCola: r.pix ?? undefined,
       boletoLinha: r.linhadigitavel ?? undefined,
       boletoUrl: r.url ?? undefined,

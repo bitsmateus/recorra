@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import * as XLSX from 'xlsx';
 import { PrismaService } from '@/common/prisma/prisma.service';
+import { venceuAntesDeHoje } from '@/modules/connectors/source-connector.interface';
 import { onlyDigits, parseMoney } from '@/common/util/normalize';
 import { isValidCpfCnpj, isValidEmail, toE164BR } from '@/common/util/validators';
 
@@ -111,7 +112,7 @@ export class ImportService {
                 customerId: customer.id,
                 valor,
                 vencimento,
-                status: vencimento < new Date() ? 'VENCIDA' : 'PENDENTE',
+                status: venceuAntesDeHoje(vencimento) ? 'VENCIDA' : 'PENDENTE',
                 sourceSystem: 'CSV',
               },
             });
@@ -272,7 +273,7 @@ export class ImportService {
                 data: {
                   tenantId, customerId: customer.id, valor, vencimento,
                   descricao: val(cols, 'descricao') || null,
-                  status: vencimento < new Date() ? 'VENCIDA' : 'PENDENTE',
+                  status: venceuAntesDeHoje(vencimento) ? 'VENCIDA' : 'PENDENTE',
                   sourceSystem: 'CSV',
                 },
               });

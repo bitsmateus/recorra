@@ -4,6 +4,7 @@ import { PrismaService } from '@/common/prisma/prisma.service';
 import { AuditService } from '@/common/audit/audit.service';
 import { PaymentProviderFactory } from './payment-provider.factory';
 import { ConnectorFactory } from '@/modules/connectors/connector.factory';
+import { venceuAntesDeHoje } from '@/modules/connectors/source-connector.interface';
 import { assinarPagamento } from './pay-token';
 import { SplitRuleInput } from './payment-provider.interface';
 import { computeSplit } from './split';
@@ -183,7 +184,7 @@ export class ChargesService {
         valor,
         vencimento,
         descricao: input.descricao || null,
-        status: vencimento < new Date() ? "VENCIDA" : "PENDENTE",
+        status: venceuAntesDeHoje(vencimento) ? "VENCIDA" : "PENDENTE",
         origem: "avulsa",
       },
     });
@@ -683,10 +684,25 @@ export class ChargesService {
   async reavaliarStatus(tenantId: string) {
     const n = new Date();
     const hojeUtc = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate()));
-    const r = await this.prisma.invoice.updateMany({
+    let atualizadas = 0;
+
+    // 1) PENDENTE que já passou do vencimento efetivo (com carência de fim de semana) → VENCIDA.
+    const candidatas = await this.prisma.invoice.findMany({
       where: { tenantId, status: 'PENDENTE', vencimento: { lt: hojeUtc } },
-      data: { status: 'VENCIDA' },
+      select: { id: true, vencimento: true },
     });
-    return { atualizadas: r.count };
+    const vencer = candidatas.filter((c) => venceuAntesDeHoje(c.vencimento, n)).map((c) => c.id);
+    if (vencer.length) atualizadas += (await this.prisma.invoice.updateMany({ where: { id: { in: vencer } }, data: { status: 'VENCIDA' } })).count;
+
+    // 2) Corrige as marcadas como VENCIDA cedo demais (venc. em fim de semana, ainda na
+    // carência): volta para PENDENTE — assim bate com o gateway ("aguardando").
+    const vencidas = await this.prisma.invoice.findMany({
+      where: { tenantId, status: 'VENCIDA' },
+      select: { id: true, vencimento: true },
+    });
+    const reverter = vencidas.filter((c) => !venceuAntesDeHoje(c.vencimento, n)).map((c) => c.id);
+    if (reverter.length) atualizadas += (await this.prisma.invoice.updateMany({ where: { id: { in: reverter } }, data: { status: 'PENDENTE' } })).count;
+
+    return { atualizadas };
   }
 }
