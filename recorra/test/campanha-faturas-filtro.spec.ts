@@ -46,6 +46,16 @@ describe('faturasDaCampanha', () => {
     const soPendente = [aVencer];
     expect(faturasDaCampanha(soPendente, { filtroStatus: 'VENCIDA' }, REF)).toHaveLength(0);
   });
+
+  // Guarda o bug real: numa campanha de VENCIDAS, o template DEVE usar a fatura
+  // vencida (a mais antiga), NÃO a de maior vencimento (a do mês que vem). O executor
+  // busca as abertas por vencimento asc e pega faturasDaCampanha(...)[0].
+  it('seleção do template: pega a vencida mais antiga, nunca a futura', () => {
+    const abertasAsc = [...abertas].sort((a, b) => a.vencimento.getTime() - b.vencimento.getTime());
+    const escolhida = faturasDaCampanha(abertasAsc, { filtroStatus: 'VENCIDA' }, REF)[0];
+    expect(escolhida?.id).toBe('va'); // vencida de 01/06, não a pendente de 20/08
+    expect(escolhida?.status).toBe('VENCIDA');
+  });
 });
 
 describe('recorte "vencidas deste mês" (VENCIDA_MES)', () => {
