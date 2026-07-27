@@ -902,10 +902,11 @@ function ClienteDetalheModal({ id, nome, onClose }: { id: string; nome: string; 
   interface Detalhe {
     customer: { nome: string; doc?: string | null; email?: string | null; telefone?: string | null; plano?: string | null; cidade?: string | null; uf?: string | null; contrato?: string | null; tags?: string[]; faixaAtual?: string | null };
     totais: { emAberto: number; pago: number; vencidas: number };
-    faturas: { id: string; valor: number; vencimento: string; status: string; pagoEm?: string | null }[];
+    faturas: (Invoice & { pagoEm?: string | null })[];
   }
   const [d, setD] = useState<Detalhe | null>(null);
   const [erro, setErro] = useState('');
+  const [pagFatura, setPagFatura] = useState<Invoice | null>(null);
 
   useEffect(() => {
     api<Detalhe>(`/clientes/${id}/detalhe`).then(setD).catch((e) => setErro(e instanceof Error ? e.message : 'Erro ao carregar'));
@@ -958,9 +959,14 @@ function ClienteDetalheModal({ id, nome, onClose }: { id: string; nome: string; 
                         <td className="tabular px-3 py-1.5">{brl(Number(f.valor))}</td>
                         <td className="px-3 py-1.5 text-muted">{new Date(f.vencimento).toLocaleDateString('pt-BR')}</td>
                         <td className="px-3 py-1.5"><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusColor[f.status] || 'bg-canvas text-muted'}`}>{f.status}</span>{f.status === 'PAGA' && f.pagoEm ? <span className="ml-1 text-xs text-[#0F6E56]">{new Date(f.pagoEm).toLocaleDateString('pt-BR')}</span> : null}</td>
+                        <td className="px-2 py-1.5 text-right">
+                          {(f.externalId || f.sourceSystem || f.pixCopiaCola || f.boletoUrl || f.linkPagamento) && (
+                            <button onClick={() => setPagFatura({ ...f, customer: { nome: d.customer.nome, doc: d.customer.doc || '' } })} title="Pix / boleto / link de pagamento" className="rounded p-1 text-muted hover:bg-primary-tint hover:text-primary"><Receipt size={14} /></button>
+                          )}
+                        </td>
                       </tr>
                     ))}
-                    {d.faturas.length === 0 && <tr><td className="px-3 py-3 text-center text-muted">Sem cobranças.</td></tr>}
+                    {d.faturas.length === 0 && <tr><td colSpan={4} className="px-3 py-3 text-center text-muted">Sem cobranças.</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -968,6 +974,7 @@ function ClienteDetalheModal({ id, nome, onClose }: { id: string; nome: string; 
           </div>
         )}
       </div>
+      {pagFatura && <PagamentoModal inv={pagFatura} onClose={() => setPagFatura(null)} />}
     </div>
   );
 }
