@@ -15,6 +15,9 @@ const urlSegura = (u?: string) => (/^https?:\/\//i.test((u ?? '').trim()) ? (u a
 
 /** Site da Recorrai para o selo no rodapé (promoção para o cliente final). */
 const RECORRAI_SITE = 'https://recorrai.com.br';
+/** Ícone da Recorrai embutido (a página é servida pela API, sem acesso ao /public do painel). */
+const RECORRAI_ICON =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96"><rect width="96" height="96" rx="26" fill="#14857C"/><g transform="translate(12 10) scale(3)" fill="#fff"><path d="M12 3.2a6.2 6.2 0 0 1 6.2 6.2v3.1l1.9 3.4a1.1 1.1 0 0 1-1 1.6H4.9a1.1 1.1 0 0 1-1-1.6l1.9-3.4V9.4A6.2 6.2 0 0 1 12 3.2z"/><circle cx="12" cy="20.2" r="1.9"/></g><g transform="translate(12 10) scale(3)" fill="#fff"><circle cx="18.8" cy="5.2" r="3.2"/></g></svg>';
 
 interface Marca { empresa?: string; cor?: string; logoUrl?: string; assinatura?: string }
 
@@ -114,8 +117,8 @@ export class PayService {
 
     const saudacao = nome ? `<p class="oi">Olá, ${nome}!</p>` : '';
     const assinatura = marca.assinatura ? `<div class="assinatura">${esc(marca.assinatura)}</div>` : '';
-    // Selo da Recorrai: o cliente final vê quem faz a cobrança rodar (propaganda).
-    const selo = `<div class="selo">Cobrança automatizada por <a href="${RECORRAI_SITE}" target="_blank" rel="noreferrer">Recorrai</a> · régua de cobrança e Pix no WhatsApp</div>`;
+    // Selo da Recorrai: o cliente final vê quem faz a cobrança rodar (propaganda + CTA).
+    const selo = `<a class="selo" href="${RECORRAI_SITE}" target="_blank" rel="noreferrer">${RECORRAI_ICON}<span>Sua empresa também quer cobrar no automático?<br><b>Conheça a Recorrai &rarr;</b></span></a>`;
     return { status: 200, body: this.pagina(`Pagar · ${empresa}`, saudacao + blocos.join('\n') + assinatura + selo, cor) };
   }
 
@@ -144,9 +147,10 @@ export class PayService {
   .btn.primary{background:var(--cor);border-color:var(--cor);color:#fff}
   .ok{display:none;text-align:center;color:var(--cor);font-size:13px;margin-top:8px}
   .assinatura{text-align:center;color:#5b6b64;font-size:12px;margin-top:16px;white-space:pre-line}
-  .selo{text-align:center;color:#8a978f;font-size:11px;margin-top:22px;padding-top:14px;border-top:1px solid #e3e8e6}
-  .selo a{color:var(--cor);font-weight:600;text-decoration:none}
-  @media (prefers-color-scheme:dark){body{background:#0f1512;color:#e8ecea}.card{background:#161d1a;border-color:#232c28}textarea{background:#0f1512;color:#e8ecea;border-color:#232c28}.btn{background:#161d1a;color:#e8ecea;border-color:#232c28}.selo{border-color:#232c28}}
+  .selo{display:flex;align-items:center;justify-content:center;gap:9px;text-align:left;color:#6b7a72;font-size:12px;line-height:1.35;margin-top:26px;padding-top:16px;border-top:1px solid #e3e8e6;text-decoration:none}
+  .selo svg{width:26px;height:26px;border-radius:7px;flex:0 0 auto}
+  .selo b{color:var(--cor);font-weight:700}
+  @media (prefers-color-scheme:dark){body{background:#0f1512;color:#e8ecea}.card{background:#161d1a;border-color:#232c28}textarea{background:#0f1512;color:#e8ecea;border-color:#232c28}.btn{background:#161d1a;color:#e8ecea;border-color:#232c28}.selo{border-color:#232c28;color:#8a978f}}
 </style></head><body><div class="wrap">${conteudo}</div>
 <script>
   function copiar(){var t=document.getElementById('pix');if(!t)return;t.select();t.setSelectionRange(0,99999);
