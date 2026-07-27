@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import * as QRCode from 'qrcode';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { ChargesService } from './charges.service';
 import { verificarPagamento } from './pay-token';
@@ -18,6 +19,17 @@ export class PayService {
     private readonly prisma: PrismaService,
     private readonly charges: ChargesService,
   ) {}
+
+  /** QR do Pix como SVG inline (sem dependência externa na página). Null se falhar. */
+  private async qrSvg(pix: string): Promise<string | null> {
+    try {
+      // margin baixa; a cor segue o tema via currentColor não dá em <path fill> do lib,
+      // então usamos preto no branco (fundo branco garante leitura em qualquer tema).
+      return await QRCode.toString(pix, { type: 'svg', margin: 1, errorCorrectionLevel: 'M' });
+    } catch {
+      return null;
+    }
+  }
 
   /** URL do boleto para redirecionamento direto (botão "Boleto"). Null se não houver. */
   async urlBoleto(token: string): Promise<string | null> {
@@ -63,9 +75,11 @@ export class PayService {
       `<div class="head"><div class="empresa">${empresa}</div><div class="valor">${brl(Number(inv.valor))}</div><div class="venc">Vencimento: ${venc}</div></div>`,
     ];
     if (pix) {
+      const qr = await this.qrSvg(pix);
       blocos.push(`
         <div class="card">
-          <div class="rot">Pix copia e cola</div>
+          <div class="rot">Pague com Pix — escaneie o QR ou copie o código</div>
+          ${qr ? `<div class="qr">${qr}</div>` : ''}
           <textarea id="pix" readonly>${esc(pix)}</textarea>
           <button class="btn primary" onclick="copiar()">Copiar código Pix</button>
           <div id="ok" class="ok">Copiado!</div>
@@ -102,6 +116,8 @@ export class PayService {
   .oi{text-align:center;color:#5b6b64;margin:0 0 14px}
   .card{background:#fff;border:1px solid #e3e8e6;border-radius:12px;padding:14px;margin-bottom:12px}
   .rot{font-size:12px;color:#5b6b64;margin-bottom:6px}
+  .qr{background:#fff;border-radius:8px;padding:10px;margin:0 auto 10px;width:min(220px,60vw)}
+  .qr svg{display:block;width:100%;height:auto}
   textarea{width:100%;min-height:74px;resize:none;border:1px solid #e3e8e6;border-radius:8px;padding:10px;font-family:ui-monospace,monospace;font-size:12px;background:#fafbfb;color:#1b2320}
   .btn{display:block;width:100%;text-align:center;text-decoration:none;border:1px solid #d7dedb;border-radius:10px;padding:13px;font-size:15px;font-weight:600;color:#1b2320;background:#fff;margin-top:10px;cursor:pointer}
   .btn.primary{background:#0f6e56;border-color:#0f6e56;color:#fff}
