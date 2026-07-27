@@ -19,6 +19,21 @@ export class PayService {
     private readonly charges: ChargesService,
   ) {}
 
+  /** URL do boleto para redirecionamento direto (botão "Boleto"). Null se não houver. */
+  async urlBoleto(token: string): Promise<string | null> {
+    const invoiceId = verificarPagamento(token);
+    if (!invoiceId) return null;
+    const inv = await this.prisma.invoice.findUnique({ where: { id: invoiceId }, select: { id: true, tenantId: true, boletoUrl: true } });
+    if (!inv) return null;
+    if (inv.boletoUrl) return inv.boletoUrl;
+    try {
+      const d = await this.charges.buscarPagamento(inv.tenantId, inv.id);
+      return d.boletoUrl ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   async render(token: string): Promise<{ status: number; body: string }> {
     const invoiceId = verificarPagamento(token);
     if (!invoiceId) return { status: 404, body: this.pagina('Link inválido', '<p>Este link de pagamento não é válido ou expirou.</p>') };

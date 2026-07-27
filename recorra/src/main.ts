@@ -42,7 +42,7 @@ async function bootstrap() {
   app.use(helmet());
   app.enableCors({ origin: env.FRONTEND_URL, credentials: true });
   app.setGlobalPrefix('api', {
-    exclude: ['health', 'health/ready', 'webhooks/:provider/:accountId', 'webhooks/inbound/:accountId', 'pay/:token'],
+    exclude: ['health', 'health/ready', 'webhooks/:provider/:accountId', 'webhooks/inbound/:accountId', 'pay/:token', 'boleto/:token'],
   });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }));
   app.enableShutdownHooks();
