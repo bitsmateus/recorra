@@ -62,25 +62,30 @@ export class ChargesService {
         }
       }
     } else if (inv.sourceSystem && inv.sourceExternalId) {
+      // Muitos ERPs (ex.: SGP) já mandam Pix/boleto na sincronização. A busca sob
+      // demanda é um extra: se falhar (endpoint indisponível nesta instância) mas já
+      // houver dados do sync, ignoramos o erro e devolvemos o que temos. Só erra se
+      // não houver nada e a busca também falhar.
+      const jaTem = !!(inv.pixCopiaCola || inv.boletoLinha || inv.boletoUrl || inv.linkPagamento);
       const connector = await this.connectors.forSystem(tenantId, inv.sourceSystem);
-      if (!connector?.fetchInvoicePayment) {
-        throw new BadRequestException(`Buscar 2ª via não está disponível para ${inv.sourceSystem}.`);
-      }
-      let pag;
       try {
-        pag = await connector.fetchInvoicePayment(inv.sourceExternalId);
+        const pag = connector?.fetchInvoicePayment ? await connector.fetchInvoicePayment(inv.sourceExternalId) : null;
+        if (pag && (pag.pixCopiaCola || pag.boletoLinha || pag.boletoUrl || pag.linkPagamento)) {
+          const data = {
+            ...(pag.pixCopiaCola ? { pixCopiaCola: pag.pixCopiaCola } : {}),
+            ...(pag.boletoLinha ? { boletoLinha: pag.boletoLinha } : {}),
+            ...(pag.boletoUrl ? { boletoUrl: pag.boletoUrl } : {}),
+            ...(pag.linkPagamento ? { linkPagamento: pag.linkPagamento } : {}),
+          };
+          await this.prisma.invoice.update({ where: { id: inv.id }, data });
+          Object.assign(inv, data);
+        } else if (!jaTem && !connector?.fetchInvoicePayment) {
+          throw new BadRequestException(`Buscar 2ª via não está disponível para ${inv.sourceSystem}.`);
+        }
       } catch (e) {
-        throw new BadRequestException(`${inv.sourceSystem}: ${e instanceof Error ? e.message : String(e)}`);
-      }
-      if (pag && (pag.pixCopiaCola || pag.boletoLinha || pag.boletoUrl || pag.linkPagamento)) {
-        const data = {
-          ...(pag.pixCopiaCola ? { pixCopiaCola: pag.pixCopiaCola } : {}),
-          ...(pag.boletoLinha ? { boletoLinha: pag.boletoLinha } : {}),
-          ...(pag.boletoUrl ? { boletoUrl: pag.boletoUrl } : {}),
-          ...(pag.linkPagamento ? { linkPagamento: pag.linkPagamento } : {}),
-        };
-        await this.prisma.invoice.update({ where: { id: inv.id }, data });
-        Object.assign(inv, data);
+        if (e instanceof BadRequestException) throw e;
+        if (!jaTem) throw new BadRequestException(`${inv.sourceSystem}: ${e instanceof Error ? e.message : String(e)}`);
+        // Já tem dado do sync — o erro da 2ª via é irrelevante.
       }
     } else {
       throw new BadRequestException('Esta fatura não tem gateway nem origem de ERP para buscar Pix/boleto.');
