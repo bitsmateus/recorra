@@ -50,8 +50,9 @@ export class ReconciliationService {
     const abertas = await this.prisma.invoice.findMany({
       where: { tenantId, status: { in: ['PENDENTE', 'VENCIDA'] }, externalId: { not: null }, providerAccountId: { not: null } },
       orderBy: { vencimento: 'asc' },
+      include: { customer: { select: { nome: true } } },
     });
-    if (!abertas.length) return { verificadas: 0, baixadas: 0 };
+    if (!abertas.length) return { verificadas: 0, baixadas: 0, naoEncontradas: 0, exemplos: [] };
 
     // Agrupa por conta de gateway: dá para resolver a conta inteira de uma vez.
     const porConta = new Map<string, typeof abertas>();
@@ -64,6 +65,7 @@ export class ReconciliationService {
     let verificadas = 0;
     let baixadas = 0;
     let naoEncontradas = 0; // faturas cujo id não existe na lista do gateway (id divergente)
+    const exemplos: { nome: string; valor: number; vencimento: Date }[] = []; // as "não encontradas", para o usuário conferir
     for (const [accountId, invs] of porConta) {
       let provider: Awaited<ReturnType<typeof this.factory.forAccount>>;
       try {
@@ -89,7 +91,12 @@ export class ReconciliationService {
           for (const inv of invs) {
             verificadas++;
             const p = mapa.get(inv.externalId!);
-            if (!p) { naoEncontradas++; if (semMatch.length < 5) semMatch.push(inv.externalId!); continue; }
+            if (!p) {
+              naoEncontradas++;
+              if (semMatch.length < 8) semMatch.push(inv.externalId!);
+              if (exemplos.length < 10) exemplos.push({ nome: (inv as { customer?: { nome?: string } }).customer?.nome ?? '—', valor: Number(inv.valor), vencimento: inv.vencimento });
+              continue;
+            }
             if (p.status === 'PAGA' && (await this.baixar(tenantId, inv.id, inv.customerId, undefined, p.pagoEm))) baixadas++;
           }
           if (semMatch.length) this.logger.warn(`Conciliação conta ${accountId}: ${naoEncontradas} fatura(s) sem correspondência no gateway (ex.: ${semMatch.join(', ')}). Pagamentos no gateway: ${pagamentos.length}.`);
@@ -115,7 +122,7 @@ export class ReconciliationService {
         await this.sleep(250);
       }
     }
-    return { verificadas, baixadas, naoEncontradas };
+    return { verificadas, baixadas, naoEncontradas, exemplos };
   }
 
   /** Baixa + pausa régua + confirmação (mesma lógica do webhook). */

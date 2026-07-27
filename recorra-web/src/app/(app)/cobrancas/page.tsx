@@ -201,10 +201,12 @@ export default function CobrancasPage() {
   async function conciliarPagamentos() {
     setBusy(true); setMsg('Verificando pagamentos no gateway...');
     try {
-      const r = await api<{ verificadas: number; baixadas: number; naoEncontradas?: number }>('/cobrancas/conciliar', { method: 'POST' });
+      const r = await api<{ verificadas: number; baixadas: number; naoEncontradas?: number; exemplos?: { nome: string; valor: number; vencimento: string }[] }>('/cobrancas/conciliar', { method: 'POST' });
       if (r.baixadas > 0) setMsg(`✓ ${r.baixadas} cobrança(s) baixada(s) como Paga (de ${r.verificadas} verificadas).`);
-      else if (r.naoEncontradas && r.naoEncontradas > 0) setMsg(`⚠️ Nenhuma baixada. ${r.naoEncontradas} de ${r.verificadas} cobrança(s) NÃO foram encontradas no gateway (o id salvo aqui não bate com o do gateway). Me avise para investigar.`);
-      else setMsg(`✓ Nada a atualizar — o gateway reporta as ${r.verificadas} cobrança(s) em aberto como ainda não pagas.`);
+      else if (r.naoEncontradas && r.naoEncontradas > 0) {
+        const lista = (r.exemplos ?? []).map((e) => `${e.nome} (${brl(Number(e.valor))})`).join(', ');
+        setMsg(`⚠️ Nenhuma baixada. As demais o gateway confirma em aberto. Mas ${r.naoEncontradas} cobrança(s) NÃO existem no gateway (id divergente): ${lista}. Confira essas no Asaas.`);
+      } else setMsg(`✓ Nada a atualizar — o gateway confirma as ${r.verificadas} cobrança(s) ainda em aberto (as pagas já foram baixadas).`);
       load();
     } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro ao conciliar'); }
     setBusy(false);
