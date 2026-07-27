@@ -73,6 +73,14 @@ export class DispatchService {
         await this.marcar(d.id, 'FALHA', `Template "${d.templateName}": o botão precisa do ${oQue}, mas este cliente não tem cobrança com esse dado. Gere a cobrança (Pix/boleto) antes, ou use um template sem botão de Pix/link.`);
         return 'FALHA';
       }
+      // Botão de URL só aceita um SUFIXO do domínio fixo aprovado na Meta. Se o valor
+      // é uma URL completa (ex.: link/boleto do SGP, de outro domínio), a Meta recusa
+      // o template inteiro (ERR_SEND_TEMPLATE). É um limite do WhatsApp, não do dado.
+      const urlCompleta = botoes.filter((b) => b.subType === 'url' && /^https?:\/\//i.test((b.text ?? '').trim()));
+      if (urlCompleta.length) {
+        await this.marcar(d.id, 'FALHA', `Template "${d.templateName}": o botão de URL do WhatsApp só aceita um complemento de um domínio fixo definido na Meta — não uma URL completa de outro site (o link do boleto/SGP). Coloque o link no TEXTO da mensagem (variável {{link}}), não num botão de URL. Para Pix, use o botão "Copiar código" com {{pix}}.`);
+        return 'FALHA';
+      }
     }
 
     // Idioma do template (ex.: 'en', 'pt_BR') — a Meta exige o idioma exato do template aprovado.
