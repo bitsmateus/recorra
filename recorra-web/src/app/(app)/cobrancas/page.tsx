@@ -214,8 +214,10 @@ export default function CobrancasPage() {
   async function conciliarPagamentos() {
     setBusy(true); setMsg('Verificando pagamentos no gateway...');
     try {
-      const r = await api<{ verificadas: number; baixadas: number; naoEncontradas?: number; exemplos?: { nome: string; valor: number; vencimento: string }[]; naoEncontradasIds?: string[] }>('/cobrancas/conciliar', { method: 'POST' });
-      if (r.baixadas > 0) setMsg(`✓ ${r.baixadas} cobrança(s) baixada(s) como Paga (de ${r.verificadas} verificadas).`);
+      const r = await api<{ verificadas: number; baixadas: number; reclassificadas?: number; naoEncontradas?: number; exemplos?: { nome: string; valor: number; vencimento: string }[]; naoEncontradasIds?: string[] }>('/cobrancas/conciliar', { method: 'POST' });
+      const extra = r.reclassificadas ? ` ${r.reclassificadas} ajustada(s) para bater com o gateway (aguardando/vencido).` : '';
+      if (r.baixadas > 0) setMsg(`✓ ${r.baixadas} cobrança(s) baixada(s) como Paga (de ${r.verificadas} verificadas).${extra}`);
+      else if (r.reclassificadas && r.reclassificadas > 0) setMsg(`✓ ${r.reclassificadas} cobrança(s) ajustada(s) para a classificação do gateway (aguardando/vencido). Nenhuma paga a baixar.`);
       else if (r.naoEncontradas && r.naoEncontradas > 0) {
         const lista = (r.exemplos ?? []).map((e) => `${e.nome} (${brl(Number(e.valor))})`).join(', ');
         setMsg(`⚠️ Nenhuma baixada. As demais o gateway confirma em aberto. Mas ${r.naoEncontradas} cobrança(s) NÃO existem no gateway (canceladas/apagadas lá): ${lista}.`);

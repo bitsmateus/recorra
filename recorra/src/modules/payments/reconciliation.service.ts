@@ -52,7 +52,7 @@ export class ReconciliationService {
       orderBy: { vencimento: 'asc' },
       include: { customer: { select: { nome: true } } },
     });
-    if (!abertas.length) return { verificadas: 0, baixadas: 0, naoEncontradas: 0, exemplos: [], naoEncontradasIds: [] };
+    if (!abertas.length) return { verificadas: 0, baixadas: 0, reclassificadas: 0, naoEncontradas: 0, exemplos: [], naoEncontradasIds: [] };
 
     // Agrupa por conta de gateway: dá para resolver a conta inteira de uma vez.
     const porConta = new Map<string, typeof abertas>();
@@ -64,6 +64,7 @@ export class ReconciliationService {
 
     let verificadas = 0;
     let baixadas = 0;
+    let reclassificadas = 0; // aguardando↔vencido ajustadas para bater com o gateway
     let naoEncontradas = 0; // faturas cujo id não existe na lista do gateway (id divergente)
     const exemplos: { nome: string; valor: number; vencimento: Date }[] = []; // as "não encontradas", para o usuário conferir
     const naoEncontradasIds: string[] = []; // ids das que sumiram do gateway (para cancelar em lote)
@@ -99,7 +100,15 @@ export class ReconciliationService {
               if (exemplos.length < 10) exemplos.push({ nome: (inv as { customer?: { nome?: string } }).customer?.nome ?? '—', valor: Number(inv.valor), vencimento: inv.vencimento });
               continue;
             }
-            if (p.status === 'PAGA' && (await this.baixar(tenantId, inv.id, inv.customerId, undefined, p.pagoEm))) baixadas++;
+            if (p.status === 'PAGA') {
+              if (await this.baixar(tenantId, inv.id, inv.customerId, undefined, p.pagoEm)) baixadas++;
+            } else if ((p.status === 'PENDENTE' || p.status === 'VENCIDA') && p.status !== inv.status) {
+              // Espelha a classificação do gateway: ele é o dono da verdade dessas
+              // cobranças (o Asaas dá mais carência antes de chamar de "vencido"), então
+              // aguardando↔vencido segue o gateway em vez do cálculo local por data.
+              await this.prisma.invoice.update({ where: { id: inv.id }, data: { status: p.status } });
+              reclassificadas++;
+            }
           }
           if (semMatch.length) this.logger.warn(`Conciliação conta ${accountId}: ${naoEncontradas} fatura(s) sem correspondência no gateway (ex.: ${semMatch.join(', ')}). Pagamentos no gateway: ${pagamentos.length}.`);
           continue; // conta resolvida em lote
@@ -115,8 +124,9 @@ export class ReconciliationService {
           if (!st) continue;
           if (st.status === 'PAGA') {
             if (await this.baixar(tenantId, inv.id, inv.customerId, undefined, st.pagoEm)) baixadas++;
-          } else if (st.status === 'VENCIDA' && inv.status !== 'VENCIDA') {
-            await this.prisma.invoice.update({ where: { id: inv.id }, data: { status: 'VENCIDA' } });
+          } else if ((st.status === 'PENDENTE' || st.status === 'VENCIDA') && st.status !== inv.status) {
+            await this.prisma.invoice.update({ where: { id: inv.id }, data: { status: st.status } });
+            reclassificadas++;
           }
         } catch (e) {
           this.logger.warn(`Falha ao conciliar fatura ${inv.id}: ${String(e)}`);
@@ -124,7 +134,7 @@ export class ReconciliationService {
         await this.sleep(250);
       }
     }
-    return { verificadas, baixadas, naoEncontradas, exemplos, naoEncontradasIds };
+    return { verificadas, baixadas, reclassificadas, naoEncontradas, exemplos, naoEncontradasIds };
   }
 
   /** Baixa + pausa régua + confirmação (mesma lógica do webhook). */
