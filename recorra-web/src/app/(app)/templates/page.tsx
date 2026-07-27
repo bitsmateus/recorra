@@ -233,6 +233,11 @@ function TemplateModal({ template, contas, onClose, onSaved }: {
     if (!editando && !/^[a-z0-9_]+$/.test(nome)) return setMsg('O nome só aceita letras minúsculas, números e underscore — é regra da Meta.');
     if (!corpo.trim()) return setMsg('Escreva o corpo do template.');
     if (!sequencial) return setMsg('As variáveis precisam ser {{1}}, {{2}}, {{3}}... sem pular número.');
+    // Botão de URL precisa de um domínio fixo. Sem isso a Meta recusa — e não serve
+    // para link do SGP/boleto (URL completa de outro site): oriente a usar o corpo.
+    if (!editando && botoes.some((b) => b.tipo === 'URL' && !/^https?:\/\/[^\s{}]+/i.test((b.urlBase ?? '').trim()))) {
+      return setMsg('O botão de Link precisa de um domínio fixo seu (ex.: https://seusite.com/pagar/). Para o link do SGP/boleto, coloque o link no corpo da mensagem em vez de num botão de URL.');
+    }
     setBusy(true); setMsg('');
     try {
       const body = { nome, corpo, idioma, categoria, exemplos, wabaId: wabaId || undefined, botoes: !editando && botoes.length ? botoes : undefined };
@@ -325,13 +330,13 @@ function TemplateModal({ template, contas, onClose, onSaved }: {
               <span className="text-xs font-semibold text-muted">Botões (opcional)</span>
               {botoes.length < 3 && (
                 <div className="flex gap-1">
-                  <button type="button" onClick={() => setBotoes((b) => [...b, { tipo: 'URL', texto: 'Ver boleto', urlBase: 'https://www.asaas.com/i/', dinamica: true, exemplo: 'abc123' }])} className="rounded border border-line px-2 py-0.5 text-[11px] hover:bg-canvas">+ Link (boleto)</button>
+                  <button type="button" onClick={() => setBotoes((b) => [...b, { tipo: 'URL', texto: 'Ver boleto', urlBase: '', dinamica: true, exemplo: 'abc123' }])} className="rounded border border-line px-2 py-0.5 text-[11px] hover:bg-canvas">+ Link (URL)</button>
                   <button type="button" onClick={() => setBotoes((b) => [...b, { tipo: 'COPY_CODE', exemplo: 'PIX12345' }])} className="rounded border border-line px-2 py-0.5 text-[11px] hover:bg-canvas">+ Copiar código</button>
                   <button type="button" onClick={() => setBotoes((b) => [...b, { tipo: 'QUICK_REPLY', texto: 'Falar com atendente' }])} className="rounded border border-line px-2 py-0.5 text-[11px] hover:bg-canvas">+ Resposta</button>
                 </div>
               )}
             </div>
-            {botoes.length === 0 && <p className="text-[11px] text-muted">Sem botões. O mais útil é <b>Link (boleto)</b>: abre a página de pagamento do cliente (com Pix e boleto). Depois você liga o botão ao link do cliente na régua/campanha.</p>}
+            {botoes.length === 0 && <p className="text-[11px] text-muted">Sem botões. <b>Se o link de pagamento é uma URL completa de outro site (ex.: SGP/banco), coloque-o no CORPO da mensagem como variável</b> — botão de URL só serve para um domínio fixo seu. Para Pix, o botão <b>Copiar código</b> funciona.</p>}
             <div className="space-y-2">
               {botoes.map((b, i) => {
                 const upd = (patch: Partial<BotaoNovo>) => setBotoes((arr) => arr.map((x, idx) => idx === i ? { ...x, ...patch } : x));
@@ -344,15 +349,16 @@ function TemplateModal({ template, contas, onClose, onSaved }: {
                     {b.tipo === 'URL' && (
                       <div className="space-y-1.5">
                         <input value={b.texto ?? ''} onChange={(e) => upd({ texto: e.target.value })} placeholder="Rótulo do botão (ex.: Ver boleto)" maxLength={25} className={`${inputCls} text-sm`} />
-                        <input value={b.urlBase ?? ''} onChange={(e) => upd({ urlBase: e.target.value })} placeholder="Base do link (ex.: https://www.asaas.com/i/)" className={`${inputCls} font-mono text-xs`} />
+                        <input value={b.urlBase ?? ''} onChange={(e) => upd({ urlBase: e.target.value })} placeholder="Base FIXA do seu domínio (ex.: https://seusite.com/pagar/)" className={`${inputCls} font-mono text-xs`} />
                         <label className="flex items-center gap-1.5 text-[11px] text-muted"><input type="checkbox" checked={!!b.dinamica} onChange={(e) => upd({ dinamica: e.target.checked })} /> o link muda por cliente (a Recorrai completa o final)</label>
                         {b.dinamica && <input value={b.exemplo ?? ''} onChange={(e) => upd({ exemplo: e.target.value })} placeholder="Exemplo do final (ex.: abc123)" className={`${inputCls} text-xs`} />}
+                        <p className="text-[11px] text-[#854F0B]">⚠️ O botão de URL exige um <b>domínio fixo seu</b> + um final que muda por cliente. <b>NÃO funciona com o link do SGP/boleto</b> (URL completa de outro site): nesse caso, ponha o link no <b>corpo</b> da mensagem, numa variável.</p>
                       </div>
                     )}
                     {b.tipo === 'COPY_CODE' && (
                       <div className="space-y-1">
                         <input value={b.exemplo ?? ''} onChange={(e) => upd({ exemplo: e.target.value.replace(/[^A-Za-z0-9]/g, '').slice(0, 15) })} placeholder="Código de exemplo (só p/ revisão)" maxLength={15} className={`${inputCls} text-xs`} />
-                        <p className="text-[11px] text-[#854F0B]">⚠️ Só cabe código curto (até 15 caracteres). Um <b>Pix copia-e-cola</b> completo NÃO cabe aqui — para Pix, use o botão <b>Link (boleto)</b> (abre a página de pagamento com o Pix) ou deixe o Pix no corpo da mensagem.</p>
+                        <p className="text-[11px] text-[#854F0B]">⚠️ Só cabe código curto (até 15 caracteres). Um <b>Pix copia-e-cola</b> completo NÃO cabe aqui — para mandar o Pix inteiro, coloque <b>{'{{pix}}'} no corpo da mensagem</b>.</p>
                       </div>
                     )}
                     {b.tipo === 'QUICK_REPLY' && (
