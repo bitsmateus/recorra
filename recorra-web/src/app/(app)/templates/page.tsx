@@ -103,9 +103,13 @@ export default function TemplatesPage() {
   }
 
   async function remover(t: Template) {
-    setMsg('Excluindo na Meta...');
-    try { await api(`/config/templates/${t.id}`, { method: 'DELETE' }); setMsg('✓ Template excluído na Meta.'); }
-    catch (e) { setMsg(e instanceof Error ? e.message : 'Erro ao excluir'); }
+    setMsg('Excluindo...');
+    try {
+      const r = await api<{ ok: boolean; avisoMeta?: string }>(`/config/templates/${t.id}`, { method: 'DELETE' });
+      setMsg(r.avisoMeta
+        ? `Removido do painel. Não consegui excluir na Meta (${r.avisoMeta}). Se voltar após sincronizar, exclua no Gerenciador da Meta/NX.`
+        : '✓ Template excluído na Meta.');
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro ao excluir'); }
     setExcluir(null); carregar();
   }
 

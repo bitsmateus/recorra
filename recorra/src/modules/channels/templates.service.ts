@@ -250,16 +250,20 @@ export class TemplatesService {
   /** Exclui na Meta e no espelho local. O nome fica bloqueado por 30 dias lá. */
   async remove(tenantId: string, id: string) {
     const t = await this.getOrThrow(tenantId, id);
+    let avisoMeta: string | undefined;
     if (t.externalId) {
-      const acesso = await this.acessoPara(tenantId);
+      // Tenta excluir na Meta, mas NÃO trava a limpeza do painel se falhar (token sem
+      // permissão, WABA não resolvida, rede, ou template em estado que a Meta recusa).
+      // Antes, qualquer falha aqui deixava o usuário sem conseguir remover nada.
       try {
+        const acesso = await this.acessoPara(tenantId);
         await excluirTemplate(acesso, t.nome, t.externalId);
       } catch (e) {
-        throw new BadRequestException(`A Meta recusou a exclusão: ${erroMeta(e)}`);
+        avisoMeta = axios.isAxiosError(e) ? erroMeta(e) : e instanceof Error ? e.message : String(e);
       }
     }
     await this.prisma.whatsAppTemplate.delete({ where: { id } });
-    return { ok: true };
+    return { ok: true, avisoMeta };
   }
 
   // ─────────────────────────── Sincronização ───────────────────────────
