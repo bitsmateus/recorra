@@ -692,11 +692,12 @@ export class CampaignsService {
       try {
         const connector = await this.connectors.forSystem(tenantId, inv.sourceSystem);
         const pag = connector?.fetchInvoicePayment ? await connector.fetchInvoicePayment(inv.sourceExternalId) : null;
-        if (pag && (pag.pixCopiaCola || pag.boletoLinha || pag.boletoUrl)) {
+        if (pag && (pag.pixCopiaCola || pag.boletoLinha || pag.boletoUrl || pag.linkPagamento)) {
           const data = {
             ...(pag.pixCopiaCola ? { pixCopiaCola: pag.pixCopiaCola } : {}),
             ...(pag.boletoLinha ? { boletoLinha: pag.boletoLinha } : {}),
             ...(pag.boletoUrl ? { boletoUrl: pag.boletoUrl } : {}),
+            ...(pag.linkPagamento ? { linkPagamento: pag.linkPagamento } : {}),
           };
           await this.prisma.invoice.update({ where: { id: inv.id }, data });
           return { ...inv, ...data };

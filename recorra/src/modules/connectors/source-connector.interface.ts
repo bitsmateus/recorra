@@ -22,23 +22,21 @@ export interface SourceCustomer {
   contrato?: string;
 }
 
+/** Dados de pagamento de um título vindos do ERP. */
+export interface SourcePayment {
+  pixCopiaCola?: string;
+  boletoLinha?: string;
+  boletoUrl?: string;
+  linkPagamento?: string;
+}
+
 /** Fatura normalizada vinda de um sistema de origem, já com dados de pagamento. */
-export interface SourceInvoice {
+export interface SourceInvoice extends SourcePayment {
   externalId: string;
   customerExternalId: string;
   valor: number;
   vencimento: Date;
   status: string; // PENDENTE | VENCIDA | PAGA
-  pixCopiaCola?: string;
-  boletoLinha?: string;
-  boletoUrl?: string;
-}
-
-/** Dados de pagamento de UM título, buscados sob demanda (ex.: 2ª via no SGP). */
-export interface SourcePayment {
-  pixCopiaCola?: string;
-  boletoLinha?: string;
-  boletoUrl?: string;
 }
 
 export interface SourceCredentials {

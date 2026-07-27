@@ -236,10 +236,13 @@ export class SgpConnector implements SourceConnector {
   /** Extrai Pix/linha/URL do boleto de um título, cobrindo as variações de nome do SGP. */
   private mapPagamento(r: any): SourcePayment {
     const link = r.linkboleto ?? r.url_boleto ?? r.link ?? r.urlboleto;
+    // No SGP o link do boleto é também o link de pagamento — serve para {{boleto}} e {{link}}.
+    const url = link ? new URL(String(link), `${this.baseUrl}/`).toString() : undefined;
     return {
       pixCopiaCola: r.pix ?? r.pix_copia_cola ?? r.pixcopiacola ?? r.codigoPix ?? r.codigopix ?? r.qrcode ?? undefined,
       boletoLinha: r.linhadigitavel ?? r.linha_digitavel ?? r.codigoBarras ?? r.codigobarras ?? undefined,
-      boletoUrl: link ? new URL(String(link), `${this.baseUrl}/`).toString() : undefined,
+      boletoUrl: url,
+      linkPagamento: url,
     };
   }
 

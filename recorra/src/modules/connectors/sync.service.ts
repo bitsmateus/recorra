@@ -205,6 +205,7 @@ export class SyncService {
               pixCopiaCola: f.pixCopiaCola,
               boletoLinha: f.boletoLinha,
               boletoUrl: f.boletoUrl,
+              linkPagamento: f.linkPagamento,
             };
             // Status só muda se a máquina de estados permitir — nunca reverte uma
             // fatura PAGA/CANCELADA porque o ERP ainda a reporta de outro jeito.
@@ -228,6 +229,7 @@ export class SyncService {
                 pixCopiaCola: f.pixCopiaCola,
                 boletoLinha: f.boletoLinha,
                 boletoUrl: f.boletoUrl,
+                linkPagamento: f.linkPagamento,
               },
             });
             if (novoStatus === 'PAGA') await this.pararDunning(tenantId, criada.id);
