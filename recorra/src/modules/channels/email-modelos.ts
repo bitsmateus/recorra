@@ -19,6 +19,18 @@ export interface ModeloEmail {
 
 export const MODELOS_EMAIL: ModeloEmail[] = [
   {
+    id: 'fatura-pix-boleto',
+    nome: 'Fatura com Pix e boleto',
+    assunto: '{{nome}}, sua fatura de {{valor}} vence em {{vencimento}}',
+    corpo:
+      'Olá {{nome}},\n\n' +
+      'Sua fatura de {{valor}} vence em {{vencimento}}.\n\n' +
+      'Pague com Pix — copie o código abaixo e cole no app do seu banco:\n\n' +
+      '{{pix}}\n\n' +
+      'Prefere boleto? É só clicar no botão abaixo. Se já pagou, desconsidere este e-mail.\n\n' +
+      '{{link}}',
+  },
+  {
     id: 'lembrete-antes',
     nome: 'Lembrete antes do vencimento',
     assunto: '{{nome}}, sua fatura vence em {{vencimento}}',
