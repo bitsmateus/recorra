@@ -94,6 +94,13 @@ export class ChargesController {
     return this.charges.gerarCobranca(tenantId, invoiceId, accountId, metodo, splits, 'avulsa', actor.id);
   }
 
+  /** Busca sob demanda o Pix/boleto/link da fatura (gateway ou 2ª via do ERP). */
+  @Post(':invoiceId/buscar-pagamento')
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO', 'OPERADOR')
+  buscarPagamento(@TenantId() tenantId: string, @Param('invoiceId') invoiceId: string) {
+    return this.charges.buscarPagamento(tenantId, invoiceId);
+  }
+
   @Post(':invoiceId/contestar')
   @Roles('OWNER', 'ADMIN', 'FINANCEIRO', 'OPERADOR')
   contestar(@TenantId() tenantId: string, @Param('invoiceId') invoiceId: string, @Body('contestada') contestada: boolean) {

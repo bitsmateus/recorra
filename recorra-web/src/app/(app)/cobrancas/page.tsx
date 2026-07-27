@@ -18,6 +18,7 @@ function parseValorBR(v: string): number {
 
 interface Invoice {
   id: string;
+  customerId: string;
   /** Cliente sem telefone e sem e-mail: nenhuma mensagem chega nele. */
   semContato?: boolean;
   valor: number;
@@ -33,6 +34,8 @@ interface Invoice {
   boletoUrl?: string;
   linkPagamento?: string;
   externalId?: string;
+  /** Origem quando vem de ERP (ex.: SGP): habilita buscar a 2ª via. */
+  sourceSystem?: string;
   customer?: { nome: string; doc: string };
 }
 interface Gateway { id: string; provider: string; ambiente: string; apelido?: string; importLookbackDays?: number | null }
@@ -121,6 +124,7 @@ export default function CobrancasPage() {
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
   const [confirmarLote, setConfirmarLote] = useState(false);
   const [pagamento, setPagamento] = useState<Invoice | null>(null);
+  const [clienteDetalhe, setClienteDetalhe] = useState<{ id: string; nome: string } | null>(null);
   const toggleSel = (id: string) => setSelecionados((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const [criar, setCriar] = useState(false);
   const [menuImport, setMenuImport] = useState(false);
@@ -485,7 +489,9 @@ export default function CobrancasPage() {
               <tr key={inv.id} className={`border-b border-line last:border-0 ${selecionados.has(inv.id) ? 'bg-primary-tint/40' : ''}`}>
                 <td className="px-4 py-3"><input type="checkbox" checked={selecionados.has(inv.id)} onChange={() => toggleSel(inv.id)} className="h-4 w-4 cursor-pointer accent-primary" aria-label={`Selecionar cobrança de ${inv.customer?.nome || 'cliente'}`} /></td>
                 <td className="px-4 py-3 font-medium text-ink">
-                  {inv.customer?.nome || '—'}
+                  {inv.customer?.nome
+                    ? <button onClick={() => setClienteDetalhe({ id: inv.customerId, nome: inv.customer!.nome })} className="text-left text-ink hover:text-primary hover:underline" title="Ver dados do cliente">{inv.customer.nome}</button>
+                    : '—'}
                   {inv.semContato && (
                     <span title="Sem telefone e sem e-mail: nenhuma cobrança chega neste cliente. Complete o cadastro em Clientes > Cadastro incompleto." className="ml-2 whitespace-nowrap rounded-full bg-warning-tint px-2 py-0.5 text-[11px] font-medium text-[#854F0B]">
                       ⚠️ sem contato
@@ -502,11 +508,12 @@ export default function CobrancasPage() {
                 </td>
                 <td className="px-4 py-3">
                   {inv.externalId ? <span className="text-xs text-success">✓ gerada</span>
+                    : inv.sourceSystem ? <span className="text-xs text-muted" title="Cobrança gerenciada no ERP de origem">{inv.sourceSystem}</span>
                     : <span className="text-xs text-muted">não gerada</span>}
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center justify-end gap-1">
-                    {inv.externalId && <button onClick={() => setPagamento(inv)} title="Dados de pagamento (Pix/boleto)" className="rounded p-1.5 text-muted hover:bg-primary-tint hover:text-primary"><Receipt size={15} /></button>}
+                    {(inv.externalId || inv.sourceSystem || inv.pixCopiaCola || inv.boletoUrl || inv.linkPagamento) && <button onClick={() => setPagamento(inv)} title="Pix / boleto / link de pagamento" className="rounded p-1.5 text-muted hover:bg-primary-tint hover:text-primary"><Receipt size={15} /></button>}
                     <button onClick={() => setEditar(inv)} title="Editar" className="rounded p-1.5 text-muted hover:bg-canvas hover:text-primary"><Pencil size={15} /></button>
                     <button onClick={() => setExcluir(inv)} title="Excluir" className="rounded p-1.5 text-muted hover:bg-danger-tint hover:text-danger"><Trash2 size={15} /></button>
                   </div>
@@ -530,6 +537,7 @@ export default function CobrancasPage() {
       {wizard && <ImportWizard criarCobrancas onClose={() => setWizard(false)} onDone={() => { setWizard(false); load(); }} />}
       {criar && <CriarManualModal gateways={gateways} onClose={() => setCriar(false)} onSaved={() => { setCriar(false); load(); }} />}
       {pagamento && <PagamentoModal inv={pagamento} onClose={() => setPagamento(null)} />}
+      {clienteDetalhe && <ClienteDetalheModal id={clienteDetalhe.id} nome={clienteDetalhe.nome} onClose={() => setClienteDetalhe(null)} />}
       {excluir && <ExcluirModal inv={excluir} onClose={() => setExcluir(null)} onEscolha={(escopo) => excluirComEscopo(excluir, escopo)} />}
       {confirmarLote && (
         <ConfirmDialog
@@ -825,8 +833,30 @@ function Copyable({ label, valor, mono }: { label: string; valor: string; mono?:
   );
 }
 
+interface DadosPagamento { pixCopiaCola?: string | null; boletoLinha?: string | null; boletoUrl?: string | null; linkPagamento?: string | null }
+
 function PagamentoModal({ inv, onClose }: { inv: Invoice; onClose: () => void }) {
-  const nada = !inv.pixCopiaCola && !inv.boletoLinha && !inv.boletoUrl && !inv.linkPagamento;
+  const [dados, setDados] = useState<DadosPagamento>({ pixCopiaCola: inv.pixCopiaCola, boletoLinha: inv.boletoLinha, boletoUrl: inv.boletoUrl, linkPagamento: inv.linkPagamento });
+  const [buscando, setBuscando] = useState(false);
+  const [erro, setErro] = useState('');
+  const nada = !dados.pixCopiaCola && !dados.boletoLinha && !dados.boletoUrl && !dados.linkPagamento;
+  // Dá para buscar sob demanda quando é de gateway ou de um ERP (ex.: SGP gera na hora).
+  const podeBuscar = !!(inv.externalId || inv.sourceSystem);
+  const origem = inv.sourceSystem || 'gateway';
+
+  async function buscar() {
+    setBuscando(true); setErro('');
+    try {
+      const r = await api<DadosPagamento>(`/cobrancas/${inv.id}/buscar-pagamento`, { method: 'POST' });
+      setDados(r);
+      if (!r.pixCopiaCola && !r.boletoLinha && !r.boletoUrl && !r.linkPagamento) setErro(`Nenhum Pix/boleto retornado pelo ${origem} para esta cobrança.`);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao buscar');
+    } finally {
+      setBuscando(false);
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
@@ -837,21 +867,106 @@ function PagamentoModal({ inv, onClose }: { inv: Invoice; onClose: () => void })
         <p className="mb-4 text-sm text-muted">{inv.customer?.nome || "—"} · {brl(Number(inv.valor))} · venc. {new Date(inv.vencimento).toLocaleDateString("pt-BR")}</p>
 
         {nada ? (
-          <p className="rounded bg-canvas px-3 py-3 text-sm text-muted">Esta cobrança ainda não tem Pix/boleto gerado. Gere a cobrança em um gateway para coletar os dados de pagamento.</p>
+          <div className="rounded bg-canvas px-3 py-3 text-sm text-muted">
+            {podeBuscar
+              ? `Esta cobrança ainda não tem Pix/boleto salvo. Clique em "Buscar no ${origem}" para gerar/trazer agora.`
+              : 'Esta cobrança não tem gateway nem origem de ERP para coletar Pix/boleto.'}
+          </div>
         ) : (
           <div className="space-y-4">
-            {inv.pixCopiaCola && <Copyable label="Pix copia e cola" valor={inv.pixCopiaCola} mono />}
-            {inv.boletoLinha && <Copyable label="Linha digitável do boleto" valor={inv.boletoLinha} mono />}
-            {inv.linkPagamento && <Copyable label="Link de pagamento" valor={inv.linkPagamento} />}
+            {dados.pixCopiaCola && <Copyable label="Pix copia e cola" valor={dados.pixCopiaCola} mono />}
+            {dados.boletoLinha && <Copyable label="Linha digitável do boleto" valor={dados.boletoLinha} mono />}
+            {dados.linkPagamento && <Copyable label="Link de pagamento" valor={dados.linkPagamento} />}
             <div className="flex flex-wrap gap-2 pt-1">
-              {inv.linkPagamento && <a href={inv.linkPagamento} target="_blank" rel="noreferrer" className="flex items-center gap-1 rounded border border-line px-3 py-2 text-sm hover:bg-canvas"><ExternalLink size={14} /> Abrir página de pagamento</a>}
-              {inv.boletoUrl && <a href={inv.boletoUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1 rounded border border-line px-3 py-2 text-sm hover:bg-canvas"><Download size={14} /> Baixar/abrir boleto</a>}
+              {dados.linkPagamento && <a href={dados.linkPagamento} target="_blank" rel="noreferrer" className="flex items-center gap-1 rounded border border-line px-3 py-2 text-sm hover:bg-canvas"><ExternalLink size={14} /> Abrir página de pagamento</a>}
+              {dados.boletoUrl && <a href={dados.boletoUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1 rounded border border-line px-3 py-2 text-sm hover:bg-canvas"><Download size={14} /> Baixar/abrir boleto</a>}
             </div>
           </div>
         )}
-        <div className="mt-6 flex justify-end">
+
+        {erro && <p className="mt-3 text-sm text-danger">{erro}</p>}
+
+        <div className="mt-6 flex justify-between gap-2">
+          {podeBuscar
+            ? <button onClick={buscar} disabled={buscando} className="flex items-center gap-1.5 rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-60"><RefreshCw size={14} className={buscando ? 'animate-spin' : ''} /> {buscando ? 'Buscando…' : (nada ? `Buscar no ${origem}` : `Atualizar do ${origem}`)}</button>
+            : <span />}
           <button onClick={onClose} className="rounded border border-line px-4 py-2 text-sm hover:bg-canvas">Fechar</button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** Resumo do cliente (dados + totais + últimas faturas), como um "espelho" da tela de Clientes. */
+function ClienteDetalheModal({ id, nome, onClose }: { id: string; nome: string; onClose: () => void }) {
+  interface Detalhe {
+    customer: { nome: string; doc?: string | null; email?: string | null; telefone?: string | null; plano?: string | null; cidade?: string | null; uf?: string | null; contrato?: string | null; tags?: string[]; faixaAtual?: string | null };
+    totais: { emAberto: number; pago: number; vencidas: number };
+    faturas: { id: string; valor: number; vencimento: string; status: string; pagoEm?: string | null }[];
+  }
+  const [d, setD] = useState<Detalhe | null>(null);
+  const [erro, setErro] = useState('');
+
+  useEffect(() => {
+    api<Detalhe>(`/clientes/${id}/detalhe`).then(setD).catch((e) => setErro(e instanceof Error ? e.message : 'Erro ao carregar'));
+  }, [id]);
+
+  const faixa: Record<string, string> = { BOM: 'Bom pagador', ATENCAO: 'Atenção', RISCO: 'Risco' };
+  const info = (rotulo: string, valor?: string | null) => valor ? <div><span className="text-xs text-muted">{rotulo}</span><div className="text-sm text-ink">{valor}</div></div> : null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-ink">{d?.customer.nome || nome}</h2>
+          <div className="flex items-center gap-2">
+            <a href={`/clientes/${id}`} className="rounded border border-line px-3 py-1.5 text-xs font-medium hover:bg-canvas">Abrir cadastro completo</a>
+            <button onClick={onClose} className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>
+          </div>
+        </div>
+
+        {erro && <p className="text-sm text-danger">{erro}</p>}
+        {!d && !erro && <p className="text-sm text-muted">Carregando…</p>}
+        {d && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+              {info('CPF/CNPJ', d.customer.doc)}
+              {info('Telefone', d.customer.telefone)}
+              {info('E-mail', d.customer.email)}
+              {info('Plano', d.customer.plano)}
+              {info('Contrato', d.customer.contrato)}
+              {info('Cidade/UF', d.customer.cidade ? `${d.customer.cidade}${d.customer.uf ? `/${d.customer.uf}` : ''}` : null)}
+              {info('Risco', d.customer.faixaAtual ? (faixa[d.customer.faixaAtual] || d.customer.faixaAtual) : null)}
+            </div>
+            {d.customer.tags && d.customer.tags.length > 0 && (
+              <div className="flex flex-wrap gap-1">{d.customer.tags.map((t) => <span key={t} className="rounded-full bg-canvas px-2 py-0.5 text-xs text-muted">{t}</span>)}</div>
+            )}
+
+            <div className="grid grid-cols-3 gap-2">
+              <div className="rounded border border-line px-3 py-2"><div className="text-xs text-muted">Em aberto</div><div className="tabular font-semibold text-ink">{brl(d.totais.emAberto)}</div></div>
+              <div className="rounded border border-line px-3 py-2"><div className="text-xs text-muted">Pago</div><div className="tabular font-semibold text-[#0F6E56]">{brl(d.totais.pago)}</div></div>
+              <div className="rounded border border-line px-3 py-2"><div className="text-xs text-muted">Vencidas</div><div className="tabular font-semibold text-[#A32D2D]">{d.totais.vencidas}</div></div>
+            </div>
+
+            <div>
+              <div className="mb-1 text-xs font-medium uppercase text-muted">Últimas cobranças</div>
+              <div className="max-h-64 overflow-auto rounded border border-line">
+                <table className="w-full text-sm">
+                  <tbody>
+                    {d.faturas.slice(0, 20).map((f) => (
+                      <tr key={f.id} className="border-b border-line last:border-0">
+                        <td className="tabular px-3 py-1.5">{brl(Number(f.valor))}</td>
+                        <td className="px-3 py-1.5 text-muted">{new Date(f.vencimento).toLocaleDateString('pt-BR')}</td>
+                        <td className="px-3 py-1.5"><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusColor[f.status] || 'bg-canvas text-muted'}`}>{f.status}</span>{f.status === 'PAGA' && f.pagoEm ? <span className="ml-1 text-xs text-[#0F6E56]">{new Date(f.pagoEm).toLocaleDateString('pt-BR')}</span> : null}</td>
+                      </tr>
+                    ))}
+                    {d.faturas.length === 0 && <tr><td className="px-3 py-3 text-center text-muted">Sem cobranças.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

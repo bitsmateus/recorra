@@ -3,6 +3,7 @@ import { ChargeMethod, InvoiceStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { AuditService } from '@/common/audit/audit.service';
 import { PaymentProviderFactory } from './payment-provider.factory';
+import { ConnectorFactory } from '@/modules/connectors/connector.factory';
 import { SplitRuleInput } from './payment-provider.interface';
 import { computeSplit } from './split';
 import { canTransition } from './invoice-status';
@@ -34,8 +35,63 @@ export class ChargesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly factory: PaymentProviderFactory,
+    private readonly connectors: ConnectorFactory,
     private readonly audit: AuditService,
   ) {}
+
+  /**
+   * Busca sob demanda o Pix/boleto/link de UMA fatura, na fonte certa:
+   *  - Gateway: Pix copia-e-cola.
+   *  - ERP (SGP...): 2ª via do título (Pix + boleto + link), como "Imprimir Pix".
+   * Persiste o que achou e devolve os dados. Diferente do envio, aqui o erro do ERP
+   * é propagado — o usuário clicou no botão e quer ver o motivo se falhar.
+   */
+  async buscarPagamento(tenantId: string, invoiceId: string) {
+    const inv = await this.prisma.invoice.findFirst({ where: { id: invoiceId, tenantId } });
+    if (!inv) throw new NotFoundException('Fatura não encontrada');
+
+    if (inv.providerAccountId && inv.externalId) {
+      if (!inv.pixCopiaCola) {
+        try {
+          const provider = await this.factory.forAccount(inv.providerAccountId, tenantId);
+          const pix = provider.getPixCopiaCola ? await provider.getPixCopiaCola(inv.externalId) : null;
+          if (pix) { await this.prisma.invoice.update({ where: { id: inv.id }, data: { pixCopiaCola: pix } }); inv.pixCopiaCola = pix; }
+        } catch (e) {
+          throw new BadRequestException(`Não foi possível buscar o Pix no gateway: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+    } else if (inv.sourceSystem && inv.sourceExternalId) {
+      const connector = await this.connectors.forSystem(tenantId, inv.sourceSystem);
+      if (!connector?.fetchInvoicePayment) {
+        throw new BadRequestException(`Buscar 2ª via não está disponível para ${inv.sourceSystem}.`);
+      }
+      let pag;
+      try {
+        pag = await connector.fetchInvoicePayment(inv.sourceExternalId);
+      } catch (e) {
+        throw new BadRequestException(`${inv.sourceSystem}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+      if (pag && (pag.pixCopiaCola || pag.boletoLinha || pag.boletoUrl || pag.linkPagamento)) {
+        const data = {
+          ...(pag.pixCopiaCola ? { pixCopiaCola: pag.pixCopiaCola } : {}),
+          ...(pag.boletoLinha ? { boletoLinha: pag.boletoLinha } : {}),
+          ...(pag.boletoUrl ? { boletoUrl: pag.boletoUrl } : {}),
+          ...(pag.linkPagamento ? { linkPagamento: pag.linkPagamento } : {}),
+        };
+        await this.prisma.invoice.update({ where: { id: inv.id }, data });
+        Object.assign(inv, data);
+      }
+    } else {
+      throw new BadRequestException('Esta fatura não tem gateway nem origem de ERP para buscar Pix/boleto.');
+    }
+
+    return {
+      pixCopiaCola: inv.pixCopiaCola ?? null,
+      boletoLinha: inv.boletoLinha ?? null,
+      boletoUrl: inv.boletoUrl ?? null,
+      linkPagamento: inv.linkPagamento ?? null,
+    };
+  }
 
   async gerarCobranca(
     tenantId: string,
