@@ -192,9 +192,22 @@ export const HELP_TOPICS: HelpTopic[] = [
     ],
   },
   {
+    id: 'confirmacao-pagamento', section: 'Comunicação', title: 'Confirmação automática de pagamento',
+    summary: 'Envio opcional de uma mensagem ao cliente depois que o pagamento é confirmado.',
+    steps: ['Abra Comunicação > Canais.', 'Localize Confirmação de pagamento.', 'Ative Enviar confirmação quando o pagamento for recebido.', 'Escolha o canal de envio.', 'No WhatsApp oficial, selecione um template aprovado e mapeie cada variável posicional.', 'No e-mail, escolha um modelo ou escreva assunto e mensagem.', 'Salve a configuração.'],
+    rules: [
+      'A confirmação de pagamento vem desativada por padrão e só é enviada depois de ser ativada e salva.',
+      'Canal automático usa a primeira conta de canal ativa disponível para o tenant.',
+      'WhatsApp API oficial e WhatsApp oficial via NX Systems exigem um template aprovado pela Meta.',
+      'Os valores de {{1}}, {{2}} e demais parâmetros devem seguir a ordem do template; podem usar {{nome}}, {{valor}}, {{vencimento}} ou texto fixo.',
+      'Ao escolher um modelo de e-mail, o assunto e o corpo são copiados para a configuração e podem ser editados antes de salvar.',
+      'A mensagem só é enfileirada depois da baixa da cobrança pelo webhook ou pela conciliação e depende de um contato válido no canal escolhido.',
+    ],
+  },
+  {
     id: 'templates', section: 'Comunicação', title: 'Templates de WhatsApp e modelos de e-mail',
     summary: 'Conteúdo reutilizável usado nas mensagens da operação.',
-    steps: ['Abra Templates WhatsApp ou Modelos de e-mail.', 'Crie ou sincronize o modelo.', 'Defina nome, corpo e assunto quando for e-mail.', 'Mapeie variáveis na ordem exigida pelo provedor.', 'Selecione o modelo na régua ou campanha.'],
+    steps: ['Abra Templates WhatsApp ou Modelos de e-mail.', 'Crie ou sincronize o modelo.', 'Defina nome, corpo e assunto quando for e-mail.', 'Mapeie variáveis na ordem exigida pelo provedor.', 'Selecione o modelo na régua, campanha ou confirmação de pagamento.'],
     rules: [
       'O nome do template oficial deve corresponder ao aprovado no provedor.',
       'Parâmetros posicionais precisam seguir a mesma ordem aprovada.',
