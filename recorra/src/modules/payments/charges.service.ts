@@ -4,6 +4,7 @@ import { PrismaService } from '@/common/prisma/prisma.service';
 import { AuditService } from '@/common/audit/audit.service';
 import { PaymentProviderFactory } from './payment-provider.factory';
 import { ConnectorFactory } from '@/modules/connectors/connector.factory';
+import { assinarPagamento } from './pay-token';
 import { SplitRuleInput } from './payment-provider.interface';
 import { computeSplit } from './split';
 import { canTransition } from './invoice-status';
@@ -446,7 +447,8 @@ export class ChargesService {
     // `semContato`: sem telefone E sem e-mail = não recebe por canal nenhum.
     const comAviso = items.map((i) => {
       const c = i.customer as { telefone?: string | null; email?: string | null } | null;
-      return { ...i, semContato: !c?.telefone?.trim() && !c?.email?.trim() };
+      // paginaToken: sufixo da URL pública de pagamento (mesma do botão do WhatsApp) — para prévia na tela.
+      return { ...i, semContato: !c?.telefone?.trim() && !c?.email?.trim(), paginaToken: assinarPagamento(i.id) };
     });
     return { items: comAviso, total, page, pageSize };
   }

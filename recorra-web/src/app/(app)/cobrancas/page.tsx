@@ -36,8 +36,13 @@ interface Invoice {
   externalId?: string;
   /** Origem quando vem de ERP (ex.: SGP): habilita buscar a 2ª via. */
   sourceSystem?: string;
+  /** Sufixo da URL pública de pagamento (a mesma que o cliente vê pelo botão do WhatsApp). */
+  paginaToken?: string;
   customer?: { nome: string; doc: string };
 }
+
+/** Base pública da API (onde a página /pay é servida), sem o sufixo /api. */
+const apiBase = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/api\/?$/, '');
 interface Gateway { id: string; provider: string; ambiente: string; apelido?: string; importLookbackDays?: number | null }
 
 const statusColor: Record<string, string> = {
@@ -885,6 +890,12 @@ function PagamentoModal({ inv, onClose }: { inv: Invoice; onClose: () => void })
         )}
 
         {erro && <p className="mt-3 text-sm text-danger">{erro}</p>}
+
+        {inv.paginaToken && apiBase && (
+          <a href={`${apiBase}/pay/${inv.paginaToken}`} target="_blank" rel="noreferrer" className="mt-4 flex items-center justify-center gap-1.5 rounded-lg border border-primary/40 bg-primary-tint px-3 py-2 text-sm font-medium text-primary hover:bg-primary-tint/70">
+            <ExternalLink size={14} /> Ver a página de pagamento (o que o cliente vê)
+          </a>
+        )}
 
         <div className="mt-6 flex justify-between gap-2">
           {podeBuscar
