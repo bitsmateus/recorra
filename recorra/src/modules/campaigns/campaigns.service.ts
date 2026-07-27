@@ -8,6 +8,7 @@ import { DispatchQueue } from '@/queue/dispatch-queue';
 import { parseDateFilter } from '@/common/util/parse';
 import { channelChain } from '@/modules/dunning/fallback';
 import { resolverBotoesParaEnvio, BotaoMapeado } from '@/modules/channels/meta-graph';
+import { assinarPagamento } from '@/modules/payments/pay-token';
 
 /** WhatsApp só envia por template aprovado; texto livre sobra para SMS e e-mail. */
 const WHATSAPP: ChannelType[] = ['WHATSAPP_CLOUD', 'NX_SYSTEMS', 'WHATSAPP_EVOLUTION', 'WHATSAPP_UAZAPI'];
@@ -709,7 +710,7 @@ export class CampaignsService {
     return inv;
   }
 
-  private render(txt: string | null | undefined, c: { nome: string; doc?: string | null }, inv?: { valor: any; vencimento: Date; pixCopiaCola?: string | null; boletoUrl?: string | null; boletoLinha?: string | null; linkPagamento?: string | null } | null): string {
+  private render(txt: string | null | undefined, c: { nome: string; doc?: string | null }, inv?: { id?: string; valor: any; vencimento: Date; pixCopiaCola?: string | null; boletoUrl?: string | null; boletoLinha?: string | null; linkPagamento?: string | null } | null): string {
     const valor = inv ? Number(inv.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '';
     const venc = inv ? new Date(inv.vencimento).toLocaleDateString('pt-BR') : '';
     return (txt || '')
@@ -719,6 +720,8 @@ export class CampaignsService {
       .replace(/\{\{\s*vencimento\s*\}\}/gi, venc)
       .replace(/\{\{\s*pix\s*\}\}/gi, inv?.pixCopiaCola || '')
       .replace(/\{\{\s*boleto\s*\}\}/gi, inv?.boletoUrl || inv?.boletoLinha || '')
+      // Token da página de pagamento da Recorrai (sufixo do botão de URL fixo).
+      .replace(/\{\{\s*pagina\s*\}\}/gi, inv?.id ? assinarPagamento(inv.id) : '')
       // No SGP/boleto o link do boleto é o próprio link de pagamento — usa como fallback.
       .replace(/\{\{\s*(link|linkpagamento|pagamento)\s*\}\}/gi, inv?.linkPagamento || inv?.boletoUrl || '');
   }
@@ -730,7 +733,7 @@ export class CampaignsService {
   }
 
   private temVariavelFatura(txt?: string | null): boolean {
-    return /\{\{\s*(valor|vencimento|pix|boleto|link|linkpagamento|pagamento)\s*\}\}/i.test(txt || '');
+    return /\{\{\s*(valor|vencimento|pix|boleto|link|linkpagamento|pagamento|pagina)\s*\}\}/i.test(txt || '');
   }
 
   /**

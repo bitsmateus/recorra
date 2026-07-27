@@ -106,6 +106,7 @@ const MAP_OPCOES = [
   { v: '{{vencimento}}', l: 'Vencimento' },
   { v: '{{pix}}', l: 'Pix copia e cola' },
   { v: '{{link}}', l: 'Link de pagamento' },
+  { v: '{{pagina}}', l: 'Página de pagamento (Recorrai) — p/ botão' },
   { v: '{{documento}}', l: 'CPF/CNPJ' },
   { v: '__FIXO__', l: 'Texto fixo' },
 ];

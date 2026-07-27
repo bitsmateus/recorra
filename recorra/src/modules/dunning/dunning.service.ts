@@ -10,6 +10,7 @@ import { channelChain } from './fallback';
 import { pickVariant } from './abtest';
 import { resolverBotoesParaEnvio, BotaoMapeado } from '@/modules/channels/meta-graph';
 import { PaymentProviderFactory } from '@/modules/payments/payment-provider.factory';
+import { assinarPagamento } from '@/modules/payments/pay-token';
 
 type RuleWithSteps = DunningRule & { steps: DunningStep[] };
 
@@ -168,6 +169,8 @@ export class DunningService {
       boleto: inv.boletoUrl ?? inv.boletoLinha ?? '',
       // No SGP/boleto o link do boleto serve de link de pagamento — fallback.
       link: inv.linkPagamento ?? inv.boletoUrl ?? '',
+      // Token da página de pagamento (sufixo do botão de URL fixo da Recorrai).
+      pagina: assinarPagamento(inv.id),
       contrato: inv.customer.contrato ?? '',
     };
 
