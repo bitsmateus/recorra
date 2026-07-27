@@ -30,6 +30,35 @@ export class AsaasProvider implements PaymentProvider {
     this.webhookToken = creds.webhookToken;
   }
 
+  /**
+   * GET paginado tolerante: listar pagamentos/clientes de contas grandes às vezes
+   * passa dos 15s e a Asaas responde 429/5xx transitório. Damos 60s por página e
+   * repetimos algumas vezes (respeitando Retry-After) antes de desistir.
+   */
+  private async getComRetry(url: string, params: Record<string, unknown>, tentativas = 4): Promise<any> {
+    let ultimo: unknown;
+    for (let i = 0; i < tentativas; i++) {
+      try {
+        const { data } = await this.http.get(url, { params, timeout: 60000 });
+        return data;
+      } catch (e) {
+        ultimo = e;
+        const err = e as { code?: string; response?: { status?: number; headers?: Record<string, string> } };
+        const transitorio =
+          err?.code === 'ECONNABORTED' || err?.code === 'ETIMEDOUT' || err?.code === 'ECONNRESET' ||
+          [429, 502, 503, 504].includes(err?.response?.status ?? 0);
+        if (!transitorio || i === tentativas - 1) throw e;
+        const retryAfter = Number(err.response?.headers?.['retry-after']);
+        await this.sleep(retryAfter > 0 ? retryAfter * 1000 : (i + 1) * 2000);
+      }
+    }
+    throw ultimo;
+  }
+
+  private sleep(ms: number) {
+    return new Promise((r) => setTimeout(r, ms));
+  }
+
   private billingType(metodo: ChargeMethod): string {
     switch (metodo) {
       case 'BOLETO':
@@ -163,7 +192,7 @@ export class AsaasProvider implements PaymentProvider {
     const out: ImportedCustomer[] = [];
     let offset = 0;
     for (let i = 0; i < 100; i++) {
-      const { data } = await this.http.get("/customers", { params: { limit: 100, offset } });
+      const data = await this.getComRetry('/customers', { limit: 100, offset });
       for (const c of data?.data ?? []) {
         if (!c.cpfCnpj) continue;
         out.push({
@@ -178,6 +207,7 @@ export class AsaasProvider implements PaymentProvider {
       }
       if (!data?.hasMore) break;
       offset += 100;
+      await this.sleep(250); // respiro entre páginas: evita 429 em contas grandes
     }
     return out;
   }
@@ -207,7 +237,7 @@ export class AsaasProvider implements PaymentProvider {
     const out: ImportedPayment[] = [];
     let offset = 0;
     for (let i = 0; i < 200; i++) {
-      const { data } = await this.http.get("/payments", { params: { limit: 100, offset } });
+      const data = await this.getComRetry('/payments', { limit: 100, offset });
       for (const p of data?.data ?? []) {
         out.push({
           externalId: p.id,
@@ -224,6 +254,7 @@ export class AsaasProvider implements PaymentProvider {
       }
       if (!data?.hasMore) break;
       offset += 100;
+      await this.sleep(250); // respiro entre páginas: evita 429 em contas grandes
     }
     return out;
   }
