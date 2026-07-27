@@ -512,6 +512,7 @@ function FlowEditor({
   msg: string;
   usarFaixaRisco: boolean;
 }) {
+  const [diarioAte, setDiarioAte] = useState(30);
   function update(patch: Partial<Rule>) {
     setRule({ ...rule, ...patch });
   }
@@ -521,6 +522,22 @@ function FlowEditor({
   }
   function addStep() {
     update({ steps: [...rule.steps, { ordem: rule.steps.length + 1, offsetDias: 0, canal: 'WHATSAPP_CLOUD', template: '' }] });
+  }
+  // Cria um passo por dia (do dia 1 ao dia N depois do vencimento), repetindo a
+  // mensagem do último passo — é como o motor faz "manda todos os dias" (um passo/dia).
+  function addDiario() {
+    const ate = Math.max(1, Math.min(120, Math.floor(diarioAte) || 30));
+    const base = rule.steps[rule.steps.length - 1];
+    const modelo = base
+      ? { canal: base.canal, channelAccountId: base.channelAccountId, canaisFallback: base.canaisFallback, template: base.template, emailAssunto: base.emailAssunto, templateName: base.templateName, templateParams: base.templateParams, templateBotoes: base.templateBotoes }
+      : { canal: 'WHATSAPP_CLOUD' as Canal, template: '' };
+    const existentes = new Set(rule.steps.map((s) => s.offsetDias));
+    const novos: Step[] = [];
+    for (let d = 1; d <= ate; d++) {
+      if (existentes.has(d)) continue;
+      novos.push({ ordem: 0, offsetDias: d, ...modelo } as Step);
+    }
+    update({ steps: [...rule.steps, ...novos].sort((a, b) => a.offsetDias - b.offsetDias).map((s, i) => ({ ...s, ordem: i + 1 })) });
   }
   function removeStep(i: number) {
     update({ steps: rule.steps.filter((_, idx) => idx !== i) });
@@ -597,9 +614,17 @@ function FlowEditor({
         ))}
       </div>
 
-      <button onClick={addStep} className="mt-3 flex items-center gap-2 rounded border border-dashed border-line px-3 py-2 text-sm text-primary hover:bg-canvas">
-        <Plus size={16} /> Adicionar passo
-      </button>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <button onClick={addStep} className="flex items-center gap-2 rounded border border-dashed border-line px-3 py-2 text-sm text-primary hover:bg-canvas">
+          <Plus size={16} /> Adicionar passo
+        </button>
+        <div className="flex flex-wrap items-center gap-2 rounded border border-dashed border-line px-3 py-2 text-sm text-muted">
+          <RefreshCw size={14} className="text-primary" /> repetir a última mensagem <b className="text-ink">todo dia</b>, do dia 1 até o dia
+          <input type="number" min={1} max={120} value={diarioAte} onChange={(e) => setDiarioAte(Number(e.target.value))} className="w-16 rounded border border-line px-2 py-1 text-sm outline-none focus:border-primary" />
+          depois do vencimento
+          <button onClick={addDiario} className="rounded bg-primary px-3 py-1 text-xs font-medium text-white hover:bg-primary-hover">Adicionar dias</button>
+        </div>
+      </div>
 
       <div className="mt-5 flex items-center gap-3 border-t border-line pt-4">
         <button onClick={onSave} className="flex items-center gap-2 rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover">
