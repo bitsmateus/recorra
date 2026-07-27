@@ -665,7 +665,10 @@ function CriarManualModal({ gateways, onClose, onSaved }: { gateways: Gateway[];
     // Só busca quando o usuário digita algo (evita listar todos os clientes).
     if (q.length < 2) { setOpcoes([]); return; }
     const t = setTimeout(() => {
-      api<CustLite[]>(`/clientes?q=${encodeURIComponent(q)}`).then((l) => setOpcoes(l.slice(0, 20))).catch(() => setOpcoes([]));
+      // /clientes é paginado: retorna { items, total, ... }, não um array cru.
+      api<{ items: CustLite[] }>(`/clientes?q=${encodeURIComponent(q)}&pageSize=20`)
+        .then((r) => setOpcoes(r.items ?? []))
+        .catch(() => setOpcoes([]));
     }, 250);
     return () => clearTimeout(t);
   }, [busca]);
