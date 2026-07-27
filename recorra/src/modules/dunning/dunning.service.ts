@@ -166,7 +166,8 @@ export class DunningService {
       vencimento: dateBR(inv.vencimento),
       pix: inv.pixCopiaCola ?? '',
       boleto: inv.boletoUrl ?? inv.boletoLinha ?? '',
-      link: inv.linkPagamento ?? '',
+      // No SGP/boleto o link do boleto serve de link de pagamento — fallback.
+      link: inv.linkPagamento ?? inv.boletoUrl ?? '',
       contrato: inv.customer.contrato ?? '',
     };
 

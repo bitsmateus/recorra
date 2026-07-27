@@ -409,7 +409,9 @@ export class ChargesService {
     }
     const de = parseDateFilter(filtros.de);
     const ate = parseDateFilter(filtros.ate ? filtros.ate + 'T23:59:59' : undefined);
-    if (de || ate) {
+    // Busca por nome/documento ignora o período: procurar um cliente tem que achá-lo
+    // em qualquer mês (senão o filtro padrão "Este mês" esconde faturas futuras/antigas).
+    if ((de || ate) && !filtros.q) {
       where.vencimento = { ...(de ? { gte: de } : {}), ...(ate ? { lte: ate } : {}) };
     }
     const valorMin = parseNumberFilter(filtros.valorMin);

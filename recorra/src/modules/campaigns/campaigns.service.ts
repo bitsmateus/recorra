@@ -719,7 +719,8 @@ export class CampaignsService {
       .replace(/\{\{\s*vencimento\s*\}\}/gi, venc)
       .replace(/\{\{\s*pix\s*\}\}/gi, inv?.pixCopiaCola || '')
       .replace(/\{\{\s*boleto\s*\}\}/gi, inv?.boletoUrl || inv?.boletoLinha || '')
-      .replace(/\{\{\s*(link|linkpagamento|pagamento)\s*\}\}/gi, inv?.linkPagamento || '');
+      // No SGP/boleto o link do boleto é o próprio link de pagamento — usa como fallback.
+      .replace(/\{\{\s*(link|linkpagamento|pagamento)\s*\}\}/gi, inv?.linkPagamento || inv?.boletoUrl || '');
   }
 
   /** Resolve o mapeamento de botões dinâmicos (link/pix) para este cliente/fatura. */
