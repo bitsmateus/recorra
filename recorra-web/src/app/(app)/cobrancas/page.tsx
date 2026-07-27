@@ -201,8 +201,10 @@ export default function CobrancasPage() {
   async function conciliarPagamentos() {
     setBusy(true); setMsg('Verificando pagamentos no gateway...');
     try {
-      const r = await api<{ verificadas: number; baixadas: number }>('/cobrancas/conciliar', { method: 'POST' });
-      setMsg(r.baixadas > 0 ? `✓ ${r.baixadas} cobrança(s) baixada(s) como Paga.` : '✓ Nada a atualizar — nenhuma cobrança em aberto foi paga no gateway.');
+      const r = await api<{ verificadas: number; baixadas: number; naoEncontradas?: number }>('/cobrancas/conciliar', { method: 'POST' });
+      if (r.baixadas > 0) setMsg(`✓ ${r.baixadas} cobrança(s) baixada(s) como Paga (de ${r.verificadas} verificadas).`);
+      else if (r.naoEncontradas && r.naoEncontradas > 0) setMsg(`⚠️ Nenhuma baixada. ${r.naoEncontradas} de ${r.verificadas} cobrança(s) NÃO foram encontradas no gateway (o id salvo aqui não bate com o do gateway). Me avise para investigar.`);
+      else setMsg(`✓ Nada a atualizar — o gateway reporta as ${r.verificadas} cobrança(s) em aberto como ainda não pagas.`);
       load();
     } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro ao conciliar'); }
     setBusy(false);

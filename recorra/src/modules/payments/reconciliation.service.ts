@@ -63,6 +63,7 @@ export class ReconciliationService {
 
     let verificadas = 0;
     let baixadas = 0;
+    let naoEncontradas = 0; // faturas cujo id não existe na lista do gateway (id divergente)
     for (const [accountId, invs] of porConta) {
       let provider: Awaited<ReturnType<typeof this.factory.forAccount>>;
       try {
@@ -84,11 +85,14 @@ export class ReconciliationService {
         }
         if (pagamentos) {
           const mapa = new Map(pagamentos.map((p) => [p.externalId, p]));
+          const semMatch: string[] = [];
           for (const inv of invs) {
             verificadas++;
             const p = mapa.get(inv.externalId!);
-            if (p && p.status === 'PAGA' && (await this.baixar(tenantId, inv.id, inv.customerId, undefined, p.pagoEm))) baixadas++;
+            if (!p) { naoEncontradas++; if (semMatch.length < 5) semMatch.push(inv.externalId!); continue; }
+            if (p.status === 'PAGA' && (await this.baixar(tenantId, inv.id, inv.customerId, undefined, p.pagoEm))) baixadas++;
           }
+          if (semMatch.length) this.logger.warn(`Conciliação conta ${accountId}: ${naoEncontradas} fatura(s) sem correspondência no gateway (ex.: ${semMatch.join(', ')}). Pagamentos no gateway: ${pagamentos.length}.`);
           continue; // conta resolvida em lote
         }
       }
@@ -111,7 +115,7 @@ export class ReconciliationService {
         await this.sleep(250);
       }
     }
-    return { verificadas, baixadas };
+    return { verificadas, baixadas, naoEncontradas };
   }
 
   /** Baixa + pausa régua + confirmação (mesma lógica do webhook). */
