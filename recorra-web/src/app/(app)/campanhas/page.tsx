@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Plus, Play, Pause, BarChart3, Pencil, Trash2, X, Megaphone, ExternalLink, Copy, Filter, Loader2, HelpCircle, Radio } from 'lucide-react';
+import { Plus, Play, Pause, BarChart3, Pencil, Trash2, X, Megaphone, ExternalLink, Copy, Filter, Loader2, HelpCircle, Radio, Archive, ArchiveRestore } from 'lucide-react';
 import { api } from '@/lib/api';
 import { PageTitle, brl } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -125,6 +125,8 @@ const jaDisparada = (c: Campaign) => c.agendamento === 'UMA_VEZ' && !!c.entrega;
 /** Dá para pausar/religar: recorrente, agendada, já pausada, ou única ainda com mensagens na fila. */
 const podePausar = (c: Campaign) =>
   c.agendamento !== 'UMA_VEZ' || c.status === 'AGENDADA' || c.status === 'PAUSADA' || (c.entrega ? c.entrega.fila > 0 : false);
+/** Já rodou alguma vez (tem histórico) — não pode excluir, só arquivar. */
+const foiEnviada = (c: Campaign) => (c.runs?.length ?? 0) > 0 || !!c.entrega;
 const dataHora = (s?: string) => s ? new Date(s).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
 /** ISO/Date → valor do <input type="datetime-local"> (hora local, sem timezone). */
 function paraInputLocal(iso?: string | Date | null): string {
@@ -194,6 +196,7 @@ export default function CampanhasPage() {
   const [msg, setMsg] = useState('');
   const emptyFiltros = { q: '', status: '', tipoEnvio: '', ruleId: '', agendamento: '', etiqueta: '', canal: '', de: '', ate: '' };
   const [filtros, setFiltros] = useState(emptyFiltros);
+  const [verArquivadas, setVerArquivadas] = useState(false);
   const [reguas, setReguas] = useState<{ id: string; nome: string }[]>([]);
   const [etiquetas, setEtiquetas] = useState<{ nome: string }[]>([]);
   const [canais, setCanais] = useState<ContaCanal[]>([]);
@@ -213,10 +216,11 @@ export default function CampanhasPage() {
     if (!silencioso) setLoading(true);
     const params = new URLSearchParams();
     Object.entries(filtros).forEach(([k, v]) => v && params.set(k, v));
+    if (verArquivadas) params.set('arquivadas', 'true');
     const r = await api<Campaign[]>(`/campanhas?${params.toString()}`).catch(() => null);
     if (r) setLista(r);
     if (!silencioso) setLoading(false);
-  }, [filtros]);
+  }, [filtros, verArquivadas]);
   useEffect(() => { carregar(); }, [carregar]);
 
   // Enquanto houver mensagem na fila, o worker ainda está enviando: recarrega sozinho
@@ -247,7 +251,12 @@ export default function CampanhasPage() {
   }
 
   async function excluir(c: Campaign) {
-    await api(`/campanhas/${c.id}`, { method: 'DELETE' }).catch(() => {});
+    try { await api(`/campanhas/${c.id}`, { method: 'DELETE' }); }
+    catch (e) { setMsg(e instanceof Error ? e.message : 'Erro ao excluir'); }
+    carregar();
+  }
+  async function arquivar(c: Campaign, arquivada: boolean) {
+    await api(`/campanhas/${c.id}/arquivar`, { method: 'POST', body: { arquivada } }).catch(() => {});
     carregar();
   }
 
@@ -276,10 +285,15 @@ export default function CampanhasPage() {
           </p>
         </div>
       </div>
-      <div className="mb-4 flex gap-1 border-b border-line">
-        {[['', 'Todas'], ['UMA_VEZ', 'Uma vez'], ['MENSAL', 'Todo mês'], ['SEMPRE_ATIVA', 'Sempre ativa']].map(([v, l]) => (
-          <button key={l} onClick={() => setF('agendamento', v)} className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium transition ${filtros.agendamento === v ? 'border-primary text-primary' : 'border-transparent text-muted hover:text-ink'}`}>{l}</button>
-        ))}
+      <div className="mb-4 flex items-center justify-between gap-2 border-b border-line">
+        <div className="flex gap-1">
+          {!verArquivadas && [['', 'Todas'], ['UMA_VEZ', 'Uma vez'], ['MENSAL', 'Todo mês'], ['SEMPRE_ATIVA', 'Sempre ativa']].map(([v, l]) => (
+            <button key={l} onClick={() => setF('agendamento', v)} className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium transition ${filtros.agendamento === v ? 'border-primary text-primary' : 'border-transparent text-muted hover:text-ink'}`}>{l}</button>
+          ))}
+        </div>
+        <button onClick={() => setVerArquivadas((v) => !v)} title="Campanhas arquivadas" className={`-mb-px flex items-center gap-1.5 border-b-2 px-4 py-2 text-sm font-medium transition ${verArquivadas ? 'border-primary text-primary' : 'border-transparent text-muted hover:text-ink'}`}>
+          <Archive size={15} /> Arquivados
+        </button>
       </div>
 
       {msg && <p className="mb-3 text-sm text-primary">{msg}</p>}
@@ -325,12 +339,23 @@ export default function CampanhasPage() {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-1">
-                      {!jaDisparada(c) && <button onClick={() => setConfirmarDisparo(c)} title="Disparar agora" className="rounded p-1.5 text-muted hover:bg-primary-tint hover:text-primary"><Play size={15} /></button>}
-                      <button onClick={() => setRelatorio(c)} title="Relatório" className="rounded p-1.5 text-muted hover:bg-canvas hover:text-primary"><BarChart3 size={15} /></button>
-                      {podePausar(c) && <button onClick={() => toggleStatus(c)} title={c.status === 'PAUSADA' ? 'Retomar' : 'Pausar'} className={`rounded p-1.5 hover:bg-canvas ${c.status === 'PAUSADA' ? 'text-primary' : 'text-muted hover:text-primary'}`}>{c.status === 'PAUSADA' ? <Play size={15} /> : <Pause size={15} />}</button>}
-                      <button onClick={() => duplicar(c)} title={jaDisparada(c) ? 'Envio único já disparado — duplique para enviar de novo' : 'Duplicar'} className={`rounded p-1.5 hover:bg-canvas hover:text-primary ${jaDisparada(c) ? 'text-primary' : 'text-muted'}`}><Copy size={15} /></button>
-                      <button onClick={() => setModal({ open: true, edit: c })} title="Editar" className="rounded p-1.5 text-muted hover:bg-canvas hover:text-primary"><Pencil size={15} /></button>
-                      <button onClick={() => setConfirmarExclusao(c)} title="Excluir" className="rounded p-1.5 text-muted hover:bg-danger-tint hover:text-danger"><Trash2 size={15} /></button>
+                      {verArquivadas ? (
+                        <>
+                          <button onClick={() => setRelatorio(c)} title="Relatório" className="rounded p-1.5 text-muted hover:bg-canvas hover:text-primary"><BarChart3 size={15} /></button>
+                          <button onClick={() => arquivar(c, false)} title="Desarquivar (voltar para campanhas)" className="rounded p-1.5 text-muted hover:bg-primary-tint hover:text-primary"><ArchiveRestore size={15} /></button>
+                        </>
+                      ) : (
+                        <>
+                          {!jaDisparada(c) && <button onClick={() => setConfirmarDisparo(c)} title="Disparar agora" className="rounded p-1.5 text-muted hover:bg-primary-tint hover:text-primary"><Play size={15} /></button>}
+                          <button onClick={() => setRelatorio(c)} title="Relatório" className="rounded p-1.5 text-muted hover:bg-canvas hover:text-primary"><BarChart3 size={15} /></button>
+                          {podePausar(c) && <button onClick={() => toggleStatus(c)} title={c.status === 'PAUSADA' ? 'Retomar' : 'Pausar'} className={`rounded p-1.5 hover:bg-canvas ${c.status === 'PAUSADA' ? 'text-primary' : 'text-muted hover:text-primary'}`}>{c.status === 'PAUSADA' ? <Play size={15} /> : <Pause size={15} />}</button>}
+                          <button onClick={() => duplicar(c)} title={jaDisparada(c) ? 'Envio único já disparado — duplique para enviar de novo' : 'Duplicar'} className={`rounded p-1.5 hover:bg-canvas hover:text-primary ${jaDisparada(c) ? 'text-primary' : 'text-muted'}`}><Copy size={15} /></button>
+                          <button onClick={() => setModal({ open: true, edit: c })} title="Editar" className="rounded p-1.5 text-muted hover:bg-canvas hover:text-primary"><Pencil size={15} /></button>
+                          {foiEnviada(c)
+                            ? <button onClick={() => arquivar(c, true)} title="Arquivar (já enviada — não pode excluir)" className="rounded p-1.5 text-muted hover:bg-canvas hover:text-primary"><Archive size={15} /></button>
+                            : <button onClick={() => setConfirmarExclusao(c)} title="Excluir" className="rounded p-1.5 text-muted hover:bg-danger-tint hover:text-danger"><Trash2 size={15} /></button>}
+                        </>
+                      )}
                     </div>
                   </td>
                 </tr>

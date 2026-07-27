@@ -22,8 +22,9 @@ export class CampaignsController {
     @Query('ate') ate?: string,
     @Query('etiqueta') etiqueta?: string,
     @Query('canal') canal?: string,
+    @Query('arquivadas') arquivadas?: string,
   ) {
-    return this.campaigns.list(tenantId, { q, status, tipoEnvio, ruleId, agendamento, de, ate, etiqueta, canal });
+    return this.campaigns.list(tenantId, { q, status, tipoEnvio, ruleId, agendamento, de, ate, etiqueta, canal, arquivadas: arquivadas === 'true' });
   }
 
   @Post('rodar-agendadas')
@@ -121,6 +122,12 @@ export class CampaignsController {
   @Roles('OWNER', 'ADMIN', 'FINANCEIRO', 'OPERADOR')
   duplicar(@TenantId() tenantId: string, @Param('id') id: string) {
     return this.campaigns.duplicar(tenantId, id);
+  }
+
+  @Post(':id/arquivar')
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
+  arquivar(@TenantId() tenantId: string, @Param('id') id: string, @Body('arquivada') arquivada: boolean) {
+    return this.campaigns.arquivar(tenantId, id, arquivada !== false);
   }
 
   @Delete(':id')

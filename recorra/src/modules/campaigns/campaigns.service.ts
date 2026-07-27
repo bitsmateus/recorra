@@ -209,9 +209,10 @@ export class CampaignsService {
     return { total: recipients.length, enviados, fila, falha };
   }
 
-  async list(tenantId: string, filtros: { q?: string; status?: string; tipoEnvio?: string; ruleId?: string; agendamento?: string; de?: string; ate?: string; etiqueta?: string; canal?: string } = {}) {
+  async list(tenantId: string, filtros: { q?: string; status?: string; tipoEnvio?: string; ruleId?: string; agendamento?: string; de?: string; ate?: string; etiqueta?: string; canal?: string; arquivadas?: boolean } = {}) {
     // A campanha automática não aparece na lista comum — ela tem controle próprio.
-    const where: any = { tenantId, automatico: false };
+    // Por padrão só as ativas; a aba "Arquivados" pede arquivadas=true.
+    const where: any = { tenantId, automatico: false, arquivada: !!filtros.arquivadas };
     if (filtros.q) where.nome = { contains: filtros.q.trim(), mode: 'insensitive' };
     if (filtros.status) where.status = filtros.status;
     if (filtros.tipoEnvio) where.tipoEnvio = filtros.tipoEnvio;
@@ -416,9 +417,21 @@ export class CampaignsService {
   }
 
   async remove(tenantId: string, id: string) {
-    this.assertEditavel(await this.get(tenantId, id));
+    const camp = await this.get(tenantId, id);
+    this.assertEditavel(camp);
+    // Campanha que já foi disparada (tem histórico) não pode ser excluída — só arquivada,
+    // para o histórico de envios não sumir. Rascunho/nunca-enviada pode excluir.
+    const jaEnviou = await this.prisma.campaignRun.count({ where: { campaignId: id } });
+    if (jaEnviou > 0) {
+      throw new BadRequestException('Esta campanha já foi enviada — não pode ser excluída, só arquivada (fica em "Arquivados").');
+    }
     await this.prisma.campaign.delete({ where: { id } });
     return { ok: true };
+  }
+
+  async arquivar(tenantId: string, id: string, arquivada: boolean) {
+    await this.get(tenantId, id); // valida posse
+    return this.prisma.campaign.update({ where: { id }, data: { arquivada } });
   }
 
   async setStatus(tenantId: string, id: string, status: 'ATIVA' | 'PAUSADA') {
