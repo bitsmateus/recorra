@@ -900,9 +900,17 @@ export class CampaignsService {
             camp.emailAssunto ?? '',
             camp.templateNome ? this.tokensBotoes(camp.templateBotoes) : '',
           ].join(' ');
-          let inv = this.temVariavelFatura(textoVars)
-            ? await this.prisma.invoice.findFirst({ where: { tenantId, customerId: cliente.id, status: { in: ['PENDENTE', 'VENCIDA'] }, gestaoCobranca: 'ATIVA' }, orderBy: { vencimento: 'desc' } })
-            : null;
+          // Escolhe a fatura que casa com o FILTRO da campanha (ex.: só VENCIDA), a mais
+          // antiga primeiro. Antes pegava a de maior vencimento (a mais futura), então
+          // numa campanha de "vencidas" saía a fatura do mês seguinte — bug.
+          let inv = null as Awaited<ReturnType<typeof this.prisma.invoice.findFirst>>;
+          if (this.temVariavelFatura(textoVars)) {
+            const abertas = await this.prisma.invoice.findMany({
+              where: { tenantId, customerId: cliente.id, status: { in: ['PENDENTE', 'VENCIDA'] }, gestaoCobranca: 'ATIVA' },
+              orderBy: { vencimento: 'asc' },
+            });
+            inv = faturasDaCampanha(abertas, camp)[0] ?? null;
+          }
           if (inv) inv = await this.garantirDadosPagamento(inv, tenantId, textoVars);
           // Canal oficial (WABA): envia template com as variáveis mapeadas por cliente.
           const usaTemplate = !!camp.templateNome;
@@ -931,9 +939,16 @@ export class CampaignsService {
           // A régua pode ter passos com template aprovado (WhatsApp) ou texto livre (SMS/e-mail).
           // Só busca a fatura quando algum passo precisa de dado de cobrança.
           const textoPassos = camp.rule.steps.map((s) => `${s.template} ${s.emailAssunto ?? ''} ${(s.templateParams ?? []).join(' ')} ${this.tokensBotoes(s.templateBotoes)}`).join(' ');
-          let invRegua = this.temVariavelFatura(textoPassos)
-            ? await this.prisma.invoice.findFirst({ where: { tenantId, customerId: cliente.id, status: { in: ['PENDENTE', 'VENCIDA'] }, gestaoCobranca: 'ATIVA' }, orderBy: { vencimento: 'desc' } })
-            : null;
+          // Mesma regra da MENSAGEM: a fatura tem que casar com o filtro da campanha
+          // (mais antiga primeiro), não a de maior vencimento.
+          let invRegua = null as Awaited<ReturnType<typeof this.prisma.invoice.findFirst>>;
+          if (this.temVariavelFatura(textoPassos)) {
+            const abertas = await this.prisma.invoice.findMany({
+              where: { tenantId, customerId: cliente.id, status: { in: ['PENDENTE', 'VENCIDA'] }, gestaoCobranca: 'ATIVA' },
+              orderBy: { vencimento: 'asc' },
+            });
+            invRegua = faturasDaCampanha(abertas, camp)[0] ?? null;
+          }
           if (invRegua) invRegua = await this.garantirDadosPagamento(invRegua, tenantId, textoPassos);
 
           for (const step of camp.rule.steps) {
