@@ -122,6 +122,9 @@ const agendaLabel = (c: Campaign) =>
     : c.agendamento === 'MENSAL' ? `Todo mês (dia ${c.diaDoMes || 1})` : 'Sempre ativa';
 /** Campanha de envio único já disparada não dispara de novo — o caminho é duplicar e disparar a cópia. */
 const jaDisparada = (c: Campaign) => c.agendamento === 'UMA_VEZ' && !!c.entrega;
+/** Dá para pausar/religar: recorrente, agendada, já pausada, ou única ainda com mensagens na fila. */
+const podePausar = (c: Campaign) =>
+  c.agendamento !== 'UMA_VEZ' || c.status === 'AGENDADA' || c.status === 'PAUSADA' || (c.entrega ? c.entrega.fila > 0 : false);
 const dataHora = (s?: string) => s ? new Date(s).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
 /** ISO/Date → valor do <input type="datetime-local"> (hora local, sem timezone). */
 function paraInputLocal(iso?: string | Date | null): string {
@@ -324,7 +327,7 @@ export default function CampanhasPage() {
                     <div className="flex items-center justify-end gap-1">
                       {!jaDisparada(c) && <button onClick={() => setConfirmarDisparo(c)} title="Disparar agora" className="rounded p-1.5 text-muted hover:bg-primary-tint hover:text-primary"><Play size={15} /></button>}
                       <button onClick={() => setRelatorio(c)} title="Relatório" className="rounded p-1.5 text-muted hover:bg-canvas hover:text-primary"><BarChart3 size={15} /></button>
-                      {c.agendamento !== 'UMA_VEZ' && <button onClick={() => toggleStatus(c)} title={c.status === 'PAUSADA' ? 'Ativar' : 'Pausar'} className="rounded p-1.5 text-muted hover:bg-canvas hover:text-primary">{c.status === 'PAUSADA' ? <Play size={15} /> : <Pause size={15} />}</button>}
+                      {podePausar(c) && <button onClick={() => toggleStatus(c)} title={c.status === 'PAUSADA' ? 'Retomar' : 'Pausar'} className={`rounded p-1.5 hover:bg-canvas ${c.status === 'PAUSADA' ? 'text-primary' : 'text-muted hover:text-primary'}`}>{c.status === 'PAUSADA' ? <Play size={15} /> : <Pause size={15} />}</button>}
                       <button onClick={() => duplicar(c)} title={jaDisparada(c) ? 'Envio único já disparado — duplique para enviar de novo' : 'Duplicar'} className={`rounded p-1.5 hover:bg-canvas hover:text-primary ${jaDisparada(c) ? 'text-primary' : 'text-muted'}`}><Copy size={15} /></button>
                       <button onClick={() => setModal({ open: true, edit: c })} title="Editar" className="rounded p-1.5 text-muted hover:bg-canvas hover:text-primary"><Pencil size={15} /></button>
                       <button onClick={() => setConfirmarExclusao(c)} title="Excluir" className="rounded p-1.5 text-muted hover:bg-danger-tint hover:text-danger"><Trash2 size={15} /></button>

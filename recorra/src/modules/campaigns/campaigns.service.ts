@@ -422,8 +422,15 @@ export class CampaignsService {
   }
 
   async setStatus(tenantId: string, id: string, status: 'ATIVA' | 'PAUSADA') {
-    this.assertEditavel(await this.get(tenantId, id));
-    return this.prisma.campaign.update({ where: { id }, data: { status, ativa: status === 'ATIVA' } });
+    const camp = await this.get(tenantId, id);
+    this.assertEditavel(camp);
+    if (status === 'PAUSADA') {
+      return this.prisma.campaign.update({ where: { id }, data: { status: 'PAUSADA', ativa: false } });
+    }
+    // Retomar: campanha de envio único ainda agendada volta para AGENDADA (re-arma o
+    // disparo na hora marcada); recorrente volta para ATIVA.
+    const reagenda = camp.agendamento === 'UMA_VEZ' && !!camp.proximaExecucao && new Date(camp.proximaExecucao) > new Date();
+    return this.prisma.campaign.update({ where: { id }, data: { status: reagenda ? 'AGENDADA' : 'ATIVA', ativa: !reagenda } });
   }
 
   private calcularProxima(agendamento: string, diaDoMes: number | null): Date | null {

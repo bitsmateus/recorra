@@ -24,6 +24,12 @@ export class DispatchService {
     const d = await this.prisma.messageDispatch.findUnique({ where: { id: dispatchId }, include: { customer: true } });
     if (!d || d.status !== 'FILA') return 'PULADO';
 
+    // Campanha pausada: segura o disparo (fica na FILA e sai quando religar).
+    if (d.campaignId) {
+      const camp = await this.prisma.campaign.findUnique({ where: { id: d.campaignId }, select: { status: true } });
+      if (camp?.status === 'PAUSADA') return 'PULADO';
+    }
+
     // Opt-out no momento do envio (cobre revogação após o enfileiramento). Se o
     // canal atual foi revogado, tenta um fallback não-revogado antes de ignorar.
     if (await this.optOut(d.customerId, d.canal)) {

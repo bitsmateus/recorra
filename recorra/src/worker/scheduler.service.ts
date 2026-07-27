@@ -185,8 +185,15 @@ export class SchedulerService implements OnApplicationBootstrap {
   async enfileirarDisparos() {
     try {
       const agora = new Date();
+      // Não enfileira disparos de campanhas pausadas — ficam na FILA até religar.
+      const pausadas = await this.prisma.campaign.findMany({ where: { status: 'PAUSADA' }, select: { id: true } });
+      const pausadasIds = pausadas.map((c) => c.id);
       const pendentes = await this.prisma.messageDispatch.findMany({
-        where: { status: 'FILA', OR: [{ agendadoPara: null }, { agendadoPara: { lte: agora } }] },
+        where: {
+          status: 'FILA',
+          OR: [{ agendadoPara: null }, { agendadoPara: { lte: agora } }],
+          ...(pausadasIds.length ? { NOT: { campaignId: { in: pausadasIds } } } : {}),
+        },
         take: 1000,
         select: { id: true },
       });
