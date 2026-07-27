@@ -34,6 +34,13 @@ export interface SourceInvoice {
   boletoUrl?: string;
 }
 
+/** Dados de pagamento de UM título, buscados sob demanda (ex.: 2ª via no SGP). */
+export interface SourcePayment {
+  pixCopiaCola?: string;
+  boletoLinha?: string;
+  boletoUrl?: string;
+}
+
 export interface SourceCredentials {
   urlBase: string;
   token: string;
@@ -63,4 +70,11 @@ export interface SourceConnector {
   testConnection(): Promise<boolean>;
   fetchCustomers(sinceCursor?: string): Promise<SourceCustomer[]>;
   fetchOpenInvoices(sinceCursor?: string): Promise<SourceInvoice[]>;
+
+  /**
+   * Busca (gera) o Pix/boleto de UM título sob demanda — como clicar em "Imprimir
+   * Pix"/"Gerar" no ERP. Opcional: nem todo sistema expõe 2ª via por título.
+   * Usado no envio, quando a cobrança do ERP ainda não tem Pix/link gravado.
+   */
+  fetchInvoicePayment?(sourceExternalId: string): Promise<SourcePayment | null>;
 }

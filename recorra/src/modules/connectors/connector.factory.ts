@@ -34,6 +34,22 @@ export class ConnectorFactory {
     return this.build(integ.sistema, creds);
   }
 
+  /**
+   * Conector da integração ATIVA do tenant para um sistema (ex.: SGP). Usado quando
+   * só se sabe a origem da fatura (sourceSystem), não o id da integração. Null se o
+   * tenant não tem essa integração ativa/configurada.
+   */
+  async forSystem(tenantId: string, system: SourceSystem): Promise<SourceConnector | null> {
+    const integ = await this.prisma.sourceIntegration.findFirst({
+      where: { tenantId, sistema: system, ativo: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!integ?.credentials || !integ.urlBase) return null;
+    const creds = this.crypto.decryptJson<SourceCredentials>(integ.credentials);
+    creds.urlBase = integ.urlBase;
+    return this.build(system, creds);
+  }
+
   build(system: SourceSystem, creds: SourceCredentials): SourceConnector {
     switch (system) {
       case 'IXC':

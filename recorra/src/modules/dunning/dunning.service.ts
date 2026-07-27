@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ChannelType, DunningRule, DunningStep } from '@prisma/client';
+import { ChannelType, DunningRule, DunningStep, SourceSystem } from '@prisma/client';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { ChannelFactory } from '@/modules/channels/channel.factory';
+import { ConnectorFactory } from '@/modules/connectors/connector.factory';
 import { RiskScoringService } from '@/modules/risk/risk-scoring.service';
 import { renderTemplate, renderPositional, money, dateBR } from './template.util';
 import { isWithinWindow, nextAllowedSlot, withinDailyLimit, zonedSlotToUtc } from './windows';
@@ -42,25 +43,63 @@ export class DunningService {
     private readonly channels: ChannelFactory,
     private readonly risk: RiskScoringService,
     private readonly payments: PaymentProviderFactory,
+    private readonly connectors: ConnectorFactory,
   ) {}
 
-  /** O passo referencia {{pix}} em algum lugar (corpo, params, assunto ou botão)? */
-  private usaPix(step: DunningStep): boolean {
+  /** O passo referencia dado de pagamento ({{pix}}/{{boleto}}/{{link}}) em algum lugar? */
+  private usaPagamento(step: DunningStep): { pix: boolean; boleto: boolean } {
     const botoes = Array.isArray(step.templateBotoes) ? JSON.stringify(step.templateBotoes) : '';
-    return referenciaPix(step.template, step.emailAssunto, ...(step.templateParams ?? []), botoes);
+    const texto = [step.template, step.emailAssunto, ...(step.templateParams ?? []), botoes].filter(Boolean).join(' ');
+    return {
+      pix: /\{\{\s*pix\s*\}\}/i.test(texto),
+      boleto: /\{\{\s*(boleto|link|linkpagamento|pagamento)\s*\}\}/i.test(texto),
+    };
   }
 
-  /** Busca o Pix copia-e-cola no gateway quando a fatura ainda não tem (ex.: importada). */
-  private async garantirPix<T extends { id: string; pixCopiaCola?: string | null; externalId?: string | null; providerAccountId?: string | null }>(inv: T): Promise<T> {
-    if (inv.pixCopiaCola || !inv.externalId || !inv.providerAccountId) return inv;
-    try {
-      const provider = await this.payments.forAccount(inv.providerAccountId);
-      const pix = provider.getPixCopiaCola ? await provider.getPixCopiaCola(inv.externalId) : null;
-      if (pix) {
-        await this.prisma.invoice.update({ where: { id: inv.id }, data: { pixCopiaCola: pix } });
-        return { ...inv, pixCopiaCola: pix };
+  /**
+   * Garante Pix/boleto na fatura, buscando na fonte certa quando falta:
+   *  - Gateway: Pix copia-e-cola.
+   *  - ERP (SGP, IXC...): 2ª via do título (Pix + boleto), como "Imprimir Pix" no ERP.
+   * Nunca lança: se falhar, o worker sinaliza o campo vazio no envio.
+   */
+  private async garantirDadosPagamento<T extends {
+    id: string; pixCopiaCola?: string | null; boletoLinha?: string | null; boletoUrl?: string | null;
+    externalId?: string | null; providerAccountId?: string | null;
+    sourceSystem?: SourceSystem | null; sourceExternalId?: string | null;
+  }>(inv: T, tenantId: string, precisaPix: boolean, precisaBoleto: boolean): Promise<T> {
+    // Gateway: só o Pix é buscável sob demanda.
+    if (inv.providerAccountId && inv.externalId) {
+      if (!precisaPix || inv.pixCopiaCola) return inv;
+      try {
+        const provider = await this.payments.forAccount(inv.providerAccountId);
+        const pix = provider.getPixCopiaCola ? await provider.getPixCopiaCola(inv.externalId) : null;
+        if (pix) {
+          await this.prisma.invoice.update({ where: { id: inv.id }, data: { pixCopiaCola: pix } });
+          return { ...inv, pixCopiaCola: pix };
+        }
+      } catch { /* mantém sem pix */ }
+      return inv;
+    }
+    // ERP: 2ª via traz Pix + boleto juntos.
+    const faltaPix = precisaPix && !inv.pixCopiaCola;
+    const faltaBoleto = precisaBoleto && !inv.boletoUrl && !inv.boletoLinha;
+    if (inv.sourceSystem && inv.sourceExternalId && (faltaPix || faltaBoleto)) {
+      try {
+        const connector = await this.connectors.forSystem(tenantId, inv.sourceSystem);
+        const pag = connector?.fetchInvoicePayment ? await connector.fetchInvoicePayment(inv.sourceExternalId) : null;
+        if (pag && (pag.pixCopiaCola || pag.boletoLinha || pag.boletoUrl)) {
+          const data = {
+            ...(pag.pixCopiaCola ? { pixCopiaCola: pag.pixCopiaCola } : {}),
+            ...(pag.boletoLinha ? { boletoLinha: pag.boletoLinha } : {}),
+            ...(pag.boletoUrl ? { boletoUrl: pag.boletoUrl } : {}),
+          };
+          await this.prisma.invoice.update({ where: { id: inv.id }, data });
+          return { ...inv, ...data };
+        }
+      } catch (e) {
+        this.logger.warn(`2a via ${inv.sourceSystem} falhou (titulo ${inv.sourceExternalId}): ${String(e)}`);
       }
-    } catch { /* mantém sem pix — o worker sinaliza campo vazio no envio */ }
+    }
     return inv;
   }
 
@@ -103,7 +142,7 @@ export class DunningService {
   private async enqueueDispatch(
     tenantId: string,
     timezone: string,
-    invoice: { id: string; customerId: string; valor: unknown; vencimento: Date; pixCopiaCola: string | null; linkPagamento: string | null; externalId?: string | null; providerAccountId?: string | null; customer: { nome: string; contrato: string | null } },
+    invoice: { id: string; customerId: string; valor: unknown; vencimento: Date; pixCopiaCola: string | null; boletoLinha?: string | null; boletoUrl?: string | null; linkPagamento: string | null; externalId?: string | null; providerAccountId?: string | null; sourceSystem?: SourceSystem | null; sourceExternalId?: string | null; customer: { nome: string; contrato: string | null } },
     step: DunningStep,
     rule: RuleWithSteps,
   ) {
@@ -114,16 +153,18 @@ export class DunningService {
       if (variante === 'B') template = step.templateB;
     }
 
-    // Se o passo usa {{pix}} e a fatura ainda não tem o Pix salvo, busca no
-    // gateway agora — senão o {{pix}} iria vazio e o WhatsApp recusa o template.
+    // Se o passo usa {{pix}}/{{boleto}} e a fatura ainda não tem o dado, busca na
+    // fonte (gateway ou ERP) agora — senão o campo iria vazio e o WhatsApp recusa.
+    const precisa = this.usaPagamento(step);
     let inv = invoice;
-    if (this.usaPix(step) && !invoice.pixCopiaCola) inv = await this.garantirPix(invoice);
+    if (precisa.pix || precisa.boleto) inv = await this.garantirDadosPagamento(invoice, tenantId, precisa.pix, precisa.boleto);
 
     const vars = {
       nome: inv.customer.nome.split(' ')[0],
       valor: money(Number(inv.valor)),
       vencimento: dateBR(inv.vencimento),
       pix: inv.pixCopiaCola ?? '',
+      boleto: inv.boletoUrl ?? inv.boletoLinha ?? '',
       link: inv.linkPagamento ?? '',
       contrato: inv.customer.contrato ?? '',
     };

@@ -4,6 +4,7 @@ import {
   SourceConnector,
   SourceCustomer,
   SourceInvoice,
+  SourcePayment,
   SourceCredentials,
   venceuAntesDeHoje,
 } from '../source-connector.interface';
@@ -218,7 +219,6 @@ export class SgpConnector implements SourceConnector {
       const statusId = Number(r.statusid ?? r.status_id);
       const statusTexto = String(r.status ?? '').toLowerCase();
       const paga = r.pago === true || statusId === 2 || statusTexto === 'pago' || !!(r.dataPagamento ?? r.data_pagamento);
-      const link = r.linkboleto ?? r.url_boleto ?? r.link;
       return {
         externalId: String(r.id ?? r.titulo_id),
         customerExternalId,
@@ -227,11 +227,41 @@ export class SgpConnector implements SourceConnector {
         // Usa o mesmo `vencimento` resolvido (não só r.vencimento) e a borda por
         // DIA: vence hoje ainda é pendente; só vira vencida a partir de amanhã.
         status: paga ? 'PAGA' : venceuAntesDeHoje(vencimento) ? 'VENCIDA' : 'PENDENTE',
-        pixCopiaCola: r.pix ?? r.pix_copia_cola ?? r.codigoPix ?? r.codigopix ?? undefined,
-        boletoLinha: r.linhadigitavel ?? r.linha_digitavel ?? r.codigoBarras ?? undefined,
-        boletoUrl: link ? new URL(String(link), `${this.baseUrl}/`).toString() : undefined,
+        ...this.mapPagamento(r),
       };
       });
     });
+  }
+
+  /** Extrai Pix/linha/URL do boleto de um título, cobrindo as variações de nome do SGP. */
+  private mapPagamento(r: any): SourcePayment {
+    const link = r.linkboleto ?? r.url_boleto ?? r.link ?? r.urlboleto;
+    return {
+      pixCopiaCola: r.pix ?? r.pix_copia_cola ?? r.pixcopiacola ?? r.codigoPix ?? r.codigopix ?? r.qrcode ?? undefined,
+      boletoLinha: r.linhadigitavel ?? r.linha_digitavel ?? r.codigoBarras ?? r.codigobarras ?? undefined,
+      boletoUrl: link ? new URL(String(link), `${this.baseUrl}/`).toString() : undefined,
+    };
+  }
+
+  /**
+   * 2ª via de UM título (equivale a "Imprimir Pix"/"Gerar" no SGP): o Pix/boleto
+   * é gerado sob demanda, então não vem no lote de `fetchOpenInvoices`. Busca aqui,
+   * no envio, para o template ter o {{pix}}/{{boleto}} preenchido.
+   * Endpoint documentado: POST /api/ura/boleto/ (bookstack.sgp.net.br/books/api).
+   */
+  async fetchInvoicePayment(sourceExternalId: string): Promise<SourcePayment | null> {
+    const endpoint = '/api/ura/boleto/';
+    let data: any;
+    try {
+      // `fatura` é o id do título; alguns ambientes aceitam `titulo`. Mandamos ambos.
+      data = await this.postComRetry(endpoint, { ...this.auth(), fatura: sourceExternalId, titulo: sourceExternalId });
+      this.validarResposta(endpoint, data);
+    } catch (e) {
+      throw this.erro(endpoint, e);
+    }
+    // A resposta pode vir no topo, em `boleto`/`titulo`, ou no 1º item de uma lista.
+    const corpo = data?.boleto ?? data?.titulo ?? data?.dados ?? (Array.isArray(data?.boletos) ? data.boletos[0] : undefined) ?? data;
+    const pag = this.mapPagamento(corpo ?? {});
+    return pag.pixCopiaCola || pag.boletoLinha || pag.boletoUrl ? pag : null;
   }
 }

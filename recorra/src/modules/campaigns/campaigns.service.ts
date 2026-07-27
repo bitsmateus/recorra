@@ -1,8 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Campaign, ChannelType, Customer, Prisma, RiskBand } from '@prisma/client';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Campaign, ChannelType, Customer, Prisma, RiskBand, SourceSystem } from '@prisma/client';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { DispatchService } from '@/modules/dunning/dispatch.service';
 import { PaymentProviderFactory } from '@/modules/payments/payment-provider.factory';
+import { ConnectorFactory } from '@/modules/connectors/connector.factory';
 import { DispatchQueue } from '@/queue/dispatch-queue';
 import { parseDateFilter } from '@/common/util/parse';
 import { channelChain } from '@/modules/dunning/fallback';
@@ -181,10 +182,13 @@ export interface CampaignInput {
 
 @Injectable()
 export class CampaignsService {
+  private readonly logger = new Logger(CampaignsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly dispatch: DispatchService,
     private readonly factory: PaymentProviderFactory,
+    private readonly connectors: ConnectorFactory,
     private readonly dispatchQueue: DispatchQueue,
   ) {}
 
@@ -645,16 +649,62 @@ export class CampaignsService {
   }
 
   /** Busca o Pix copia-e-cola no gateway se a fatura ainda não tiver (ex.: importada). */
-  private async garantirPix<T extends { id: string; pixCopiaCola?: string | null; externalId?: string | null; providerAccountId?: string | null }>(inv: T | null): Promise<T | null> {
-    if (!inv || inv.pixCopiaCola || !inv.externalId || !inv.providerAccountId) return inv;
-    try {
-      const provider = await this.factory.forAccount(inv.providerAccountId);
-      const pix = provider.getPixCopiaCola ? await provider.getPixCopiaCola(inv.externalId) : null;
-      if (pix) {
-        await this.prisma.invoice.update({ where: { id: inv.id }, data: { pixCopiaCola: pix } });
-        return { ...inv, pixCopiaCola: pix };
+  /** Tokens dos botões dinâmicos (ex.: "{{pix}}", "{{boleto}}") — entram no gatilho de busca de pagamento. */
+  private tokensBotoes(mapa: unknown): string {
+    return Array.isArray(mapa) ? (mapa as { token?: string }[]).map((b) => b?.token ?? '').join(' ') : '';
+  }
+
+  /**
+   * Garante que a fatura tenha os dados de pagamento que o texto/botões exigem
+   * ({{pix}}, {{boleto}}, {{link}}), buscando sob demanda na fonte certa:
+   *  - Gateway (Asaas/MP/...): busca o Pix copia-e-cola.
+   *  - ERP (SGP, IXC...): busca a 2ª via do título (Pix + boleto), como "Imprimir Pix".
+   * Persiste o que achou e devolve a fatura já preenchida. Nunca lança: se falhar,
+   * segue sem o dado e o disparo falha depois com motivo claro.
+   */
+  private async garantirDadosPagamento<T extends {
+    id: string; pixCopiaCola?: string | null; boletoLinha?: string | null; boletoUrl?: string | null;
+    externalId?: string | null; providerAccountId?: string | null;
+    sourceSystem?: SourceSystem | null; sourceExternalId?: string | null;
+  }>(inv: T | null, tenantId: string, texto: string): Promise<T | null> {
+    if (!inv) return inv;
+    const precisaPix = /\{\{\s*pix\s*\}\}/i.test(texto);
+    const precisaBoleto = /\{\{\s*(boleto|link|linkpagamento|pagamento)\s*\}\}/i.test(texto);
+
+    // Gateway: só o Pix é buscável sob demanda (boleto/link já vêm na criação da cobrança).
+    if (inv.providerAccountId && inv.externalId) {
+      if (!precisaPix || inv.pixCopiaCola) return inv;
+      try {
+        const provider = await this.factory.forAccount(inv.providerAccountId);
+        const pix = provider.getPixCopiaCola ? await provider.getPixCopiaCola(inv.externalId) : null;
+        if (pix) {
+          await this.prisma.invoice.update({ where: { id: inv.id }, data: { pixCopiaCola: pix } });
+          return { ...inv, pixCopiaCola: pix };
+        }
+      } catch { /* mantém sem pix */ }
+      return inv;
+    }
+
+    // ERP: 2ª via do título traz Pix + boleto juntos.
+    const faltaPix = precisaPix && !inv.pixCopiaCola;
+    const faltaBoleto = precisaBoleto && !inv.boletoUrl && !inv.boletoLinha;
+    if (inv.sourceSystem && inv.sourceExternalId && (faltaPix || faltaBoleto)) {
+      try {
+        const connector = await this.connectors.forSystem(tenantId, inv.sourceSystem);
+        const pag = connector?.fetchInvoicePayment ? await connector.fetchInvoicePayment(inv.sourceExternalId) : null;
+        if (pag && (pag.pixCopiaCola || pag.boletoLinha || pag.boletoUrl)) {
+          const data = {
+            ...(pag.pixCopiaCola ? { pixCopiaCola: pag.pixCopiaCola } : {}),
+            ...(pag.boletoLinha ? { boletoLinha: pag.boletoLinha } : {}),
+            ...(pag.boletoUrl ? { boletoUrl: pag.boletoUrl } : {}),
+          };
+          await this.prisma.invoice.update({ where: { id: inv.id }, data });
+          return { ...inv, ...data };
+        }
+      } catch (e) {
+        this.logger.warn(`2a via ${inv.sourceSystem} falhou (titulo ${inv.sourceExternalId}): ${String(e)}`);
       }
-    } catch { /* mantém sem pix */ }
+    }
     return inv;
   }
 
@@ -797,10 +847,12 @@ export class CampaignsService {
           if (alvo.length === 0) { ignorados++; continue; }
           // No WhatsApp o conteúdo vem do template; nos demais, do texto livre.
           const usaTpl = !!camp.templateNome;
-          const textoLembrete = usaTpl ? (camp.templateParams ?? []).join(' ') : (camp.mensagem ?? '');
-          const precisaPix = /\{\{\s*pix\s*\}\}/i.test(textoLembrete);
+          const textoLembrete = [
+            usaTpl ? (camp.templateParams ?? []).join(' ') : (camp.mensagem ?? ''),
+            usaTpl ? this.tokensBotoes(camp.templateBotoes) : '',
+          ].join(' ');
           for (let inv of alvo) {
-            if (precisaPix) inv = (await this.garantirPix(inv)) ?? inv;
+            inv = (await this.garantirDadosPagamento(inv, tenantId, textoLembrete)) ?? inv;
             const paramsLembrete = usaTpl ? (camp.templateParams ?? []).map((tok) => this.render(tok, cliente, inv)) : [];
             const d = await this.prisma.messageDispatch.create({
               data: {
@@ -834,11 +886,12 @@ export class CampaignsService {
           const textoVars = [
             camp.templateNome ? (camp.templateParams ?? []).join(' ') : (camp.mensagem ?? ''),
             camp.emailAssunto ?? '',
+            camp.templateNome ? this.tokensBotoes(camp.templateBotoes) : '',
           ].join(' ');
           let inv = this.temVariavelFatura(textoVars)
             ? await this.prisma.invoice.findFirst({ where: { tenantId, customerId: cliente.id, status: { in: ['PENDENTE', 'VENCIDA'] }, gestaoCobranca: 'ATIVA' }, orderBy: { vencimento: 'desc' } })
             : null;
-          if (inv && /\{\{\s*pix\s*\}\}/i.test(textoVars)) inv = await this.garantirPix(inv);
+          if (inv) inv = await this.garantirDadosPagamento(inv, tenantId, textoVars);
           // Canal oficial (WABA): envia template com as variáveis mapeadas por cliente.
           const usaTemplate = !!camp.templateNome;
           const templateParams = usaTemplate
@@ -865,11 +918,11 @@ export class CampaignsService {
           const now = Date.now();
           // A régua pode ter passos com template aprovado (WhatsApp) ou texto livre (SMS/e-mail).
           // Só busca a fatura quando algum passo precisa de dado de cobrança.
-          const textoPassos = camp.rule.steps.map((s) => `${s.template} ${s.emailAssunto ?? ''} ${(s.templateParams ?? []).join(' ')}`).join(' ');
+          const textoPassos = camp.rule.steps.map((s) => `${s.template} ${s.emailAssunto ?? ''} ${(s.templateParams ?? []).join(' ')} ${this.tokensBotoes(s.templateBotoes)}`).join(' ');
           let invRegua = this.temVariavelFatura(textoPassos)
             ? await this.prisma.invoice.findFirst({ where: { tenantId, customerId: cliente.id, status: { in: ['PENDENTE', 'VENCIDA'] }, gestaoCobranca: 'ATIVA' }, orderBy: { vencimento: 'desc' } })
             : null;
-          if (invRegua && /\{\{\s*pix\s*\}\}/i.test(textoPassos)) invRegua = await this.garantirPix(invRegua);
+          if (invRegua) invRegua = await this.garantirDadosPagamento(invRegua, tenantId, textoPassos);
 
           for (const step of camp.rule.steps) {
             const usaTpl = !!step.templateName;
