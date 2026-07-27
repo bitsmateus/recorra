@@ -513,6 +513,7 @@ function FlowEditor({
   usarFaixaRisco: boolean;
 }) {
   const [diarioAte, setDiarioAte] = useState(30);
+  const [selSteps, setSelSteps] = useState<Set<number>>(new Set());
   function update(patch: Partial<Rule>) {
     setRule({ ...rule, ...patch });
   }
@@ -520,8 +521,21 @@ function FlowEditor({
     const steps = rule.steps.map((s, idx) => (idx === i ? { ...s, ...patch } : s));
     update({ steps });
   }
+  // Seleção múltipla de passos (por índice). Zera em qualquer mudança estrutural,
+  // porque add/mover/remover desloca os índices.
+  function toggleSel(i: number) {
+    setSelSteps((s) => { const n = new Set(s); if (n.has(i)) n.delete(i); else n.add(i); return n; });
+  }
+  function toggleTodos() {
+    setSelSteps((s) => (s.size === rule.steps.length ? new Set() : new Set(rule.steps.map((_, i) => i))));
+  }
+  function excluirSelecionados() {
+    update({ steps: rule.steps.filter((_, i) => !selSteps.has(i)).map((s, i) => ({ ...s, ordem: i + 1 })) });
+    setSelSteps(new Set());
+  }
   function addStep() {
     update({ steps: [...rule.steps, { ordem: rule.steps.length + 1, offsetDias: 0, canal: 'WHATSAPP_CLOUD', template: '' }] });
+    setSelSteps(new Set());
   }
   // Cria um passo por dia (do dia 1 ao dia N depois do vencimento), repetindo a
   // mensagem do último passo — é como o motor faz "manda todos os dias" (um passo/dia).
@@ -538,9 +552,11 @@ function FlowEditor({
       novos.push({ ordem: 0, offsetDias: d, ...modelo } as Step);
     }
     update({ steps: [...rule.steps, ...novos].sort((a, b) => a.offsetDias - b.offsetDias).map((s, i) => ({ ...s, ordem: i + 1 })) });
+    setSelSteps(new Set());
   }
   function removeStep(i: number) {
     update({ steps: rule.steps.filter((_, idx) => idx !== i) });
+    setSelSteps(new Set());
   }
   function move(i: number, dir: -1 | 1) {
     const j = i + dir;
@@ -548,10 +564,11 @@ function FlowEditor({
     const steps = [...rule.steps];
     [steps[i], steps[j]] = [steps[j], steps[i]];
     update({ steps });
+    setSelSteps(new Set());
   }
 
   return (
-    <div className="rounded-lg border border-line bg-surface p-5">
+    <div className="min-w-0 max-w-full rounded-lg border border-line bg-surface p-5">
       {/* Cabeçalho da régua */}
       <div className="mb-5 grid grid-cols-1 gap-3 md:grid-cols-3">
         <label className="block md:col-span-1">
@@ -598,6 +615,22 @@ function FlowEditor({
         <ReguaTimeline steps={rule.steps} />
       </div>
 
+      {/* Ações em massa nos passos */}
+      {rule.steps.length > 1 && (
+        <div className="mb-2 flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 text-xs text-muted">
+            <input type="checkbox" checked={selSteps.size === rule.steps.length && rule.steps.length > 0} onChange={toggleTodos} className="h-4 w-4 cursor-pointer accent-primary" /> Selecionar todos
+          </label>
+          {selSteps.size > 0 && (
+            <div className="flex items-center gap-2 rounded-lg border border-danger/30 bg-danger-tint px-3 py-1.5 text-sm">
+              <span className="font-medium text-danger">{selSteps.size} passo(s) selecionado(s)</span>
+              <button onClick={excluirSelecionados} className="rounded bg-danger px-3 py-1 text-xs font-medium text-white hover:opacity-90">Excluir selecionados</button>
+              <button onClick={() => setSelSteps(new Set())} className="text-xs text-muted hover:text-ink">Limpar</button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Timeline de passos */}
       <div className="space-y-3">
         {rule.steps.map((step, i) => (
@@ -605,6 +638,8 @@ function FlowEditor({
             key={i}
             index={i}
             step={step}
+            selecionado={selSteps.has(i)}
+            onToggleSelect={() => toggleSel(i)}
             onChange={(p) => updateStep(i, p)}
             onRemove={() => removeStep(i)}
             onMove={(d) => move(i, d)}
@@ -675,6 +710,8 @@ function AiMensagemBtn({ texto, onResult }: { texto: string; onResult: (t: strin
 function StepCard({
   index,
   step,
+  selecionado,
+  onToggleSelect,
   onChange,
   onRemove,
   onMove,
@@ -683,6 +720,8 @@ function StepCard({
 }: {
   index: number;
   step: Step;
+  selecionado: boolean;
+  onToggleSelect: () => void;
   onChange: (p: Partial<Step>) => void;
   onRemove: () => void;
   onMove: (d: -1 | 1) => void;
@@ -775,9 +814,12 @@ function StepCard({
   const Icon = canalLabel[step.canal]?.icon ?? MessageCircle;
 
   return (
-    <div className="relative rounded-lg border border-line bg-canvas p-4">
+    <div className={`relative min-w-0 rounded-lg border bg-canvas p-4 ${selecionado ? 'border-danger ring-1 ring-danger/40' : 'border-line'}`}>
       <div className="mb-3 flex items-center justify-between">
-        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-medium text-white">{index + 1}</span>
+        <div className="flex items-center gap-2">
+          <input type="checkbox" checked={selecionado} onChange={onToggleSelect} title="Selecionar este passo" className="h-4 w-4 cursor-pointer accent-primary" />
+          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-medium text-white">{index + 1}</span>
+        </div>
         <div className="flex gap-1">
           <button onClick={() => onMove(-1)} disabled={isFirst} className="rounded p-1 text-muted hover:bg-surface disabled:opacity-30"><ArrowUp size={15} /></button>
           <button onClick={() => onMove(1)} disabled={isLast} className="rounded p-1 text-muted hover:bg-surface disabled:opacity-30"><ArrowDown size={15} /></button>
