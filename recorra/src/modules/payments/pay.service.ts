@@ -101,8 +101,8 @@ export class PayService {
           <div class="rot">Pague com Pix — escaneie o QR ou copie o código</div>
           ${qr ? `<div class="qr">${qr}</div>` : ''}
           <textarea id="pix" readonly>${esc(pix)}</textarea>
-          <button class="btn primary" onclick="copiar()">Copiar código Pix</button>
-          <div id="ok" class="ok">Copiado!</div>
+          <button id="btnpix" class="btn primary" onclick="copiar()">Copiar código Pix</button>
+          <div id="ok" class="ok">Código copiado! Cole no app do seu banco.</div>
         </div>`);
     }
     if (boletoUrl) {
@@ -153,10 +153,21 @@ export class PayService {
   @media (prefers-color-scheme:dark){body{background:#0f1512;color:#e8ecea}.card{background:#161d1a;border-color:#232c28}textarea{background:#0f1512;color:#e8ecea;border-color:#232c28}.btn{background:#161d1a;color:#e8ecea;border-color:#232c28}.selo{border-color:#232c28;color:#8a978f}}
 </style></head><body><div class="wrap">${conteudo}</div>
 <script>
-  function copiar(){var t=document.getElementById('pix');if(!t)return;t.select();t.setSelectionRange(0,99999);
-    var done=function(){var o=document.getElementById('ok');if(o)o.style.display='block'};
-    if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t.value).then(done,function(){try{document.execCommand('copy');done()}catch(e){}})}
-    else{try{document.execCommand('copy');done()}catch(e){}}}
+  function copiar(){
+    var t=document.getElementById('pix'); if(!t) return;
+    var texto=t.value;
+    function ok(){var b=document.getElementById('btnpix'); if(b) b.textContent='✓ Copiado'; var o=document.getElementById('ok'); if(o) o.style.display='block';}
+    function manual(){
+      // Fallback: tira o readonly, seleciona e usa execCommand; se nao rolar, abre o prompt para o usuario copiar.
+      try{ t.removeAttribute('readonly'); t.focus(); t.select(); t.setSelectionRange(0, texto.length);
+        var c=document.execCommand('copy'); t.setAttribute('readonly','readonly');
+        if(c){ ok(); } else { window.prompt('Selecione e copie o codigo Pix:', texto); }
+      }catch(e){ try{ window.prompt('Selecione e copie o codigo Pix:', texto); }catch(_){} }
+    }
+    if(navigator.clipboard && navigator.clipboard.writeText && window.isSecureContext){
+      navigator.clipboard.writeText(texto).then(ok, manual);
+    } else { manual(); }
+  }
 </script></body></html>`;
   }
 }
