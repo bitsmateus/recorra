@@ -537,14 +537,17 @@ function FlowEditor({
     update({ steps: [...rule.steps, { ordem: rule.steps.length + 1, offsetDias: 0, canal: 'WHATSAPP_CLOUD', template: '' }] });
     setSelSteps(new Set());
   }
+  // Passo(s) "depois do vencimento" (a mensagem de ATRASO). O atalho de repetição
+  // copia essa mensagem — não a de "vence hoje" —, então só existe depois de você
+  // criar o primeiro passo de atraso.
+  const ultimoAtraso = [...rule.steps].reverse().find((s) => s.offsetDias > 0);
   // Cria um passo por dia (do dia 1 ao dia N depois do vencimento), repetindo a
-  // mensagem do último passo — é como o motor faz "manda todos os dias" (um passo/dia).
+  // mensagem de atraso — é como o motor faz "manda todos os dias" (um passo/dia).
   function addDiario() {
+    if (!ultimoAtraso) return;
     const ate = Math.max(1, Math.min(120, Math.floor(diarioAte) || 30));
-    const base = rule.steps[rule.steps.length - 1];
-    const modelo = base
-      ? { canal: base.canal, channelAccountId: base.channelAccountId, canaisFallback: base.canaisFallback, template: base.template, emailAssunto: base.emailAssunto, templateName: base.templateName, templateParams: base.templateParams, templateBotoes: base.templateBotoes }
-      : { canal: 'WHATSAPP_CLOUD' as Canal, template: '' };
+    const b = ultimoAtraso;
+    const modelo = { canal: b.canal, channelAccountId: b.channelAccountId, canaisFallback: b.canaisFallback, template: b.template, emailAssunto: b.emailAssunto, templateName: b.templateName, templateParams: b.templateParams, templateBotoes: b.templateBotoes };
     const existentes = new Set(rule.steps.map((s) => s.offsetDias));
     const novos: Step[] = [];
     for (let d = 1; d <= ate; d++) {
@@ -653,12 +656,18 @@ function FlowEditor({
         <button onClick={addStep} className="flex items-center gap-2 rounded border border-dashed border-line px-3 py-2 text-sm text-primary hover:bg-canvas">
           <Plus size={16} /> Adicionar passo
         </button>
-        <div className="flex flex-wrap items-center gap-2 rounded border border-dashed border-line px-3 py-2 text-sm text-muted">
-          <RefreshCw size={14} className="text-primary" /> repetir a última mensagem <b className="text-ink">todo dia</b>, do dia 1 até o dia
-          <input type="number" min={1} max={120} value={diarioAte} onChange={(e) => setDiarioAte(Number(e.target.value))} className="w-16 rounded border border-line px-2 py-1 text-sm outline-none focus:border-primary" />
-          depois do vencimento
-          <button onClick={addDiario} className="rounded bg-primary px-3 py-1 text-xs font-medium text-white hover:bg-primary-hover">Adicionar dias</button>
-        </div>
+        {ultimoAtraso ? (
+          <div className="flex flex-wrap items-center gap-2 rounded border border-dashed border-line px-3 py-2 text-sm text-muted">
+            <RefreshCw size={14} className="text-primary" /> repetir a mensagem de <b className="text-ink">atraso</b> todo dia, do dia 1 até o dia
+            <input type="number" min={1} max={120} value={diarioAte} onChange={(e) => setDiarioAte(Number(e.target.value))} className="w-16 rounded border border-line px-2 py-1 text-sm outline-none focus:border-primary" />
+            depois do vencimento
+            <button onClick={addDiario} className="rounded bg-primary px-3 py-1 text-xs font-medium text-white hover:bg-primary-hover">Adicionar dias</button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 rounded border border-dashed border-line px-3 py-2 text-xs text-muted">
+            <RefreshCw size={14} /> Para repetir todo dia, primeiro adicione um passo <b className="text-ink">&quot;Depois do vencimento&quot;</b> com a mensagem de atraso — o atalho copia essa mensagem.
+          </div>
+        )}
       </div>
 
       <div className="mt-5 flex items-center gap-3 border-t border-line pt-4">
