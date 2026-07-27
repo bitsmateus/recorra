@@ -31,14 +31,16 @@ export default function AcordosPage() {
 
   const load = useCallback(async () => {
     setAcordos(await api<Agreement[]>('/acordos').catch(() => []));
-    setCustomers(await api<Customer[]>('/clientes').catch(() => []));
+    // /clientes é paginado ({ items, ... }), não uma lista crua.
+    setCustomers(await api<{ items: Customer[] }>('/clientes?pageSize=200').then((r) => r.items ?? []).catch(() => []));
   }, []);
   useEffect(() => { load(); }, [load]);
 
   const carregarVencidas = useCallback(async (cid: string) => {
     setSelecionadas([]);
     if (!cid) return setVencidas([]);
-    const inv = await api<Invoice[]>(`/cobrancas?status=VENCIDA&customerId=${cid}`).catch(() => []);
+    // /cobrancas também é paginado ({ items, ... }).
+    const inv = await api<{ items: Invoice[] }>(`/cobrancas?status=VENCIDA&customerId=${cid}&pageSize=200`).then((r) => r.items ?? []).catch(() => []);
     setVencidas(inv);
   }, []);
 

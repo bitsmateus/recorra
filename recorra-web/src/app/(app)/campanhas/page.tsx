@@ -24,7 +24,7 @@ interface Campaign {
   incluirIds?: string[]; excluirIds?: string[];
   publicoDinamico: boolean;
   agendamento: 'UMA_VEZ' | 'MENSAL' | 'SEMPRE_ATIVA'; diaDoMes?: number; agendadaPara?: string | null;
-  status: string; runs?: Run[];
+  status: string; runs?: Run[]; arquivada?: boolean;
   entrega?: { total: number; enviados: number; fila: number; falha: number } | null;
 }
 
@@ -1167,7 +1167,10 @@ function RelatorioModal({ campanha, onClose }: { campanha: Campaign; onClose: ()
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="max-h-[90vh] w-full max-w-4xl overflow-auto rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-ink">Relatório · {campanha.nome}</h2>
+          <h2 className="flex items-center gap-2 text-lg font-semibold text-ink">
+            Relatório · {campanha.nome}
+            {campanha.arquivada && <span className="flex items-center gap-1 rounded-full bg-canvas px-2 py-0.5 text-xs font-medium text-muted"><Archive size={12} /> Arquivada</span>}
+          </h2>
           <button onClick={onClose} className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>
         </div>
         {!dados ? <p className="text-sm text-muted">Carregando...</p> : !dados.run ? <p className="text-sm text-muted">Esta campanha ainda não foi disparada.</p> : (

@@ -34,7 +34,8 @@ export default function AssinaturasPage() {
 
   const load = useCallback(async () => {
     setSubs(await api<Sub[]>('/assinaturas').catch(() => []));
-    setCustomers(await api<Customer[]>('/clientes').catch(() => []));
+    // /clientes é paginado ({ items, ... }), não uma lista crua.
+    setCustomers(await api<{ items: Customer[] }>('/clientes?pageSize=200').then((r) => r.items ?? []).catch(() => []));
   }, []);
   useEffect(() => { load(); }, [load]);
 
