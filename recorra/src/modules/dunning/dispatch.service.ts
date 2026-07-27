@@ -62,6 +62,19 @@ export class DispatchService {
       }
     }
 
+    // Botão dinâmico (Pix / link) sem valor: o WhatsApp recusa o template inteiro
+    // (ERR_SEND_TEMPLATE). Acontece quando o cliente não tem cobrança com Pix/boleto.
+    // Falhamos com motivo claro em vez de tentar e receber o erro genérico da Meta/NX.
+    if (d.templateName && Array.isArray(d.templateBotoes) && d.templateBotoes.length) {
+      const botoes = d.templateBotoes as { subType?: string; text?: string }[];
+      const semValor = botoes.filter((b) => !b.text || !b.text.trim());
+      if (semValor.length) {
+        const oQue = semValor.some((b) => b.subType === 'copy_code') ? 'Pix copia-e-cola' : 'link de pagamento';
+        await this.marcar(d.id, 'FALHA', `Template "${d.templateName}": o botão precisa do ${oQue}, mas este cliente não tem cobrança com esse dado. Gere a cobrança (Pix/boleto) antes, ou use um template sem botão de Pix/link.`);
+        return 'FALHA';
+      }
+    }
+
     // Idioma do template (ex.: 'en', 'pt_BR') — a Meta exige o idioma exato do template aprovado.
     let templateLanguage: string | undefined;
     if (d.templateName) {
