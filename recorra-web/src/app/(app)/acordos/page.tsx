@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { Handshake } from 'lucide-react';
-import { api } from '@/lib/api';
+import { api, apiItems } from '@/lib/api';
 import { PageTitle, brl } from '@/components/ui';
 
 interface Customer { id: string; nome: string }
@@ -31,17 +31,14 @@ export default function AcordosPage() {
 
   const load = useCallback(async () => {
     setAcordos(await api<Agreement[]>('/acordos').catch(() => []));
-    // /clientes é paginado ({ items, ... }), não uma lista crua.
-    setCustomers(await api<{ items: Customer[] }>('/clientes?pageSize=200').then((r) => r.items ?? []).catch(() => []));
+    setCustomers(await apiItems<Customer>('/clientes?pageSize=200').catch(() => []));
   }, []);
   useEffect(() => { load(); }, [load]);
 
   const carregarVencidas = useCallback(async (cid: string) => {
     setSelecionadas([]);
     if (!cid) return setVencidas([]);
-    // /cobrancas também é paginado ({ items, ... }).
-    const inv = await api<{ items: Invoice[] }>(`/cobrancas?status=VENCIDA&customerId=${cid}&pageSize=200`).then((r) => r.items ?? []).catch(() => []);
-    setVencidas(inv);
+    setVencidas(await apiItems<Invoice>(`/cobrancas?status=VENCIDA&customerId=${cid}&pageSize=200`).catch(() => []));
   }, []);
 
   useEffect(() => { carregarVencidas(customerId); }, [customerId, carregarVencidas]);

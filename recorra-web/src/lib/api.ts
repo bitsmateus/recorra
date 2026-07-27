@@ -101,6 +101,17 @@ export async function api<T = unknown>(path: string, opts: ApiOptions = {}): Pro
   return data as T;
 }
 
+/**
+ * Endpoints paginados do backend respondem `{ items, total, page, pageSize }` — NÃO
+ * uma lista crua. Use SEMPRE este helper para eles (ex.: `/clientes`, `/cobrancas`):
+ * devolve o array de itens já desembrulhado. Evita o bug recorrente de tratar
+ * `{ items }` como array (a lista vinha vazia sem erro nenhum).
+ */
+export async function apiItems<T = unknown>(path: string, opts: ApiOptions = {}): Promise<T[]> {
+  const r = await api<{ items?: T[] }>(path, opts);
+  return Array.isArray(r?.items) ? r.items : [];
+}
+
 /** Encerra a sessão: revoga o refresh no servidor (via cookie) e limpa o navegador. */
 export async function logout() {
   await fetch(`${API_URL}/auth/logout`, {

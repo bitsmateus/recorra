@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { Plus } from 'lucide-react';
-import { api } from '@/lib/api';
+import { api, apiItems } from '@/lib/api';
 import { PageTitle, brl } from '@/components/ui';
 
 interface Sub {
@@ -34,8 +34,7 @@ export default function AssinaturasPage() {
 
   const load = useCallback(async () => {
     setSubs(await api<Sub[]>('/assinaturas').catch(() => []));
-    // /clientes é paginado ({ items, ... }), não uma lista crua.
-    setCustomers(await api<{ items: Customer[] }>('/clientes?pageSize=200').then((r) => r.items ?? []).catch(() => []));
+    setCustomers(await apiItems<Customer>('/clientes?pageSize=200').catch(() => []));
   }, []);
   useEffect(() => { load(); }, [load]);
 
