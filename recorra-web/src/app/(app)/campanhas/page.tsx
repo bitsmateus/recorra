@@ -832,8 +832,8 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
           )}
         </div>
 
-        <div className="mb-4">
-          <span className="mb-1 flex items-center gap-1 text-xs font-semibold text-muted">
+        <div className="mb-4 rounded-lg border border-line bg-canvas p-4">
+          <span className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-ink">
             Quando enviar
             <Ajuda>
               <b>Uma vez:</b> dispara uma única vez e encerra. Pode disparar na hora (&quot;Disparar agora&quot;) ou <b>agendar o início</b> para uma data/hora — o sistema dispara sozinho na hora marcada.<br /><br />
@@ -843,7 +843,7 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
           </span>
           <div className="flex flex-wrap items-center gap-2">
             {[['UMA_VEZ', 'Uma vez'], ['MENSAL', 'Todo mês'], ['SEMPRE_ATIVA', 'Sempre ativa']].map(([v, l]) => (
-              <button key={v} onClick={() => set('agendamento', v)} className={`rounded border px-3 py-2 text-sm ${f.agendamento === v ? 'border-primary bg-primary-tint text-primary' : 'border-line hover:bg-canvas'}`}>{l}</button>
+              <button key={v} onClick={() => set('agendamento', v)} className={`rounded-lg border px-4 py-2.5 text-sm font-medium transition ${f.agendamento === v ? 'border-primary bg-primary text-white shadow-sm' : 'border-line bg-surface text-ink hover:border-primary/40 hover:bg-primary-tint/40'}`}>{l}</button>
             ))}
             {f.agendamento === 'MENSAL' && (
               <label className="flex items-center gap-1.5 text-xs text-muted">
