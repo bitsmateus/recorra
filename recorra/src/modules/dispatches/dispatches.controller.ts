@@ -27,6 +27,8 @@ interface FiltrosQuery {
   tipoCanal?: string;
   channelAccountId?: string;
   campanhaId?: string;
+  origem?: string;
+  reguaId?: string;
   q?: string;
   de?: string;
   ate?: string;
@@ -39,6 +41,7 @@ interface LinhaBanco {
   campaignId: string | null;
   ruleId: string | null;
   ruleNome: string | null;
+  template: string | null;
   conteudo: string | null;
   status: string;
   erro: string | null;
@@ -48,12 +51,7 @@ interface LinhaBanco {
   channelAccount?: { apelido: string | null } | null;
 }
 
-/**
- * Cursor opaco = (createdAt, id) da última linha da página. Paginação por keyset
- * em vez de OFFSET: `skip: 20000` obriga o Postgres a ler e descartar 20 mil
- * linhas antes de devolver a página 1001; o cursor pula direto pelo índice, e a
- * última página custa o mesmo que a primeira.
- */
+/** Cursor opaco = (createdAt, id) da última linha da página. Ver `pagina()`. */
 function encodeCursor(r: { createdAt: Date; id: string }): string {
   return Buffer.from(`${r.createdAt.getTime()}.${r.id}`).toString('base64url');
 }
@@ -83,6 +81,9 @@ export class DispatchesController {
    */
   private buildWhere(tenantId: string, f: FiltrosQuery) {
     const where: any = { tenantId };
+    // Condições que podem colidir de chave vão no AND, nunca direto no `where`.
+    const and: any[] = [];
+
     // SUCESSO agrupa os três status de "deu certo" — é o que o cartão "Enviados"
     // conta, então clicar nele precisa filtrar o mesmo conjunto.
     if (f.status === 'SUCESSO') where.status = { in: ['ENVIADO', 'ENTREGUE', 'LIDO'] };
@@ -91,6 +92,15 @@ export class DispatchesController {
     if (f.campanhaId) where.campaignId = f.campanhaId;
     if (f.tipoCanal === 'WHATSAPP') where.canal = { in: WHATS };
     else if (f.tipoCanal) where.canal = f.tipoCanal;
+    if (f.reguaId) and.push({ ruleId: f.reguaId });
+
+    // A cobrança automática NÃO grava `campaignId`: a campanha "Cobrança
+    // automática" é só o liga/desliga do motor, e quem cria o disparo é a régua
+    // (ruleId/ruleNome). Por isso a origem precisa ser filtro próprio — procurá-la
+    // na lista de campanhas não acha nada, e a lista sequer a inclui.
+    if (f.origem === 'CAMPANHA') and.push({ campaignId: { not: null } });
+    else if (f.origem === 'AUTOMATICA') and.push({ OR: [{ ruleId: { not: null } }, { ruleNome: { not: null } }] });
+    else if (f.origem === 'AVULSO') and.push({ campaignId: null, ruleId: null, ruleNome: null });
 
     const termo = f.q?.trim();
     if (termo) {
@@ -113,7 +123,53 @@ export class DispatchesController {
     if (deDt || ateDt) {
       where.createdAt = { ...(deDt ? { gte: deDt } : {}), ...(ateDt ? { lte: ateDt } : {}) };
     }
+    if (and.length) where.AND = and;
     return where;
+  }
+
+  /**
+   * Uma página ordenada por (createdAt DESC, id DESC) a partir do cursor.
+   *
+   * O recorte é `createdAt <= cursor`, e NÃO a forma canônica de keyset
+   * `createdAt < X OR (createdAt = X AND id < Y)`. Motivo medido: o Postgres não
+   * transforma esse OR em faixa de índice — ele varre desde o topo e descarta o
+   * que já passou, ficando tão caro quanto o OFFSET que a paginação por cursor
+   * deveria eliminar (1,8 ms para pular 5.900 linhas, contra 0,03 ms nesta
+   * forma). O `cursor:` nativo do Prisma gera o mesmo OR, com subqueries, então
+   * trocar por ele não resolveria; e o Prisma não emite `(a, b) < (x, y)`, que
+   * seria a forma ideal.
+   *
+   * O desempate por `id` sai da query e vem para cá: as linhas do mesmo instante
+   * que já saíram na página anterior aparecem todas na frente (ordem id DESC),
+   * então basta descartar o prefixo. Se um lote inteiro cair no empate — muitos
+   * disparos gravados no mesmo milissegundo bem na virada da página — busca mais.
+   */
+  private async pagina(whereBase: any, take: number, cur?: { createdAt: Date; id: string }) {
+    const where = cur
+      ? { ...whereBase, createdAt: { ...(whereBase.createdAt ?? {}), lte: cur.createdAt } }
+      : whereBase;
+
+    let pedido = take + 1; // a linha extra sonda se há próxima página, sem um COUNT a mais
+    for (;;) {
+      const buscadas = await this.prisma.messageDispatch.findMany({
+        where,
+        include: INCLUDE,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: pedido,
+      });
+
+      let i = 0;
+      if (cur) {
+        const t = cur.createdAt.getTime();
+        while (i < buscadas.length && buscadas[i].createdAt.getTime() === t && buscadas[i].id >= cur.id) i++;
+      }
+      const restantes = buscadas.slice(i);
+
+      if (restantes.length > take || buscadas.length < pedido) {
+        return { rows: restantes.slice(0, take), temMais: restantes.length > take };
+      }
+      pedido += take + 1;
+    }
   }
 
   /** Anexa nome de campanha e de régua (não há FK, mapeia em lote). */
@@ -138,7 +194,15 @@ export class DispatchesController {
         canalNome: r.channelAccount?.apelido ?? null,
         campanha: r.campaignId ? cmap.get(r.campaignId) ?? null : null,
         regua: r.ruleNome ?? (r.ruleId ? rmap.get(r.ruleId) ?? null : null),
-        origem: r.campaignId ? 'Campanha' : r.ruleId || r.ruleNome ? 'Cobrança automática' : null,
+        // Sem campanha e sem régua sobra o envio avulso — hoje só a confirmação
+        // de pagamento. Nomear em vez de mostrar "—" evita a dúvida de sempre.
+        origem: r.campaignId
+          ? 'Campanha'
+          : r.ruleId || r.ruleNome
+            ? 'Cobrança automática'
+            : r.template === 'confirmacao_pagamento'
+              ? 'Confirmação de pagamento'
+              : null,
         conteudo: cortar ? texto!.slice(0, PREVIA) : texto,
         conteudoTruncado: cortar,
         status: r.status,
@@ -165,32 +229,10 @@ export class DispatchesController {
     const take = Math.min(100, Math.max(5, Number(query.pageSize) || 20));
 
     const cur = decodeCursor(query.cursor);
-    const where = cur
-      ? {
-          ...base,
-          AND: [
-            {
-              OR: [
-                { createdAt: { lt: cur.createdAt } },
-                { createdAt: cur.createdAt, id: { lt: cur.id } },
-              ],
-            },
-          ],
-        }
-      : base;
-
-    const [buscadas, total] = await Promise.all([
-      this.prisma.messageDispatch.findMany({
-        where,
-        include: INCLUDE,
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        take: take + 1, // a linha extra sonda se há próxima página, sem um COUNT a mais
-      }),
+    const [{ rows, temMais }, total] = await Promise.all([
+      this.pagina(base, take, cur),
       query.comTotal === '1' ? this.prisma.messageDispatch.count({ where: base }) : Promise.resolve(undefined),
     ]);
-
-    const temMais = buscadas.length > take;
-    const rows = temMais ? buscadas.slice(0, take) : buscadas;
     const ultima = rows[rows.length - 1];
 
     return {
@@ -239,20 +281,7 @@ export class DispatchesController {
     // mensagens carregaria dezenas de MB de uma vez na memória da API.
     while (linhas.length < EXPORT_MAX) {
       const pedido = Math.min(EXPORT_LOTE, EXPORT_MAX - linhas.length);
-      const where = cur
-        ? {
-            ...base,
-            AND: [
-              { OR: [{ createdAt: { lt: cur.createdAt } }, { createdAt: cur.createdAt, id: { lt: cur.id } }] },
-            ],
-          }
-        : base;
-      const lote = await this.prisma.messageDispatch.findMany({
-        where,
-        include: INCLUDE,
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        take: pedido,
-      });
+      const { rows: lote, temMais } = await this.pagina(base, pedido, cur);
       if (!lote.length) break;
 
       for (const d of await this.mapear(lote, false)) {
@@ -272,7 +301,7 @@ export class DispatchesController {
         });
       }
       cur = { createdAt: lote[lote.length - 1].createdAt, id: lote[lote.length - 1].id };
-      if (lote.length < pedido) break;
+      if (!temMais) break;
     }
 
     const csv = toCsv(

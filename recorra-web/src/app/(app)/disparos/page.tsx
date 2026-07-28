@@ -106,6 +106,8 @@ function DisparosConteudo() {
   const tipoCanal = sp.get('tipo') || '';
   const channelAccountId = sp.get('canal') || '';
   const campanhaId = sp.get('campanha') || '';
+  const origem = sp.get('origem') || '';
+  const reguaId = sp.get('regua') || '';
   const periodo = sp.get('periodo') || '30d';
   const { de, ate } = intervalo(periodo, sp.get('de') || '', sp.get('ate') || '');
 
@@ -119,6 +121,7 @@ function DisparosConteudo() {
   const [mensagem, setMensagem] = useState<{ titulo: string; texto: string } | null>(null);
   const [canais, setCanais] = useState<{ id: string; apelido: string; canal: string }[]>([]);
   const [campanhas, setCampanhas] = useState<{ id: string; nome: string }[]>([]);
+  const [reguas, setReguas] = useState<{ id: string; nome: string }[]>([]);
   const req = useRef(0);
 
   /** Toda mudança de filtro vai para a URL (F5 e link compartilhável preservam a
@@ -144,10 +147,12 @@ function DisparosConteudo() {
     if (tipoCanal) p.set('tipoCanal', tipoCanal);
     if (channelAccountId) p.set('channelAccountId', channelAccountId);
     if (campanhaId) p.set('campanhaId', campanhaId);
+    if (origem) p.set('origem', origem);
+    if (reguaId) p.set('reguaId', reguaId);
     if (de) p.set('de', de);
     if (ate) p.set('ate', ate);
     return p.toString();
-  }, [q, tipoCanal, channelAccountId, campanhaId, de, ate]);
+  }, [q, tipoCanal, channelAccountId, campanhaId, origem, reguaId, de, ate]);
 
   const cursor = cursores[cursores.length - 1];
 
@@ -179,6 +184,7 @@ function DisparosConteudo() {
   useEffect(() => {
     api<{ id: string; apelido: string; canal: string }[]>('/canais').then(setCanais).catch(() => setCanais([]));
     api<{ id: string; nome: string }[]>('/campanhas').then(setCampanhas).catch(() => setCampanhas([]));
+    api<{ id: string; nome: string }[]>('/reguas').then(setReguas).catch(() => setReguas([]));
   }, []);
 
   function limparFiltros() {
@@ -221,7 +227,7 @@ function DisparosConteudo() {
   const pagina = cursores.length + 1;
   const inicio = cursores.length * POR_PAGINA + 1;
   const fim = cursores.length * POR_PAGINA + rows.length;
-  const filtrosAtivos = [q, status, tipoCanal, channelAccountId, campanhaId].filter(Boolean).length + (periodo === '30d' ? 0 : 1);
+  const filtrosAtivos = [q, status, tipoCanal, channelAccountId, campanhaId, origem, reguaId].filter(Boolean).length + (periodo === '30d' ? 0 : 1);
 
   return (
     <div>
@@ -263,9 +269,11 @@ function DisparosConteudo() {
             {filtrosAtivos > 0 && <button onClick={limparFiltros} className="flex items-center gap-1 rounded-md border border-danger/40 bg-danger-tint px-3 py-1 text-xs font-medium text-danger hover:bg-danger hover:text-white"><X size={13} /> Limpar</button>}
           </span>
         </div>
-        <div className="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-7">
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-5">
           <input placeholder="Cliente / telefone" value={busca} onChange={(e) => setBusca(e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary lg:col-span-2" />
+          <select value={origem} onChange={(e) => setParam({ origem: e.target.value || null })} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Origem: todas</option><option value="AUTOMATICA">Cobrança automática</option><option value="CAMPANHA">Campanha</option><option value="AVULSO">Outros envios</option></select>
           <select value={campanhaId} onChange={(e) => setParam({ campanha: e.target.value || null })} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Campanha: todas</option>{campanhas.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}</select>
+          <select value={reguaId} onChange={(e) => setParam({ regua: e.target.value || null })} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Régua: todas</option>{reguas.map((r) => <option key={r.id} value={r.id}>{r.nome}</option>)}</select>
           <select value={tipoCanal} onChange={(e) => setParam({ tipo: e.target.value || null })} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Tipo: todos</option><option value="WHATSAPP">WhatsApp</option><option value="EMAIL">E-mail</option><option value="SMS">SMS</option></select>
           <select value={channelAccountId} onChange={(e) => setParam({ canal: e.target.value || null })} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Canal: todos</option>{canais.map((c) => <option key={c.id} value={c.id}>{c.apelido}</option>)}</select>
           <select value={status} onChange={(e) => setParam({ status: e.target.value || null })} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Status: todos</option><option value="SUCESSO">Enviados (todos)</option><option value="ENVIADO">Enviado</option><option value="ENTREGUE">Entregue</option><option value="LIDO">Lido</option><option value="FALHA">Falha</option><option value="FILA">Na fila</option><option value="IGNORADO">Ignorado</option></select>
@@ -300,7 +308,7 @@ function DisparosConteudo() {
                       ? <span>{d.campanha}</span>
                       : d.regua
                         ? <span>Cobrança automática<br /><span className="text-xs text-muted">régua: {d.regua}</span></span>
-                        : <span className="text-xs">—</span>}
+                        : <span className="text-xs">{d.origem || '—'}</span>}
                   </td>
                   <td className="px-4 py-3">
                     {d.conteudo
