@@ -1,8 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { RefreshCw, Loader2, CheckCircle2, Clock, XCircle, Phone, ExternalLink, Send, Pause, Play, Pause as PauseIcon } from 'lucide-react';
+import { RefreshCw, Loader2, CheckCircle2, Clock, XCircle, Phone, ExternalLink, Send, Pause, Play, Pause as PauseIcon, CalendarDays, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { api } from '@/lib/api';
 import { PageTitle, brl } from '@/components/ui';
 
@@ -21,16 +21,12 @@ interface Andamento {
 }
 
 const faixaLabel: Record<string, string> = { BOM: 'Bom pagador', ATENCAO: 'Atenção', RISCO: 'Risco' };
-const MES_ABREV = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
-/** Chave AAAA-MM do vencimento (em UTC, como as datas chegam do backend). */
-function mesKey(venc: string): string {
-  const d = new Date(venc);
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
-}
-function mesLabel(key: string): string {
-  const [ano, mes] = key.split('-');
-  return `${MES_ABREV[Number(mes) - 1]}/${ano}`;
-}
+/** Data AAAA-MM-DD local (para montar o intervalo do filtro de período). */
+const isoData = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+/** Data AAAA-MM-DD do vencimento em UTC (como as datas chegam do backend). */
+const vencKey = (venc: string) => venc.slice(0, 10);
+type PeriodoPreset = 'hoje' | 'mes' | 'ano' | 'tudo' | 'custom';
+const periodoLabel: Record<PeriodoPreset, string> = { hoje: 'Hoje', mes: 'Este mês', ano: 'Este ano', tudo: 'Todo o período', custom: 'Personalizado' };
 const canalLabel: Record<string, string> = {
   WHATSAPP_CLOUD: 'WhatsApp', NX_SYSTEMS: 'WhatsApp oficial', WHATSAPP_EVOLUTION: 'WhatsApp', WHATSAPP_UAZAPI: 'WhatsApp',
   EMAIL: 'E-mail', SMS: 'SMS', HTTP_GENERIC: 'API',
@@ -65,11 +61,17 @@ export default function AndamentoPage() {
   const [loading, setLoading] = useState(true);
   const [ruleId, setRuleId] = useState('');
   const [canalFiltro, setCanalFiltro] = useState('');
-  const [mesFiltro, setMesFiltro] = useState('');
-  const [situacao, setSituacao] = useState<'' | 'vencidas' | 'avencer' | 'mes'>('');
+  const [periodo, setPeriodo] = useState<{ de: string; ate: string }>({ de: '', ate: '' });
+  const [menuPeriodo, setMenuPeriodo] = useState(false);
+  const [situacao, setSituacao] = useState<'' | 'vencidas' | 'avencer'>('');
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  const esteiraRef = useRef<HTMLDivElement>(null);
+
+  const moverEsteira = (direcao: -1 | 1) => {
+    esteiraRef.current?.scrollBy({ left: direcao * 300, behavior: 'smooth' });
+  };
 
   const carregar = useCallback(async (silencioso = false) => {
     if (!silencioso) setLoading(true);
@@ -87,23 +89,37 @@ export default function AndamentoPage() {
     return [...s];
   }, [dados]);
 
-  const mesesDisponiveis = useMemo(() => {
-    const s = new Set<string>();
-    dados?.colunas.forEach((c) => c.cards.forEach((x) => x.vencimento && s.add(mesKey(x.vencimento))));
-    return [...s].sort();
-  }, [dados]);
+  // Presets de período → intervalo [de, ate] aplicado sobre o vencimento do card.
+  function aplicarPeriodo(p: Exclude<PeriodoPreset, 'custom'>) {
+    const h = new Date();
+    if (p === 'hoje') setPeriodo({ de: isoData(h), ate: isoData(h) });
+    else if (p === 'mes') setPeriodo({ de: isoData(new Date(h.getFullYear(), h.getMonth(), 1)), ate: isoData(new Date(h.getFullYear(), h.getMonth() + 1, 0)) });
+    else if (p === 'ano') setPeriodo({ de: isoData(new Date(h.getFullYear(), 0, 1)), ate: isoData(new Date(h.getFullYear(), 11, 31)) });
+    else setPeriodo({ de: '', ate: '' });
+    limpar();
+  }
+  const periodoAtual: PeriodoPreset = (() => {
+    const h = new Date();
+    const { de, ate } = periodo;
+    if (!de && !ate) return 'tudo';
+    if (de === isoData(h) && ate === isoData(h)) return 'hoje';
+    if (de === isoData(new Date(h.getFullYear(), h.getMonth(), 1)) && ate === isoData(new Date(h.getFullYear(), h.getMonth() + 1, 0))) return 'mes';
+    if (de === isoData(new Date(h.getFullYear(), 0, 1)) && ate === isoData(new Date(h.getFullYear(), 11, 31))) return 'ano';
+    return 'custom';
+  })();
 
-  const mesAtual = useMemo(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; }, []);
   const passaSituacao = (card: Card) => {
     if (situacao === 'vencidas') return card.diffDias > 0;
     if (situacao === 'avencer') return card.diffDias < 0;
-    if (situacao === 'mes') return mesKey(card.vencimento) === mesAtual;
     return true;
   };
-  const passaFiltro = (card: Card) =>
-    (!canalFiltro || card.canal === canalFiltro) &&
-    (!mesFiltro || mesKey(card.vencimento) === mesFiltro) &&
-    passaSituacao(card);
+  const passaFiltro = (card: Card) => {
+    if (canalFiltro && card.canal !== canalFiltro) return false;
+    const v = vencKey(card.vencimento);
+    if (periodo.de && v < periodo.de) return false;
+    if (periodo.ate && v > periodo.ate) return false;
+    return passaSituacao(card);
+  };
   const toggle = (id: string) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const limpar = () => setSel(new Set());
   /** Marca/desmarca todos os ids de uma coluna de uma vez. */
@@ -140,11 +156,34 @@ export default function AndamentoPage() {
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <PageTitle title="Esteira de cobrança" subtitle="Em qual etapa da régua cada fatura em aberto está agora. Selecione cards para disparar ou pausar em lote." />
         <div className="flex flex-wrap items-center gap-2">
-          {mesesDisponiveis.length > 1 && (
-            <select value={mesFiltro} onChange={(e) => { setMesFiltro(e.target.value); limpar(); }} className="rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-primary">
-              <option value="">Todos os meses</option>
-              {mesesDisponiveis.map((m) => <option key={m} value={m}>{mesLabel(m)}</option>)}
-            </select>
+          {dados?.regua && (
+            <div className="relative">
+              <button onClick={() => setMenuPeriodo((v) => !v)} className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition ${menuPeriodo || periodoAtual !== 'tudo' ? 'border-primary bg-primary-tint text-primary' : 'border-line text-ink hover:bg-canvas'}`}><CalendarDays size={15} /> {periodoLabel[periodoAtual]} <ChevronDown size={14} /></button>
+              {menuPeriodo && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setMenuPeriodo(false)} />
+                  <div className="absolute right-0 z-20 mt-1 w-72 rounded-lg border border-line bg-surface p-2 shadow-lg">
+                    {([['hoje', 'Hoje'], ['mes', 'Este mês'], ['ano', 'Este ano'], ['tudo', 'Todo o período']] as const).map(([k, label]) => (
+                      <button key={k} onClick={() => { aplicarPeriodo(k); setMenuPeriodo(false); }} className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-primary-tint">
+                        <span className={`inline-block h-3.5 w-3.5 shrink-0 rounded-full border-2 ${periodoAtual === k ? 'border-4 border-primary' : 'border-line'}`} />
+                        <span className={periodoAtual === k ? 'font-medium text-primary' : 'text-ink'}>{label}</span>
+                      </button>
+                    ))}
+                    <div className="mt-1 rounded-md border-t border-line px-2 pb-1 pt-2">
+                      <div className="mb-2 flex items-center gap-2 text-sm"><span className={`inline-block h-3.5 w-3.5 shrink-0 rounded-full border-2 ${periodoAtual === 'custom' ? 'border-4 border-primary' : 'border-line'}`} /> <span className={periodoAtual === 'custom' ? 'font-medium text-primary' : 'text-ink'}>Personalizado</span></div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <label className="block"><span className="mb-1 block text-[11px] text-muted">De</span>
+                          <input type="date" value={periodo.de} onChange={(e) => { setPeriodo((s) => ({ ...s, de: e.target.value })); limpar(); }} className="w-full rounded-md border border-primary/30 bg-primary-tint/30 px-2 py-1.5 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
+                        </label>
+                        <label className="block"><span className="mb-1 block text-[11px] text-muted">Até</span>
+                          <input type="date" value={periodo.ate} onChange={(e) => { setPeriodo((s) => ({ ...s, ate: e.target.value })); limpar(); }} className="w-full rounded-md border border-primary/30 bg-primary-tint/30 px-2 py-1.5 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
           )}
           {canaisDisponiveis.length > 1 && (
             <select value={canalFiltro} onChange={(e) => setCanalFiltro(e.target.value)} className="rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-primary">
@@ -167,7 +206,6 @@ export default function AndamentoPage() {
             ['', 'Todas'],
             ['vencidas', 'Vencidas'],
             ['avencer', 'A vencer'],
-            ['mes', 'Vence este mês'],
           ] as const).map(([v, label]) => (
             <button
               key={v || 'todas'}
@@ -191,8 +229,30 @@ export default function AndamentoPage() {
 
       {!loading && dados?.regua && (
         <>
-          <p className="mb-3 text-sm text-muted">Régua <b className="text-ink">{dados.regua.nome}</b> · <b className="text-ink">{totalAbertas}</b> fatura(s) em aberto.</p>
-          <div className="overflow-x-auto pb-3">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <p className="text-sm text-muted">Régua <b className="text-ink">{dados.regua.nome}</b> · <b className="text-ink">{totalAbertas}</b> fatura(s) em aberto.</p>
+            <div className="flex shrink-0 overflow-hidden rounded-lg border border-line bg-surface shadow-sm">
+              <button
+                type="button"
+                onClick={() => moverEsteira(-1)}
+                aria-label="Mover esteira para a esquerda"
+                title="Mover para a esquerda"
+                className="flex h-8 w-9 items-center justify-center text-muted transition hover:bg-canvas hover:text-primary active:bg-primary-tint"
+              >
+                <ChevronLeft size={18} />
+              </button>
+              <button
+                type="button"
+                onClick={() => moverEsteira(1)}
+                aria-label="Mover esteira para a direita"
+                title="Mover para a direita"
+                className="flex h-8 w-9 items-center justify-center border-l border-line text-muted transition hover:bg-canvas hover:text-primary active:bg-primary-tint"
+              >
+                <ChevronRight size={18} />
+              </button>
+            </div>
+          </div>
+          <div ref={esteiraRef} className="overflow-x-auto pb-3">
             <div className="flex gap-3" style={{ minWidth: 'min-content' }}>
               {dados.colunas.map((c) => {
                 const cards = c.cards.filter(passaFiltro);
