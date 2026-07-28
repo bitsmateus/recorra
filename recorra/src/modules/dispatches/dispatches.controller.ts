@@ -46,6 +46,7 @@ interface LinhaBanco {
   status: string;
   erro: string | null;
   enviadoEm: Date | null;
+  agendadoPara: Date | null;
   createdAt: Date;
   customer?: { nome: string; telefone: string | null } | null;
   channelAccount?: { apelido: string | null } | null;
@@ -208,6 +209,7 @@ export class DispatchesController {
         status: r.status,
         erro: r.erro,
         enviadoEm: r.enviadoEm,
+        agendadoPara: r.agendadoPara,
         createdAt: r.createdAt,
         cliente: r.customer?.nome ?? null,
         telefone: r.customer?.telefone ?? null,

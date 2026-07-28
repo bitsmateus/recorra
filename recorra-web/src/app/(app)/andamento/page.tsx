@@ -397,7 +397,15 @@ interface DisparoHist {
   status: string;
   erro: string | null;
   enviadoEm: string | null;
+  agendadoPara: string | null;
   createdAt: string;
+}
+
+/** Qual data mostrar e como chamá-la, conforme o estado do disparo. */
+function quandoDoDisparo(d: DisparoHist): { label: string; valor: string | null } {
+  if (['ENVIADO', 'ENTREGUE', 'LIDO'].includes(d.status)) return { label: 'Enviado em', valor: d.enviadoEm ?? d.createdAt };
+  if (d.status === 'FILA') return { label: 'Agendado para', valor: d.agendadoPara ?? d.createdAt };
+  return { label: 'Registrado em', valor: d.createdAt };
 }
 
 const statusHist: Record<string, { txt: string; cls: string }> = {
@@ -442,7 +450,7 @@ function HistoricoModal({ invoiceId, nome, onClose }: { invoiceId: string; nome:
                       <span className={`rounded-full px-2 py-0.5 font-medium ${s.cls}`}>{s.txt}</span>
                       <span className="font-medium text-ink">{canalLabel[d.canal] || d.canal}{d.canalNome ? ` · ${d.canalNome}` : ''}</span>
                       {d.origem && <span className="text-muted">· {d.origem}</span>}
-                      <span className="ml-auto text-muted">{dataHora(d.enviadoEm ?? d.createdAt)}</span>
+                      {(() => { const q = quandoDoDisparo(d); return <span className="ml-auto text-muted">{q.label} {dataHora(q.valor)}</span>; })()}
                     </div>
                     {d.conteudo && <p className="whitespace-pre-wrap break-words rounded bg-surface p-2 text-sm text-ink">{d.conteudo}</p>}
                     {d.erro && <p className="mt-1.5 rounded bg-danger-tint px-2 py-1 text-xs text-[#A32D2D]"><b>Erro:</b> {d.erro}</p>}
