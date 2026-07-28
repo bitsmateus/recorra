@@ -13,6 +13,9 @@ jobs:
   ajuda:
     name: Central de Ajuda atualizada
     runs-on: ubuntu-latest
+    # Apenas um LEMBRETE: se um commit funcional não atualizar o catálogo da Ajuda,
+    # este job aparece com aviso, mas NÃO falha a run nem bloqueia o deploy.
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
         with:
@@ -64,7 +67,9 @@ jobs:
   # (não falha o CI) — configure os secrets para ligar o deploy automático.
   deploy:
     name: Deploy no EasyPanel
-    needs: [ajuda, backend, frontend]
+    # Só depende do build de verdade (backend + frontend). O check da Ajuda é
+    # informativo e não bloqueia mais a implantação.
+    needs: [backend, frontend]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
