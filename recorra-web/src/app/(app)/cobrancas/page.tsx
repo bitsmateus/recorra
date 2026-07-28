@@ -356,7 +356,6 @@ export default function CobrancasPage() {
               <div className="fixed inset-0 z-10" onClick={() => setMenuImport(false)} />
               <div className="absolute left-0 z-20 mt-1 w-60 overflow-hidden rounded-lg border border-line bg-surface shadow-lg">
                 <button onClick={() => { setMenuImport(false); setWizard(true); }} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-canvas"><FileSpreadsheet size={15} /> Assistente Excel/CSV</button>
-                <button onClick={() => { setMenuImport(false); gateways.length ? setConfirmarImport(true) : setMsg('Configure um gateway em Integrações primeiro.'); }} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-canvas"><Download size={15} /> Importar do gateway</button>
                 <button onClick={() => { setMenuImport(false); baixarModelo(); }} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-canvas"><FileDown size={15} /> Baixar modelo Excel</button>
                 <div className="border-t border-line" />
                 <button onClick={() => { setMenuImport(false); setConfirmarLimparPagas(true); }} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-danger hover:bg-danger-tint"><Trash2 size={15} /> Limpar pagas importadas</button>
