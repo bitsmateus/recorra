@@ -27,6 +27,20 @@ export class RulesController {
     return this.rules.andamento(tenantId, ruleId);
   }
 
+  /** Pausa/retoma a cobrança de faturas selecionadas na Esteira. */
+  @Post('andamento/pausar')
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO', 'OPERADOR')
+  pausar(@TenantId() tenantId: string, @Body('invoiceIds') invoiceIds?: string[], @Body('pausar') pausar?: boolean) {
+    return this.rules.pausarCobranca(tenantId, invoiceIds ?? [], pausar !== false);
+  }
+
+  /** Dispara agora a etapa atual da régua para as faturas selecionadas. */
+  @Post('andamento/disparar')
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO', 'OPERADOR')
+  disparar(@TenantId() tenantId: string, @Body('invoiceIds') invoiceIds?: string[]) {
+    return this.rules.dispararLote(tenantId, invoiceIds ?? []);
+  }
+
   @Get('ab/stats')
   abStats(@TenantId() tenantId: string) {
     return this.rules.abStats(tenantId);

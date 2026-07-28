@@ -4,7 +4,7 @@ import { PrismaService } from '@/common/prisma/prisma.service';
 import { SaveRuleDto } from './dto/rule.dto';
 import { NICHO_TEMPLATES, findNicho } from './nicho-templates';
 import { evaluateAb, Variante } from './abtest';
-import { selecionarRegua } from './dunning.service';
+import { selecionarRegua, DunningService } from './dunning.service';
 
 /** Card do kanban de andamento (uma fatura em aberto posicionada na sua etapa). */
 export interface AndamentoCard {
@@ -15,6 +15,8 @@ export interface AndamentoCard {
   vencimento: Date;
   diffDias: number;
   ultimoDisparo: { status: string; canal: string; quando: Date } | null;
+  canal?: string; // canal do toque atual (último disparo, ou o do passo em que está) — p/ filtro
+  pausada?: boolean; // cobrança deste cliente pausada (gestaoCobranca = PAUSADA)
   status?: string;
 }
 
@@ -29,7 +31,40 @@ function labelOffset(o: number): string {
 export class RulesService {
   private readonly logger = new Logger(RulesService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly dunning: DunningService,
+  ) {}
+
+  /** Pausa/retoma a cobrança automática de faturas (gestaoCobranca). Em lote. */
+  async pausarCobranca(tenantId: string, invoiceIds: string[], pausar: boolean) {
+    const ids = [...new Set(invoiceIds)].filter(Boolean);
+    if (!ids.length) return { alteradas: 0 };
+    const r = await this.prisma.invoice.updateMany({
+      where: { id: { in: ids }, tenantId, status: { in: ['PENDENTE', 'VENCIDA'] } },
+      data: { gestaoCobranca: pausar ? 'PAUSADA' : 'ATIVA' },
+    });
+    // Ao pausar, segura o que já estava na fila dessas faturas.
+    if (pausar && r.count) {
+      await this.prisma.messageDispatch.updateMany({
+        where: { tenantId, invoiceId: { in: ids }, status: 'FILA' },
+        data: { status: 'IGNORADO', erro: 'Cobrança pausada manualmente' },
+      });
+    }
+    return { alteradas: r.count };
+  }
+
+  /** Dispara a etapa atual da régua para várias faturas (botão da Esteira). */
+  async dispararLote(tenantId: string, invoiceIds: string[]) {
+    const ids = [...new Set(invoiceIds)].filter(Boolean);
+    let enfileirados = 0;
+    const erros: { id: string; erro: string }[] = [];
+    for (const id of ids) {
+      try { await this.dunning.dispararManual(tenantId, id); enfileirados++; }
+      catch (e) { erros.push({ id, erro: e instanceof Error ? e.message : String(e) }); }
+    }
+    return { enfileirados, falhas: erros.length, erros: erros.slice(0, 5) };
+  }
 
   /** Descrição legível de um erro do Prisma (código + alvo) para diagnóstico. */
   private detalheErro(e: unknown): string {
@@ -123,7 +158,9 @@ export class RulesService {
     const seteDias = new Date(Date.now() - 7 * 86400000);
     const [abertas, encerradas] = await Promise.all([
       this.prisma.invoice.findMany({
-        where: { tenantId, status: { in: ['PENDENTE', 'VENCIDA'] }, gestaoCobranca: 'ATIVA', contestada: false, customer: filtroCliente },
+        // Inclui PAUSADA para o card mostrar o estado e permitir retomar (a régua só
+        // dispara nas ATIVAS; a pausada fica visível mas parada na sua etapa).
+        where: { tenantId, status: { in: ['PENDENTE', 'VENCIDA'] }, gestaoCobranca: { in: ['ATIVA', 'PAUSADA'] }, contestada: false, customer: filtroCliente },
         include: { customer: { select: { id: true, nome: true, telefone: true, email: true } } },
         orderBy: { vencimento: 'asc' },
         take: 3000,
@@ -152,9 +189,14 @@ export class RulesService {
     const hojeUtc = Date.UTC(h.getUTCFullYear(), h.getUTCMonth(), h.getUTCDate());
     const diffDe = (v: Date) => Math.round((hojeUtc - Date.UTC(v.getUTCFullYear(), v.getUTCMonth(), v.getUTCDate())) / 86400000);
 
+    // Canal de cada offset (o do primeiro passo naquele dia) — usado no card e no filtro.
+    const canalDoOffset = new Map<number, string>();
+    for (const s of regua.steps) if (!canalDoOffset.has(s.offsetDias)) canalDoOffset.set(s.offsetDias, s.canal);
+
     const colunas: { key: string; label: string; cards: AndamentoCard[] }[] = [
       { key: 'aguardando', label: 'Aguardando início', cards: [] },
       ...offsets.map((o) => ({ key: `step:${o}`, label: labelOffset(o), cards: [] as AndamentoCard[] })),
+      { key: 'falharam', label: 'Falharam', cards: [] },
       { key: 'encerradas', label: 'Pagas / Encerradas', cards: [] },
       { key: 'sem-contato', label: 'Sem contato', cards: [] },
     ];
@@ -163,13 +205,17 @@ export class RulesService {
     for (const inv of abertas) {
       const c = inv.customer;
       const d = ultimo.get(inv.id);
+      const atual = offsets.filter((o) => o <= diffDe(inv.vencimento)).pop();
       const card: AndamentoCard = {
         invoiceId: inv.id, customerId: c.id, nome: c.nome, valor: Number(inv.valor),
         vencimento: inv.vencimento, diffDias: diffDe(inv.vencimento),
         ultimoDisparo: d ? { status: d.status, canal: d.canal, quando: d.enviadoEm ?? d.agendadoPara ?? d.createdAt } : null,
+        canal: d?.canal ?? (atual !== undefined ? canalDoOffset.get(atual) : undefined),
+        pausada: inv.gestaoCobranca === 'PAUSADA',
       };
       if (!c.telefone?.trim() && !c.email?.trim()) { col('sem-contato').cards.push(card); continue; }
-      const atual = offsets.filter((o) => o <= card.diffDias).pop();
+      // Último disparo falhou → coluna "Falharam" (destaca o problema em vez de esconder na etapa).
+      if (d && (d.status === 'FALHA' || d.status === 'IGNORADO')) { col('falharam').cards.push(card); continue; }
       col(atual === undefined ? 'aguardando' : `step:${atual}`).cards.push(card);
     }
     for (const inv of encerradas) {

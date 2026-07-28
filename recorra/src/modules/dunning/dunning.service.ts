@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ChannelType, DunningRule, DunningStep, SourceSystem } from '@prisma/client';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { ChannelFactory } from '@/modules/channels/channel.factory';
@@ -258,6 +258,29 @@ export class DunningService {
   private async optOut(customerId: string, canal: ChannelType) {
     const revogado = await this.prisma.consent.findFirst({ where: { customerId, canal, status: 'REVOGADO' } });
     return !!revogado;
+  }
+
+  /**
+   * Disparo manual da etapa atual da régua para UMA fatura (botão na Esteira).
+   * Escolhe o passo cujo offset melhor casa com os dias de atraso e enfileira — sem
+   * os limites diários da rodada automática (é uma ação explícita do usuário).
+   */
+  async dispararManual(tenantId: string, invoiceId: string) {
+    const invoice = await this.prisma.invoice.findFirst({ where: { id: invoiceId, tenantId }, include: { customer: true } });
+    if (!invoice) throw new NotFoundException('Fatura não encontrada');
+    if (invoice.status === 'PAGA' || invoice.status === 'CANCELADA') throw new BadRequestException('Fatura não está em aberto.');
+    const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
+    const regras = await this.prisma.dunningRule.findMany({
+      where: { tenantId, ativo: true },
+      include: { steps: { where: { ativo: true }, orderBy: { ordem: 'asc' } } },
+      orderBy: { createdAt: 'asc' },
+    });
+    const rule = selecionarRegua(regras as RuleWithSteps[], tenant.usarFaixaRisco !== false, invoice.customer.faixaAtual, tenant.reguaPadraoId);
+    if (!rule || !rule.steps.length) throw new BadRequestException('Nenhuma régua ativa com passos para este cliente.');
+    const diff = Math.round((this.midnight(new Date()).getTime() - this.midnight(invoice.vencimento).getTime()) / 86400000);
+    const step = [...rule.steps].filter((s) => s.offsetDias <= diff).pop() ?? rule.steps[0];
+    await this.enqueueDispatch(tenantId, tenant.timezone, invoice, step, rule);
+    return { ok: true, canal: step.canal };
   }
 
   private midnight(d: Date): Date {
