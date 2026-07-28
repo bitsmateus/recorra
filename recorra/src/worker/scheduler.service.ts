@@ -188,26 +188,30 @@ export class SchedulerService implements OnApplicationBootstrap {
     }
   }
 
+  private processandoFila = false;
+
+  /**
+   * Processa a fila de disparos DIRETAMENTE (sem BullMQ), a cada minuto.
+   *
+   * Antes só enfileirava no BullMQ e dependia do consumidor Redis ficar de pé —
+   * se o worker reiniciava no meio (ex.: vários deploys no mesmo dia), o job podia
+   * ficar preso e o disparo travava em FILA sem nunca virar enviado/falha. O envio
+   * direto (`processQueue`) lê os FILA vencidos, envia na hora (com timeout e
+   * fallback do canal) e grava o status — sem estado externo pra ficar preso.
+   * Campanha pausada continua respeitada dentro do `processOne` (fica em FILA).
+   * A guarda evita sobreposição se um lote demorar mais que o intervalo do cron.
+   */
   @Cron(CronExpression.EVERY_MINUTE)
   async enfileirarDisparos() {
+    if (this.processandoFila) return;
+    this.processandoFila = true;
     try {
-      const agora = new Date();
-      // Não enfileira disparos de campanhas pausadas — ficam na FILA até religar.
-      const pausadas = await this.prisma.campaign.findMany({ where: { status: 'PAUSADA' }, select: { id: true } });
-      const pausadasIds = pausadas.map((c) => c.id);
-      const pendentes = await this.prisma.messageDispatch.findMany({
-        where: {
-          status: 'FILA',
-          OR: [{ agendadoPara: null }, { agendadoPara: { lte: agora } }],
-          ...(pausadasIds.length ? { NOT: { campaignId: { in: pausadasIds } } } : {}),
-        },
-        take: 1000,
-        select: { id: true },
-      });
-      for (const p of pendentes) await this.dispatchQueue.enqueue(p.id);
-      if (pendentes.length > 0) this.logger.log(`Enfileirados ${pendentes.length} disparos na fila BullMQ`);
+      const r = await this.dispatch.processQueue(500);
+      if (r.enviados > 0) this.logger.log(`Disparos enviados: ${r.enviados} de ${r.processados} processados`);
     } catch (e) {
-      this.logger.error(`Falha ao enfileirar disparos: ${String(e)}`);
+      this.logger.error(`Falha ao processar a fila de disparos: ${String(e)}`);
+    } finally {
+      this.processandoFila = false;
     }
   }
 }
