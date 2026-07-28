@@ -324,6 +324,23 @@ export class DispatchesController {
     res.send('﻿' + csv); // BOM para o Excel abrir com acentos
   }
 
+  /**
+   * Histórico completo de disparos de UMA fatura — usado pela Esteira ao clicar no
+   * selo "enviado/na fila/falhou" de um card. Traz o texto inteiro (não é lista
+   * paginada; uma fatura tem poucos toques) em ordem do mais recente ao mais antigo.
+   * Rota estática antes de `:id` para não ser capturada por ela.
+   */
+  @Get('fatura/:invoiceId')
+  async porFatura(@TenantId() tenantId: string, @Param('invoiceId') invoiceId: string) {
+    const rows = await this.prisma.messageDispatch.findMany({
+      where: { tenantId, invoiceId },
+      include: INCLUDE,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: 50,
+    });
+    return { rows: await this.mapear(rows as unknown as LinhaBanco[], false) };
+  }
+
   /** Mensagem e erro completos de um disparo (a lista manda só o trecho). */
   @Get(':id')
   async detalhe(@TenantId() tenantId: string, @Param('id') id: string) {

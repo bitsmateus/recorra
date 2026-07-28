@@ -176,6 +176,7 @@ export const HELP_TOPICS: HelpTopic[] = [
       'Refine por situação (Todas, Vencidas, A vencer) e por canal.',
       'Selecione cards (ou a coluna inteira pelo checkbox do cabeçalho) para Disparar agora, Pausar ou Retomar em lote.',
       'Na coluna Falharam, use Reenviar todos para tentar novamente as que não saíram.',
+      'Clique no selo de envio do card (enviado, na fila, falhou) para ver o histórico do que foi disparado naquela fatura: canal, data/hora, origem, o texto da mensagem e o erro, se houver.',
     ],
     rules: [
       'A etapa é calculada na hora a partir de vencimento × hoje × passos da régua; nada é gravado e o card "anda" sozinho conforme o tempo passa.',

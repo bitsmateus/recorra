@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { UIEvent } from 'react';
 import Link from 'next/link';
-import { RefreshCw, Loader2, CheckCircle2, Clock, XCircle, Phone, ExternalLink, Send, Pause, Play, Pause as PauseIcon, CalendarDays, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
+import { RefreshCw, Loader2, CheckCircle2, Clock, XCircle, Phone, ExternalLink, Send, Pause, Play, Pause as PauseIcon, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, X, History } from 'lucide-react';
 import { api } from '@/lib/api';
 import { PageTitle, brl } from '@/components/ui';
 
@@ -75,6 +75,7 @@ export default function AndamentoPage() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [somenteComCards, setSomenteComCards] = useState(true);
+  const [historico, setHistorico] = useState<{ invoiceId: string; nome: string } | null>(null);
   const [visiveisPorColuna, setVisiveisPorColuna] = useState<Record<string, number>>({});
   const esteiraRef = useRef<HTMLDivElement>(null);
 
@@ -345,7 +346,9 @@ export default function AndamentoPage() {
                                 : <span className={p.cls}>{p.txt}</span>}
                               {c.key === 'sem-contato'
                                 ? <span className="flex items-center gap-1 text-[#854F0B]"><Phone size={12} /> sem contato</span>
-                                : card.ultimoDisparo ? disparoBadge(card.ultimoDisparo.status) : <span className="text-muted">sem toque ainda</span>}
+                                : card.ultimoDisparo
+                                  ? <button type="button" onClick={(e) => { e.stopPropagation(); setHistorico({ invoiceId: card.invoiceId, nome: card.nome }); }} title="Ver o que foi enviado e quando" className="flex items-center gap-1 rounded hover:underline">{disparoBadge(card.ultimoDisparo.status)}</button>
+                                  : <span className="text-muted">sem toque ainda</span>}
                             </div>
                             {card.pausada && <div className="mt-1 flex items-center gap-1 text-[11px] font-medium text-[#854F0B]"><PauseIcon size={11} /> cobrança pausada</div>}
                           </div>
@@ -366,6 +369,8 @@ export default function AndamentoPage() {
         </>
       )}
 
+      {historico && <HistoricoModal invoiceId={historico.invoiceId} nome={historico.nome} onClose={() => setHistorico(null)} />}
+
       {sel.size > 0 && (
         <div className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface/95 px-4 py-3 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] backdrop-blur">
           <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-2">
@@ -379,6 +384,75 @@ export default function AndamentoPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+interface DisparoHist {
+  id: string;
+  canal: string;
+  canalNome: string | null;
+  origem: string | null;
+  conteudo: string | null;
+  status: string;
+  erro: string | null;
+  enviadoEm: string | null;
+  createdAt: string;
+}
+
+const statusHist: Record<string, { txt: string; cls: string }> = {
+  ENVIADO: { txt: 'Enviado', cls: 'bg-success-tint text-[#0F6E56]' },
+  ENTREGUE: { txt: 'Entregue', cls: 'bg-success-tint text-[#0F6E56]' },
+  LIDO: { txt: 'Lido', cls: 'bg-success-tint text-[#0F6E56]' },
+  FILA: { txt: 'Na fila', cls: 'bg-warning-tint text-[#854F0B]' },
+  FALHA: { txt: 'Falhou', cls: 'bg-danger-tint text-[#A32D2D]' },
+  IGNORADO: { txt: 'Ignorado', cls: 'bg-canvas text-muted' },
+};
+const dataHora = (s: string | null) => (s ? new Date(s).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—');
+
+/** Histórico de disparos de uma fatura (abre ao clicar no selo do card). */
+function HistoricoModal({ invoiceId, nome, onClose }: { invoiceId: string; nome: string; onClose: () => void }) {
+  const [rows, setRows] = useState<DisparoHist[] | null>(null);
+  const [erro, setErro] = useState('');
+
+  useEffect(() => {
+    api<{ rows: DisparoHist[] }>(`/disparos/fatura/${invoiceId}`)
+      .then((r) => setRows(r.rows))
+      .catch((e) => setErro(e instanceof Error ? e.message : 'Erro ao carregar'));
+  }, [invoiceId]);
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-lg bg-surface shadow-lg">
+        <div className="flex items-center justify-between border-b border-line px-5 py-4">
+          <h2 className="flex items-center gap-2 text-base font-semibold text-ink"><History size={17} className="text-primary" /> Envios de {nome}</h2>
+          <button onClick={onClose} className="rounded p-1 text-muted hover:bg-canvas hover:text-ink"><X size={18} /></button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          {!rows && !erro && <p className="flex items-center gap-2 py-6 text-sm text-muted"><Loader2 size={15} className="animate-spin text-primary" /> Carregando...</p>}
+          {erro && <p className="py-6 text-sm text-danger">{erro}</p>}
+          {rows && rows.length === 0 && <p className="py-8 text-center text-sm text-muted">Nenhum disparo registrado para esta fatura ainda.</p>}
+          {rows && rows.length > 0 && (
+            <ol className="space-y-3">
+              {rows.map((d) => {
+                const s = statusHist[d.status] ?? { txt: d.status, cls: 'bg-canvas text-muted' };
+                return (
+                  <li key={d.id} className="rounded-lg border border-line bg-canvas p-3">
+                    <div className="mb-1.5 flex flex-wrap items-center gap-2 text-xs">
+                      <span className={`rounded-full px-2 py-0.5 font-medium ${s.cls}`}>{s.txt}</span>
+                      <span className="font-medium text-ink">{canalLabel[d.canal] || d.canal}{d.canalNome ? ` · ${d.canalNome}` : ''}</span>
+                      {d.origem && <span className="text-muted">· {d.origem}</span>}
+                      <span className="ml-auto text-muted">{dataHora(d.enviadoEm ?? d.createdAt)}</span>
+                    </div>
+                    {d.conteudo && <p className="whitespace-pre-wrap break-words rounded bg-surface p-2 text-sm text-ink">{d.conteudo}</p>}
+                    {d.erro && <p className="mt-1.5 rounded bg-danger-tint px-2 py-1 text-xs text-[#A32D2D]"><b>Erro:</b> {d.erro}</p>}
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
