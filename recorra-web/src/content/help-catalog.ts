@@ -16,8 +16,8 @@ export interface HelpTopic {
  * vigente do produto. Mudanças funcionais precisam atualizar este arquivo ou o
  * changelog da Central de Ajuda; o CI valida essa obrigação por commit.
  */
-export const HELP_CATALOG_VERSION = '2026.07.20';
-export const HELP_CATALOG_UPDATED_AT = '20/07/2026';
+export const HELP_CATALOG_VERSION = '2026.07.28';
+export const HELP_CATALOG_UPDATED_AT = '28/07/2026';
 
 export const HELP_TOPICS: HelpTopic[] = [
   {
@@ -165,6 +165,27 @@ export const HELP_TOPICS: HelpTopic[] = [
       'Se uma variável obrigatória estiver vazia, especialmente em template oficial, o envio pode falhar ou ser bloqueado.',
       'A faixa de risco pode direcionar clientes para réguas diferentes.',
     ],
+  },
+  {
+    id: 'esteira', section: 'Automação', title: 'Esteira de cobrança',
+    summary: 'Quadro (kanban) que mostra em qual etapa da régua cada fatura em aberto está agora, com ações e disparo em lote.',
+    steps: [
+      'Abra Comunicação > Esteira.',
+      'Escolha a régua quando houver mais de uma; as colunas são os passos dela mais Aguardando início, Falharam, Pagas/Encerradas e Sem contato.',
+      'Use o filtro de Período (Hoje, Este mês, Este ano, Todo o período ou Personalizado) — por padrão abre em Este mês.',
+      'Refine por situação (Todas, Vencidas, A vencer) e por canal.',
+      'Selecione cards (ou a coluna inteira pelo checkbox do cabeçalho) para Disparar agora, Pausar ou Retomar em lote.',
+      'Na coluna Falharam, use Reenviar todos para tentar novamente as que não saíram.',
+    ],
+    rules: [
+      'A etapa é calculada na hora a partir de vencimento × hoje × passos da régua; nada é gravado e o card "anda" sozinho conforme o tempo passa.',
+      'O filtro de Período recorta pelo vencimento da fatura; a situação recorta por vencidas/a vencer; ambos combinam com o filtro de canal.',
+      'Só entram faturas em aberto (PENDENTE/VENCIDA) com gestão ATIVA ou PAUSADA; pagas e canceladas recentes aparecem em Pagas/Encerradas.',
+      'Pausar interrompe a cobrança automática da fatura e ignora disparos que estavam na fila; Retomar volta a ativar.',
+      'Disparar agora envia a etapa atual da régua para as faturas selecionadas, respeitando as mesmas regras de canal e opt-out.',
+      'Clientes sem telefone e sem e-mail caem em Sem contato e não recebem mensagem até completar o cadastro.',
+    ],
+    keywords: ['esteira', 'andamento', 'kanban', 'etapa', 'quadro', 'lote', 'reenviar'],
   },
   {
     id: 'campanhas', section: 'Automação', title: 'Campanhas',
