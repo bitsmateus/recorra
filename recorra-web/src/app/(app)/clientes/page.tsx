@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
-import { UserPlus, Download, RefreshCw, Eye, Pencil, Trash2, X, Tag, Plus, Check, Search, FileDown } from 'lucide-react';
+import { UserPlus, Download, RefreshCw, Eye, Pencil, Trash2, X, Tag, Plus, Check, Search, FileDown, Filter, ChevronDown, HelpCircle } from 'lucide-react';
 import { toCsv, baixarArquivo } from '@/lib/csv';
 import { api } from '@/lib/api';
 import { PageTitle, RiskBadge } from '@/components/ui';
@@ -44,6 +44,49 @@ function situacaoDe(c: Customer): { key: string; label: string; bg: string; fg: 
   return { key: 'dia', label: 'Em dia', bg: '#E4F4EA', fg: '#0F6E56' };
 }
 
+function ScoreHelp() {
+  return (
+    <details className="group relative inline-block normal-case">
+      <summary className="flex cursor-pointer list-none items-center text-muted hover:text-primary" aria-label="Como funciona o score de risco">
+        <HelpCircle size={15} />
+      </summary>
+      <div className="absolute right-0 top-6 z-30 w-80 rounded-lg border border-line bg-surface p-3 text-left text-xs font-normal normal-case leading-relaxed text-muted shadow-lg">
+        <p className="font-semibold text-ink">Quanto menor, melhor.</p>
+        <p className="mt-1">É uma pontuação de risco de 0 a 100, não uma nota de qualidade.</p>
+        <div className="mt-2 grid grid-cols-[auto_1fr] gap-x-2 gap-y-1">
+          <b className="text-[#0F6E56]">0–30</b><span>Bom pagador</span>
+          <b className="text-[#854F0B]">31–70</b><span>Atenção</span>
+          <b className="text-[#A32D2D]">71–100</b><span>Risco</span>
+        </div>
+        <p className="mt-2 border-t border-line pt-2">
+          Atrasos, média de dias em atraso, proporção de faturas vencidas e pouco histórico aumentam o risco.
+          Bom histórico de pagamento e resposta às mensagens reduzem a pontuação.
+        </p>
+      </div>
+    </details>
+  );
+}
+
+function ScoreVisual({ risco }: { risco?: RiskScore | null }) {
+  if (!risco) return <span className="text-muted">Não calculado</span>;
+  const score = Math.max(0, Math.min(100, risco.score));
+  return (
+    <div className="min-w-[180px]">
+      <div className="mb-1.5 flex items-center gap-2">
+        <span className="tabular text-sm font-semibold text-ink">{score}<span className="font-normal text-muted">/100</span></span>
+        <RiskBadge faixa={risco.faixa} />
+      </div>
+      <div className="relative h-1.5 overflow-visible rounded-full bg-gradient-to-r from-[#22A45D] via-[#F0A93B] to-[#EF4444]" title={`Score de risco: ${score} de 100`}>
+        <span
+          className="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-ink shadow"
+          style={{ left: `${score}%` }}
+        />
+      </div>
+      <div className="mt-1 flex justify-between text-[9px] font-normal text-muted"><span>menor risco</span><span>maior risco</span></div>
+    </div>
+  );
+}
+
 
 function SituacaoBadge({ c }: { c: Customer }) {
   const s = situacaoDe(c);
@@ -70,6 +113,7 @@ export default function ClientesPage() {
   const [sincronizando, setSincronizando] = useState(false);
   const [syncMsg, setSyncMsg] = useState('');
   const [importModal, setImportModal] = useState(false);
+  const [menuFiltros, setMenuFiltros] = useState(false);
   const [wizard, setWizard] = useState(false);
   const [etiquetas, setEtiquetas] = useState<Etiqueta[]>([]);
   const [aba, setAba] = useState<Aba>('geral');
@@ -162,7 +206,7 @@ export default function ClientesPage() {
   const aplicarFiltros = () => setAplicados(filtros);
   const limparFiltros = () => { setFiltros(FILTROS_VAZIOS); setAplicados(FILTROS_VAZIOS); };
   const filtrosPendentes = JSON.stringify(filtros) !== JSON.stringify(aplicados);
-  const temFiltroAtivo = Object.values(aplicados).some(Boolean);
+  const nFiltros = Object.values(aplicados).filter(Boolean).length;
   // Some da seleção quem foi excluído ou saiu da lista no recarregamento.
   useEffect(() => { setSelecionados((s) => new Set([...s].filter((id) => clientes.some((c) => c.id === id)))); }, [clientes]);
   useEffect(() => {
@@ -273,20 +317,46 @@ export default function ClientesPage() {
       </div>
       {syncMsg && <p className="mb-3 text-sm text-primary">{syncMsg}</p>}
 
-      <div className="mb-3 grid grid-cols-2 gap-2 md:grid-cols-6">
-        <input placeholder="Buscar (nome ou CPF/CNPJ)" value={filtros.q} onChange={(e) => setFiltros({ ...filtros, q: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') aplicarFiltros(); }} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
-        <input placeholder="Plano" value={filtros.plano} onChange={(e) => setFiltros({ ...filtros, plano: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') aplicarFiltros(); }} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
-        <select value={filtros.uf} onChange={(e) => setFiltros({ ...filtros, uf: e.target.value })} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">{UFS.map((u) => <option key={u} value={u}>{u || 'UF'}</option>)}</select>
-        <select value={filtros.etiqueta} onChange={(e) => setFiltros({ ...filtros, etiqueta: e.target.value })} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Etiqueta: todas</option>{etiquetas.map((t) => <option key={t.nome} value={t.nome}>{t.nome}</option>)}</select>
-        <input placeholder="Valor mín" value={filtros.valorMin} onChange={(e) => setFiltros({ ...filtros, valorMin: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') aplicarFiltros(); }} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
-        <select value={filtros.faixa} onChange={(e) => setFiltros({ ...filtros, faixa: e.target.value })} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Risco: todos</option><option value="BOM">Bom pagador</option><option value="ATENCAO">Atenção</option><option value="RISCO">Risco</option></select>
-      </div>
-
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <button onClick={aplicarFiltros} className="flex items-center gap-2 rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover"><Search size={16} /> Filtrar</button>
-        <button onClick={carregar} title="Recarregar a lista" className="flex items-center gap-2 rounded border border-line px-4 py-2 text-sm hover:bg-canvas"><RefreshCw size={16} /> Atualizar</button>
-        {(temFiltroAtivo || filtrosPendentes) && <button onClick={limparFiltros} className="rounded border border-line px-4 py-2 text-sm hover:bg-canvas">Limpar filtros</button>}
-        {filtrosPendentes && <span className="text-xs text-muted">Buscando…</span>}
+        {/* Busca rápida (sempre visível) */}
+        <div className="relative min-w-[16rem] flex-1 sm:max-w-xs">
+          <Search size={15} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
+          <input
+            placeholder="Buscar nome ou CPF/CNPJ"
+            value={filtros.q}
+            onChange={(e) => setFiltros({ ...filtros, q: e.target.value })}
+            onKeyDown={(e) => { if (e.key === 'Enter') aplicarFiltros(); }}
+            className="w-full rounded-lg border border-line bg-surface py-2 pl-8 pr-3 text-sm outline-none focus:border-primary"
+          />
+        </div>
+        {/* Filtros (dropdown, padrão da tela de Cobranças) */}
+        <div className="relative">
+          <button onClick={() => setMenuFiltros((v) => !v)} className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition ${menuFiltros || nFiltros > 0 ? 'border-primary bg-primary-tint text-primary' : 'border-line text-ink hover:bg-canvas'}`}>
+            <Filter size={15} /> Filtros {nFiltros > 0 && <span className="rounded-full bg-primary px-1.5 text-xs font-medium text-white">{nFiltros}</span>} <ChevronDown size={14} />
+          </button>
+          {menuFiltros && (
+            <>
+              <div className="fixed inset-0 z-10" onClick={() => setMenuFiltros(false)} />
+              <div className="absolute left-0 z-20 mt-1 w-[min(92vw,30rem)] rounded-lg border border-line bg-surface p-4 shadow-lg">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <input placeholder="Nome ou CPF/CNPJ" value={filtros.q} onChange={(e) => setFiltros({ ...filtros, q: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') { aplicarFiltros(); setMenuFiltros(false); } }} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary sm:col-span-2" />
+                  <input placeholder="Plano" value={filtros.plano} onChange={(e) => setFiltros({ ...filtros, plano: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') { aplicarFiltros(); setMenuFiltros(false); } }} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+                  <select value={filtros.uf} onChange={(e) => setFiltros({ ...filtros, uf: e.target.value })} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">UF: todas</option>{UFS.filter(Boolean).map((u) => <option key={u} value={u}>{u}</option>)}</select>
+                  <select value={filtros.etiqueta} onChange={(e) => setFiltros({ ...filtros, etiqueta: e.target.value })} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Etiqueta: todas</option>{etiquetas.map((t) => <option key={t.nome} value={t.nome}>{t.nome}</option>)}</select>
+                  <select value={filtros.faixa} onChange={(e) => setFiltros({ ...filtros, faixa: e.target.value })} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Risco: todos</option><option value="BOM">Bom pagador</option><option value="ATENCAO">Atenção</option><option value="RISCO">Risco</option></select>
+                  <input placeholder="Valor mín" value={filtros.valorMin} onChange={(e) => setFiltros({ ...filtros, valorMin: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') { aplicarFiltros(); setMenuFiltros(false); } }} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+                </div>
+                <div className="mt-3 flex items-center justify-between">
+                  <button onClick={limparFiltros} className="text-sm text-primary hover:underline">Limpar filtros</button>
+                  <button onClick={() => { aplicarFiltros(); setMenuFiltros(false); }} className="rounded bg-primary px-4 py-1.5 text-sm font-medium text-white hover:bg-primary-hover">Aplicar</button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+        <button onClick={aplicarFiltros} className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover"><Search size={16} /> Filtrar</button>
+        <button onClick={carregar} title="Recarregar a lista" className="flex items-center gap-2 rounded-lg border border-line px-3 py-2 text-sm hover:bg-canvas"><RefreshCw size={15} /> Atualizar</button>
+        {filtrosPendentes && <span className="text-xs text-muted">Alterações não aplicadas</span>}
       </div>
 
       <div className="mb-2 flex items-center gap-3 text-sm text-muted">
@@ -304,7 +374,7 @@ export default function ClientesPage() {
       <div className="overflow-hidden rounded-lg border border-line bg-surface">
         <div className="w-full overflow-x-auto"><table className="w-full min-w-[760px] text-sm">
           <thead className="border-b border-line bg-canvas text-left text-xs uppercase text-muted">
-            <tr><th className="w-10 px-4 py-3"><input type="checkbox" checked={todosMarcados} onChange={toggleTodos} className="h-4 w-4 cursor-pointer accent-primary" aria-label="Selecionar todos" /></th><th className="px-4 py-3 font-medium">Cliente</th><th className="px-4 py-3 font-medium">Documento</th><th className="px-4 py-3 font-medium">Situação</th><th className="px-4 py-3 font-medium">Tags</th><th className="px-4 py-3 font-medium">Cobranças</th><th className="px-4 py-3 font-medium">Score / Risco</th><th className="px-4 py-3 font-medium text-right">Ações</th></tr>
+            <tr><th className="w-10 px-4 py-3"><input type="checkbox" checked={todosMarcados} onChange={toggleTodos} className="h-4 w-4 cursor-pointer accent-primary" aria-label="Selecionar todos" /></th><th className="px-4 py-3 font-medium">Cliente</th><th className="px-4 py-3 font-medium">Documento</th><th className="px-4 py-3 font-medium">Situação</th><th className="px-4 py-3 font-medium">Tags</th><th className="px-4 py-3 font-medium">Cobranças</th><th className="px-4 py-3 font-medium"><span className="flex items-center gap-1.5">Score de risco <ScoreHelp /></span></th><th className="px-4 py-3 font-medium text-right">Ações</th></tr>
           </thead>
           <tbody>
             {clientes.map((c) => (
@@ -329,10 +399,7 @@ export default function ClientesPage() {
                   <span className="text-muted">/{c.cobrancasTotal ?? 0} pagas</span>
                 </td>
                 <td className="px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    {riscos[c.id]?.score != null && <span className="tabular text-sm font-semibold text-ink">{riscos[c.id]!.score}</span>}
-                    <RiskBadge faixa={riscos[c.id]?.faixa} />
-                  </div>
+                  <ScoreVisual risco={riscos[c.id]} />
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center justify-end gap-1">
