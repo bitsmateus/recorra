@@ -74,6 +74,7 @@ export default function AndamentoPage() {
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  const [somenteComCards, setSomenteComCards] = useState(true);
   const [visiveisPorColuna, setVisiveisPorColuna] = useState<Record<string, number>>({});
   const esteiraRef = useRef<HTMLDivElement>(null);
 
@@ -172,10 +173,6 @@ export default function AndamentoPage() {
   const totalAbertas = dados?.colunas
     .filter((c) => c.key !== 'encerradas')
     .reduce((s, c) => s + c.cards.filter(passaFiltro).length, 0) ?? 0;
-  // "Todas" preserva a estrutura completa da esteira, inclusive etapas zeradas.
-  // Apenas os filtros rápidos de situação escondem colunas sem cards.
-  const ocultarColunasVazias = situacao !== '';
-
   return (
     <div className="pb-16">
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
@@ -256,31 +253,45 @@ export default function AndamentoPage() {
         <>
           <div className="mb-3 flex items-center justify-between gap-3">
             <p className="text-sm text-muted">Régua <b className="text-ink">{dados.regua.nome}</b> · <b className="text-ink">{totalAbertas}</b> fatura(s) em aberto.</p>
-            <div className="flex shrink-0 overflow-hidden rounded-lg border border-line bg-surface shadow-sm">
+            <div className="flex shrink-0 items-center gap-2">
               <button
                 type="button"
-                onClick={() => moverEsteira(-1)}
-                aria-label="Mover esteira para a esquerda"
-                title="Mover para a esquerda"
-                className="flex h-8 w-9 items-center justify-center text-muted transition hover:bg-canvas hover:text-primary active:bg-primary-tint"
+                role="switch"
+                aria-checked={somenteComCards}
+                onClick={() => setSomenteComCards((v) => !v)}
+                className="flex select-none items-center gap-2 text-xs font-medium text-muted"
               >
-                <ChevronLeft size={18} />
+                <span className={`relative h-5 w-9 rounded-full transition ${somenteComCards ? 'bg-primary' : 'bg-line'}`}>
+                  <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-all ${somenteComCards ? 'left-[18px]' : 'left-0.5'}`} />
+                </span>
+                Só com faturas
               </button>
-              <button
-                type="button"
-                onClick={() => moverEsteira(1)}
-                aria-label="Mover esteira para a direita"
-                title="Mover para a direita"
-                className="flex h-8 w-9 items-center justify-center border-l border-line text-muted transition hover:bg-canvas hover:text-primary active:bg-primary-tint"
-              >
-                <ChevronRight size={18} />
-              </button>
+              <div className="flex overflow-hidden rounded-lg border border-line bg-surface shadow-sm">
+                <button
+                  type="button"
+                  onClick={() => moverEsteira(-1)}
+                  aria-label="Mover esteira para a esquerda"
+                  title="Mover para a esquerda"
+                  className="flex h-8 w-9 items-center justify-center text-muted transition hover:bg-canvas hover:text-primary active:bg-primary-tint"
+                >
+                  <ChevronLeft size={18} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => moverEsteira(1)}
+                  aria-label="Mover esteira para a direita"
+                  title="Mover para a direita"
+                  className="flex h-8 w-9 items-center justify-center border-l border-line text-muted transition hover:bg-canvas hover:text-primary active:bg-primary-tint"
+                >
+                  <ChevronRight size={18} />
+                </button>
+              </div>
             </div>
           </div>
           <div ref={esteiraRef} className="overflow-x-auto pb-3">
             <div className="flex gap-3" style={{ minWidth: 'min-content' }}>
               {dados.colunas
-                .filter((c) => !ocultarColunasVazias || c.cards.some(passaFiltro))
+                .filter((c) => !somenteComCards || c.cards.some(passaFiltro))
                 .map((c) => {
                 const cards = c.cards.filter(passaFiltro);
                 const quantidadeVisivel = visiveisPorColuna[c.key] ?? CARDS_POR_LOTE;
