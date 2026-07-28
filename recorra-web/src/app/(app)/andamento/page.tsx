@@ -21,6 +21,16 @@ interface Andamento {
 }
 
 const faixaLabel: Record<string, string> = { BOM: 'Bom pagador', ATENCAO: 'Atenção', RISCO: 'Risco' };
+const MES_ABREV = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+/** Chave AAAA-MM do vencimento (em UTC, como as datas chegam do backend). */
+function mesKey(venc: string): string {
+  const d = new Date(venc);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+function mesLabel(key: string): string {
+  const [ano, mes] = key.split('-');
+  return `${MES_ABREV[Number(mes) - 1]}/${ano}`;
+}
 const canalLabel: Record<string, string> = {
   WHATSAPP_CLOUD: 'WhatsApp', NX_SYSTEMS: 'WhatsApp oficial', WHATSAPP_EVOLUTION: 'WhatsApp', WHATSAPP_UAZAPI: 'WhatsApp',
   EMAIL: 'E-mail', SMS: 'SMS', HTTP_GENERIC: 'API',
@@ -55,6 +65,7 @@ export default function AndamentoPage() {
   const [loading, setLoading] = useState(true);
   const [ruleId, setRuleId] = useState('');
   const [canalFiltro, setCanalFiltro] = useState('');
+  const [mesFiltro, setMesFiltro] = useState('');
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
@@ -75,7 +86,15 @@ export default function AndamentoPage() {
     return [...s];
   }, [dados]);
 
-  const passaFiltro = (card: Card) => !canalFiltro || card.canal === canalFiltro;
+  const mesesDisponiveis = useMemo(() => {
+    const s = new Set<string>();
+    dados?.colunas.forEach((c) => c.cards.forEach((x) => x.vencimento && s.add(mesKey(x.vencimento))));
+    return [...s].sort();
+  }, [dados]);
+
+  const passaFiltro = (card: Card) =>
+    (!canalFiltro || card.canal === canalFiltro) &&
+    (!mesFiltro || mesKey(card.vencimento) === mesFiltro);
   const toggle = (id: string) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const limpar = () => setSel(new Set());
   /** Marca/desmarca todos os ids de uma coluna de uma vez. */
@@ -103,13 +122,21 @@ export default function AndamentoPage() {
     setBusy(false);
   }
 
-  const totalAbertas = dados?.colunas.filter((c) => c.key !== 'encerradas').reduce((s, c) => s + c.total, 0) ?? 0;
+  const totalAbertas = dados?.colunas
+    .filter((c) => c.key !== 'encerradas')
+    .reduce((s, c) => s + c.cards.filter(passaFiltro).length, 0) ?? 0;
 
   return (
     <div className="pb-16">
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <PageTitle title="Esteira de cobrança" subtitle="Em qual etapa da régua cada fatura em aberto está agora. Selecione cards para disparar ou pausar em lote." />
         <div className="flex flex-wrap items-center gap-2">
+          {mesesDisponiveis.length > 1 && (
+            <select value={mesFiltro} onChange={(e) => { setMesFiltro(e.target.value); limpar(); }} className="rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-primary">
+              <option value="">Todos os meses</option>
+              {mesesDisponiveis.map((m) => <option key={m} value={m}>{mesLabel(m)}</option>)}
+            </select>
+          )}
           {canaisDisponiveis.length > 1 && (
             <select value={canalFiltro} onChange={(e) => setCanalFiltro(e.target.value)} className="rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-primary">
               <option value="">Todos os canais</option>
