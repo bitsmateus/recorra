@@ -17,10 +17,19 @@ export class ChargesController {
     private readonly reconciliation: ReconciliationService,
   ) {}
 
+  /**
+   * "Atualizar pagamentos": faz as duas coisas de uma vez.
+   *  1) Recalcula localmente Pendente↔Vencida pela data (carência de fim de semana).
+   *  2) Concilia com o gateway (baixa pagas + espelha aguardando/vencido).
+   * A conciliação roda por ÚLTIMO porque o gateway é autoritativo — assim o
+   * recálculo local nunca sobrescreve a classificação do gateway.
+   */
   @Post('conciliar')
   @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
-  conciliar(@TenantId() tenantId: string) {
-    return this.reconciliation.reconcileTenant(tenantId);
+  async conciliar(@TenantId() tenantId: string) {
+    const reaval = await this.charges.reavaliarStatus(tenantId);
+    const rec = await this.reconciliation.reconcileTenant(tenantId);
+    return { ...rec, reavaliadas: reaval.atualizadas };
   }
 
   @Post('reavaliar-status')

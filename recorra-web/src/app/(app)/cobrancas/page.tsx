@@ -205,14 +205,6 @@ export default function CobrancasPage() {
     api<{ nome: string }[]>('/clientes/etiquetas').then(setEtiquetas).catch(() => setEtiquetas([]));
   }, []);
 
-  async function reavaliarStatus() {
-    setMsg('Reavaliando situações...');
-    const r = await api<{ atualizadas: number }>('/cobrancas/reavaliar-status', { method: 'POST' }).catch(() => null);
-    if (!r) { setMsg('Erro ao reavaliar status.'); return; }
-    setMsg(r.atualizadas > 0 ? `✓ ${r.atualizadas} cobrança(s) atualizada(s) para Vencida.` : '✓ Nada a atualizar — nenhuma pendente já vencida.');
-    load();
-  }
-
   async function sincronizarFontes() {
     setBusy(true); setMsg('Sincronizando (clientes e cobranças novas)...');
     try {
@@ -231,19 +223,20 @@ export default function CobrancasPage() {
   }
 
   async function conciliarPagamentos() {
-    setBusy(true); setMsg('Verificando pagamentos no gateway...');
+    setBusy(true); setMsg('Atualizando pagamentos e recalculando vencidas...');
     try {
-      const r = await api<{ verificadas: number; baixadas: number; reclassificadas?: number; naoEncontradas?: number; exemplos?: { nome: string; valor: number; vencimento: string }[]; naoEncontradasIds?: string[] }>('/cobrancas/conciliar', { method: 'POST' });
+      const r = await api<{ verificadas: number; baixadas: number; reclassificadas?: number; reavaliadas?: number; naoEncontradas?: number; exemplos?: { nome: string; valor: number; vencimento: string }[]; naoEncontradasIds?: string[] }>('/cobrancas/conciliar', { method: 'POST' });
       const extra = r.reclassificadas ? ` ${r.reclassificadas} ajustada(s) para bater com o gateway (aguardando/vencido).` : '';
-      if (r.baixadas > 0) setMsg(`✓ ${r.baixadas} cobrança(s) baixada(s) como Paga (de ${r.verificadas} verificadas).${extra}`);
-      else if (r.reclassificadas && r.reclassificadas > 0) setMsg(`✓ ${r.reclassificadas} cobrança(s) ajustada(s) para a classificação do gateway (aguardando/vencido). Nenhuma paga a baixar.`);
+      const reaval = r.reavaliadas ? ` ${r.reavaliadas} recalculada(s) por vencimento (vencida/pendente).` : '';
+      if (r.baixadas > 0) setMsg(`✓ ${r.baixadas} cobrança(s) baixada(s) como Paga (de ${r.verificadas} verificadas).${extra}${reaval}`);
+      else if (r.reclassificadas && r.reclassificadas > 0) setMsg(`✓ ${r.reclassificadas} cobrança(s) ajustada(s) para a classificação do gateway (aguardando/vencido).${reaval} Nenhuma paga a baixar.`);
       else if (r.naoEncontradas && r.naoEncontradas > 0) {
         const lista = (r.exemplos ?? []).map((e) => `${e.nome} (${brl(Number(e.valor))})`).join(', ');
-        setMsg(`⚠️ Nenhuma baixada. As demais o gateway confirma em aberto. Mas ${r.naoEncontradas} cobrança(s) NÃO existem no gateway (canceladas/apagadas lá): ${lista}.`);
+        setMsg(`⚠️ Nenhuma baixada. As demais o gateway confirma em aberto. Mas ${r.naoEncontradas} cobrança(s) NÃO existem no gateway (canceladas/apagadas lá): ${lista}.${reaval}`);
         setSumidas(r.naoEncontradasIds ?? []);
-      } else { setMsg(`✓ Nada a atualizar — o gateway confirma as ${r.verificadas} cobrança(s) ainda em aberto (as pagas já foram baixadas).`); setSumidas([]); }
+      } else { setMsg(`✓ Atualizado.${reaval || ' Nenhuma alteração — o gateway confirma as cobranças em aberto e nada a recalcular.'}`); setSumidas([]); }
       load();
-    } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro ao conciliar'); }
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro ao atualizar pagamentos'); }
     setBusy(false);
   }
 
@@ -375,12 +368,11 @@ export default function CobrancasPage() {
           {(gateways.length > 0 || temErp) && (
             <button onClick={sincronizarFontes} disabled={busy} title="Puxa clientes e cobranças novas do gateway e do ERP conectados (não altera pagamentos)" className="flex items-center gap-2 rounded border border-primary/40 bg-primary-tint px-4 py-2 text-sm font-medium text-primary hover:opacity-90 disabled:opacity-60"><RefreshCw size={15} /> Sincronizar</button>
           )}
-          <button onClick={conciliarPagamentos} disabled={busy} title="Consulta o gateway e dá baixa nas cobranças em aberto que já foram pagas" className="flex items-center gap-2 rounded border border-line px-4 py-2 text-sm hover:bg-canvas disabled:opacity-60"><RefreshCw size={15} /> Atualizar pagamentos</button>
-          <button onClick={reavaliarStatus} className="flex items-center gap-2 rounded border border-line px-4 py-2 text-sm hover:bg-canvas"><RefreshCw size={15} /> Reavaliar status</button>
+          <button onClick={conciliarPagamentos} disabled={busy} title="Dá baixa nas pagas pelo gateway e recalcula vencida/pendente pela data de vencimento" className="flex items-center gap-2 rounded border border-line px-4 py-2 text-sm hover:bg-canvas disabled:opacity-60"><RefreshCw size={15} /> Atualizar pagamentos</button>
           <span className="group relative inline-block">
             <button type="button" className="flex h-5 w-5 items-center justify-center rounded-full text-muted hover:text-primary"><HelpCircle size={15} /></button>
             <span className="pointer-events-none absolute left-0 top-7 z-30 hidden w-72 rounded-lg border border-line bg-surface p-3 text-xs text-ink shadow-lg group-hover:block">
-              Marca como <strong>Vencida</strong> toda cobrança cujo vencimento já passou mas ainda aparece como <strong>Pendente</strong>. Isso normalmente acontece sozinho todo dia — use aqui se notar cobranças antigas ainda em Pendente e quiser corrigir na hora. Não altera cobranças pagas nem canceladas.
+              Faz duas coisas de uma vez: <strong>baixa as cobranças pagas</strong> confirmadas pelo gateway e <strong>recalcula Vencida/Pendente</strong> pela data de vencimento (com carência de fim de semana). Ambas acontecem sozinhas todo dia — use aqui para corrigir na hora. Não altera cobranças canceladas.
             </span>
           </span>
         </div>

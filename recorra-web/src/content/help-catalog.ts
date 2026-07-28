@@ -110,11 +110,11 @@ export const HELP_TOPICS: HelpTopic[] = [
   {
     id: 'status-cobranca', section: 'Cobranças', title: 'Status e gestão da cobrança',
     summary: 'Diferença entre a situação financeira e a participação na automação.',
-    steps: ['Consulte a coluna Status na tela de Cobranças.', 'Use o botão de ajuda ao lado do cabeçalho para ver a legenda.', 'Observe o selo LEGADO quando existir.', 'Use Reavaliar status se uma pendente já passou do vencimento.'],
+    steps: ['Consulte a coluna Status na tela de Cobranças.', 'Use o botão de ajuda ao lado do cabeçalho para ver a legenda.', 'Observe o selo LEGADO quando existir.', 'Use "Atualizar pagamentos" se uma pendente já passou do vencimento — ele recalcula Vencida/Pendente pela data (além de baixar as pagas do gateway).'],
     rules: [
       'PENDENTE: criada e ainda no prazo.', 'VENCIDA: passou do vencimento sem confirmação de pagamento.', 'PAGA: pagamento confirmado.', 'CANCELADA: não deve mais ser cobrada.', 'ESTORNADA: pagamento devolvido.',
       'ATIVA, LEGADO e PAUSADA são estados de gestão; não substituem o status financeiro.',
-      'Reavaliar status muda PENDENTE para VENCIDA pela data, sem alterar pagas ou canceladas.',
+      '"Atualizar pagamentos" também recalcula PENDENTE↔VENCIDA pela data (com carência de fim de semana), sem alterar pagas ou canceladas — antes isso era o botão separado "Reavaliar status", agora unificado.',
     ],
   },
   {
@@ -143,7 +143,7 @@ export const HELP_TOPICS: HelpTopic[] = [
   {
     id: 'conciliacao', section: 'Cobranças', title: 'Baixa e conciliação de pagamentos',
     summary: 'Atualização automática de cobranças quando o gateway confirma o pagamento.',
-    steps: ['Mantenha gateway e webhook configurados.', 'Aguarde a confirmação automática.', 'Use Reavaliar status apenas para vencimento; ele não confirma pagamento.', 'Consulte a cobrança e os disparos após a baixa.'],
+    steps: ['Mantenha gateway e webhook configurados.', 'Aguarde a confirmação automática.', 'Use "Atualizar pagamentos" para baixar as pagas e, de quebra, recalcular vencida/pendente pela data.', 'Consulte a cobrança e os disparos após a baixa.'],
     rules: [
       'A conciliação consulta periodicamente cobranças abertas que possuem vínculo com gateway.',
       'Quando o pagamento é confirmado, a fatura passa para PAGA e recebe a data de pagamento.',
