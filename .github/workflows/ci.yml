@@ -70,22 +70,23 @@ jobs:
     steps:
       # Backend roda em 2 serviços no EasyPanel: 'api' (HTTP) e 'worker' (cron/fila),
       # ambos a partir da pasta recorra/. 'app' é o frontend (recorra-web/).
-      # Cada Deploy Webhook fica num secret; se ausente, o passo é pulado sem falhar.
+      # Cada Deploy Webhook do EasyPanel fica num secret (API/APP/WORKER); se ausente,
+      # o passo é pulado sem falhar.
       - name: Reimplantar api (backend HTTP)
         env:
-          HOOK: ${{ secrets.EASYPANEL_DEPLOY_HOOK_API }}
+          HOOK: ${{ secrets.API }}
         run: |
-          if [ -z "$HOOK" ]; then echo "EASYPANEL_DEPLOY_HOOK_API não configurado — pulando."; exit 0; fi
+          if [ -z "$HOOK" ]; then echo "Secret API não configurado — pulando."; exit 0; fi
           curl -fsS -X POST "$HOOK" && echo "Deploy do api disparado."
       - name: Reimplantar worker (cron/fila)
         env:
-          HOOK: ${{ secrets.EASYPANEL_DEPLOY_HOOK_WORKER }}
+          HOOK: ${{ secrets.WORKER }}
         run: |
-          if [ -z "$HOOK" ]; then echo "EASYPANEL_DEPLOY_HOOK_WORKER não configurado — pulando."; exit 0; fi
+          if [ -z "$HOOK" ]; then echo "Secret WORKER não configurado — pulando."; exit 0; fi
           curl -fsS -X POST "$HOOK" && echo "Deploy do worker disparado."
       - name: Reimplantar app (frontend)
         env:
-          HOOK: ${{ secrets.EASYPANEL_DEPLOY_HOOK_APP }}
+          HOOK: ${{ secrets.APP }}
         run: |
-          if [ -z "$HOOK" ]; then echo "EASYPANEL_DEPLOY_HOOK_APP não configurado — pulando."; exit 0; fi
+          if [ -z "$HOOK" ]; then echo "Secret APP não configurado — pulando."; exit 0; fi
           curl -fsS -X POST "$HOOK" && echo "Deploy do app disparado."
