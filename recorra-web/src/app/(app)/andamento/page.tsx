@@ -71,7 +71,7 @@ export default function AndamentoPage() {
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-        <PageTitle title="Andamento da cobrança" subtitle="Em qual etapa da régua cada fatura em aberto está agora. Os cards andam sozinhos conforme o tempo passa e os disparos saem." />
+        <PageTitle title="Esteira de cobrança" subtitle="Em qual etapa da régua cada fatura em aberto está agora. Os cards andam sozinhos conforme o tempo passa e os disparos saem." />
         <div className="flex items-center gap-2">
           {dados && dados.reguas.length > 1 && (
             <select value={ruleId} onChange={(e) => setRuleId(e.target.value)} className="rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-primary">

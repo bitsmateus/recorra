@@ -23,7 +23,7 @@ const grupos: Grupo[] = [
     { href: '/campanhas', label: 'Campanhas', icon: Megaphone },
     { href: '/disparos', label: 'Disparos', icon: Send },
     { href: '/reguas', label: 'Réguas', icon: GitBranch },
-    { href: '/andamento', label: 'Andamento', icon: Columns3 },
+    { href: '/andamento', label: 'Esteira', icon: Columns3 },
     { href: '/templates', label: 'Templates WhatsApp', icon: MessageSquare },
     { href: '/modelos-email', label: 'Modelos de e-mail', icon: Mail },
     { href: '/canais', label: 'Canais', icon: Radio },
