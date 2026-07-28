@@ -65,7 +65,10 @@ export class SgpConnector implements SourceConnector {
     const detalhe = typeof body === 'string'
       ? body
       : body?.detail ?? body?.message ?? body?.mensagem ?? body?.error ?? body?.erro;
-    const sufixo = detalhe ? `: ${String(detalhe).slice(0, 300)}` : '';
+    // Sem um campo de erro reconhecido, mostra um trecho do corpo bruto — é o que
+    // revela 200 com JSON truncado/HTML de manutenção/limite de requisições.
+    const bruto = detalhe ?? (body != null ? (typeof body === 'string' ? body : JSON.stringify(body)) : '');
+    const sufixo = bruto ? `: ${String(bruto).replace(/\s+/g, ' ').slice(0, 300)}` : '';
     if (!status) {
       // Sem response = DNS, TLS, timeout ou conexão recusada. Expor somente o
       // código e a mensagem do transporte; config/headers (com token) nunca vão
@@ -114,7 +117,13 @@ export class SgpConnector implements SourceConnector {
   private ehTransitorio(e: unknown): boolean {
     if (!axios.isAxiosError(e)) return false;
     const code = e.code ?? '';
-    return ['ECONNABORTED', 'ETIMEDOUT', 'ECONNRESET', 'ENETUNREACH', 'EAI_AGAIN'].includes(code) || !e.response;
+    // ERR_BAD_RESPONSE = corpo malformado/truncado (200 com JSON quebrado): o SGP
+    // engasgou montando a página. É transitório — retentar costuma resolver.
+    return (
+      ['ECONNABORTED', 'ETIMEDOUT', 'ECONNRESET', 'ENETUNREACH', 'EAI_AGAIN', 'ERR_BAD_RESPONSE'].includes(code) ||
+      !e.response ||
+      (e.response.status ?? 0) >= 500
+    );
   }
 
   /** POST com retry em erro transitório (timeout/rede), com espera crescente. */
