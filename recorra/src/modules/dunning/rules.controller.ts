@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '@/common/auth/jwt-auth.guard';
 import { RolesGuard } from '@/common/auth/roles.guard';
 import { Roles } from '@/common/auth/roles.decorator';
@@ -19,6 +19,12 @@ export class RulesController {
   @Get('modelos')
   modelos() {
     return this.rules.listNichoTemplates();
+  }
+
+  /** Kanban de andamento: em que etapa da régua cada fatura em aberto está. */
+  @Get('andamento')
+  andamento(@TenantId() tenantId: string, @Query('ruleId') ruleId?: string) {
+    return this.rules.andamento(tenantId, ruleId);
   }
 
   @Get('ab/stats')

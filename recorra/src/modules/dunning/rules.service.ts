@@ -6,6 +6,25 @@ import { NICHO_TEMPLATES, findNicho } from './nicho-templates';
 import { evaluateAb, Variante } from './abtest';
 import { selecionarRegua } from './dunning.service';
 
+/** Card do kanban de andamento (uma fatura em aberto posicionada na sua etapa). */
+export interface AndamentoCard {
+  invoiceId: string;
+  customerId: string;
+  nome: string;
+  valor: number;
+  vencimento: Date;
+  diffDias: number;
+  ultimoDisparo: { status: string; canal: string; quando: Date } | null;
+  status?: string;
+}
+
+/** Rótulo do passo da régua a partir do offset em dias (relativo ao vencimento). */
+function labelOffset(o: number): string {
+  if (o < 0) return `${Math.abs(o)} dia${Math.abs(o) > 1 ? 's' : ''} antes`;
+  if (o === 0) return 'No dia do vencimento';
+  return `${o} dia${o > 1 ? 's' : ''} depois`;
+}
+
 @Injectable()
 export class RulesService {
   private readonly logger = new Logger(RulesService.name);
@@ -67,6 +86,105 @@ export class RulesService {
       semRiscoCalculado: semRisco,
     }));
     return comCobertura;
+  }
+
+  /**
+   * "Andamento" (kanban da régua): para a régua ativa (ou a escolhida), coloca cada
+   * fatura em aberto na ETAPA em que está agora — derivada de vencimento × hoje × os
+   * passos da própria régua. Nada é gravado: a etapa é calculada na hora e "anda"
+   * sozinha conforme o tempo passa e os disparos saem. Colunas = passos da régua +
+   * Aguardando início + Pagas/Encerradas + Sem contato.
+   */
+  async andamento(tenantId: string, ruleId?: string) {
+    const [tenant, reguas] = await Promise.all([
+      this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { usarFaixaRisco: true, reguaPadraoId: true } }),
+      this.prisma.dunningRule.findMany({
+        where: { tenantId, ativo: true },
+        include: { steps: { where: { ativo: true }, orderBy: { offsetDias: 'asc' } } },
+        orderBy: { createdAt: 'asc' },
+      }),
+    ]);
+    const usarFaixaRisco = tenant?.usarFaixaRisco !== false;
+    const opcoesReguas = reguas.map((r) => ({ id: r.id, nome: r.nome, faixaRisco: r.faixaRisco }));
+
+    // Régua alvo: a escolhida; senão a padrão (modo simples); senão a 1ª ativa.
+    const regua =
+      (ruleId ? reguas.find((r) => r.id === ruleId) : undefined) ??
+      (usarFaixaRisco ? undefined : selecionarRegua(reguas, false, null, tenant?.reguaPadraoId) ?? undefined) ??
+      reguas[0];
+    if (!regua) return { regua: null, reguas: opcoesReguas, usarFaixaRisco, colunas: [] };
+
+    // Passos distintos por offset — cada fatura entra no offset da etapa atual.
+    const offsets = [...new Set(regua.steps.map((s) => s.offsetDias))].sort((a, b) => a - b);
+    // No modo faixa, filtra pela faixa da régua (régua "de todas as faixas" = sem filtro).
+    const faixa = usarFaixaRisco ? regua.faixaRisco : null;
+    const filtroCliente = { ativo: true, ...(faixa ? { faixaAtual: faixa } : {}) };
+
+    const seteDias = new Date(Date.now() - 7 * 86400000);
+    const [abertas, encerradas] = await Promise.all([
+      this.prisma.invoice.findMany({
+        where: { tenantId, status: { in: ['PENDENTE', 'VENCIDA'] }, gestaoCobranca: 'ATIVA', contestada: false, customer: filtroCliente },
+        include: { customer: { select: { id: true, nome: true, telefone: true, email: true } } },
+        orderBy: { vencimento: 'asc' },
+        take: 3000,
+      }),
+      this.prisma.invoice.findMany({
+        where: { tenantId, status: { in: ['PAGA', 'CANCELADA'] }, updatedAt: { gte: seteDias }, customer: filtroCliente },
+        include: { customer: { select: { id: true, nome: true } } },
+        orderBy: { updatedAt: 'desc' },
+        take: 200,
+      }),
+    ]);
+
+    // Último disparo por fatura (status + quando) para enriquecer o card.
+    const invIds = abertas.map((i) => i.id);
+    const disparos = invIds.length
+      ? await this.prisma.messageDispatch.findMany({
+          where: { tenantId, invoiceId: { in: invIds } },
+          orderBy: { createdAt: 'desc' },
+          select: { invoiceId: true, status: true, canal: true, enviadoEm: true, agendadoPara: true, createdAt: true },
+        })
+      : [];
+    const ultimo = new Map<string, (typeof disparos)[number]>();
+    for (const d of disparos) if (d.invoiceId && !ultimo.has(d.invoiceId)) ultimo.set(d.invoiceId, d);
+
+    const h = new Date();
+    const hojeUtc = Date.UTC(h.getUTCFullYear(), h.getUTCMonth(), h.getUTCDate());
+    const diffDe = (v: Date) => Math.round((hojeUtc - Date.UTC(v.getUTCFullYear(), v.getUTCMonth(), v.getUTCDate())) / 86400000);
+
+    const colunas: { key: string; label: string; cards: AndamentoCard[] }[] = [
+      { key: 'aguardando', label: 'Aguardando início', cards: [] },
+      ...offsets.map((o) => ({ key: `step:${o}`, label: labelOffset(o), cards: [] as AndamentoCard[] })),
+      { key: 'encerradas', label: 'Pagas / Encerradas', cards: [] },
+      { key: 'sem-contato', label: 'Sem contato', cards: [] },
+    ];
+    const col = (k: string) => colunas.find((c) => c.key === k)!;
+
+    for (const inv of abertas) {
+      const c = inv.customer;
+      const d = ultimo.get(inv.id);
+      const card: AndamentoCard = {
+        invoiceId: inv.id, customerId: c.id, nome: c.nome, valor: Number(inv.valor),
+        vencimento: inv.vencimento, diffDias: diffDe(inv.vencimento),
+        ultimoDisparo: d ? { status: d.status, canal: d.canal, quando: d.enviadoEm ?? d.agendadoPara ?? d.createdAt } : null,
+      };
+      if (!c.telefone?.trim() && !c.email?.trim()) { col('sem-contato').cards.push(card); continue; }
+      const atual = offsets.filter((o) => o <= card.diffDias).pop();
+      col(atual === undefined ? 'aguardando' : `step:${atual}`).cards.push(card);
+    }
+    for (const inv of encerradas) {
+      col('encerradas').cards.push({
+        invoiceId: inv.id, customerId: inv.customer.id, nome: inv.customer.nome, valor: Number(inv.valor),
+        vencimento: inv.vencimento, diffDias: diffDe(inv.vencimento), ultimoDisparo: null, status: inv.status,
+      });
+    }
+
+    return {
+      regua: { id: regua.id, nome: regua.nome, steps: regua.steps.map((s) => ({ offsetDias: s.offsetDias, canal: s.canal })) },
+      reguas: opcoesReguas,
+      usarFaixaRisco,
+      colunas: colunas.map((c) => ({ ...c, total: c.cards.length, valor: c.cards.reduce((s, x) => s + x.valor, 0) })),
+    };
   }
 
   /** Config da cobrança automática + diagnóstico (faixas de inadimplentes sem régua). */
