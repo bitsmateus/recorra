@@ -150,7 +150,7 @@ export const HELP_TOPICS: HelpTopic[] = [
       'Mensagens ainda na fila para aquela fatura são ignoradas após a baixa.',
       'Cobranças LEGADO continuam sendo conciliadas, embora não recebam cobrança automática.',
       'O sistema pode enfileirar uma confirmação de pagamento após a baixa.',
-      'ATENÇÃO: "Atualizar pagamentos" é só conciliação — NÃO traz clientes nem cobranças novas. Para puxar clientes e cobranças novas do gateway, use o botão "Sincronizar" na própria tela de Cobranças (aparece quando há gateway); o mesmo ocorre automaticamente todo dia.',
+      'ATENÇÃO: "Atualizar pagamentos" é só conciliação — NÃO traz clientes nem cobranças novas. Para puxar clientes e cobranças novas, use o botão "Sincronizar" (nas telas de Cobranças e de Clientes): ele importa do gateway na hora e dispara o sync do ERP em segundo plano. O mesmo ocorre automaticamente todo dia.',
     ],
   },
   {

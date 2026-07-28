@@ -66,6 +66,9 @@ export default function ClientesPage() {
   const [aplicados, setAplicados] = useState(FILTROS_VAZIOS);
   const [modal, setModal] = useState<{ open: boolean; edit?: Customer | null }>({ open: false });
   const [gateways, setGateways] = useState<Gateway[]>([]);
+  const [temErp, setTemErp] = useState(false);
+  const [sincronizando, setSincronizando] = useState(false);
+  const [syncMsg, setSyncMsg] = useState('');
   const [importModal, setImportModal] = useState(false);
   const [wizard, setWizard] = useState(false);
   const [etiquetas, setEtiquetas] = useState<Etiqueta[]>([]);
@@ -165,7 +168,20 @@ export default function ClientesPage() {
   useEffect(() => {
     api<Gateway[]>('/config/gateways').then(setGateways).catch(() => setGateways([]));
     api<Etiqueta[]>('/clientes/etiquetas').then(setEtiquetas).catch(() => setEtiquetas([]));
+    api<unknown[]>('/config/integracoes').then((l) => setTemErp((l ?? []).length > 0)).catch(() => setTemErp(false));
   }, []);
+
+  async function sincronizarFontes() {
+    setSincronizando(true); setSyncMsg('Sincronizando (clientes e cobranças novas)...');
+    try {
+      const r = await api<{ clientes: number; clientesAtualizados: number; faturas: number; erpIniciados: number; erros: string[] }>('/cobrancas/sincronizar', { method: 'POST' });
+      const partes = [`${r.clientes} cliente(s) novo(s)`, r.clientesAtualizados ? `${r.clientesAtualizados} atualizado(s)` : '', `${r.faturas} cobrança(s) nova(s)`].filter(Boolean).join(' · ');
+      const erp = r.erpIniciados ? ' · sincronização do ERP em segundo plano (atualize em instantes)' : '';
+      setSyncMsg((r.erros?.length ? `✓ ${partes}${erp}. ⚠️ ${r.erros.join('; ')}` : `✓ ${partes}${erp}.`));
+      carregar();
+    } catch (e) { setSyncMsg(e instanceof Error ? e.message : 'Erro ao sincronizar'); }
+    setSincronizando(false);
+  }
 
   async function excluir(c: Customer) {
     await api(`/clientes/${c.id}`, { method: 'DELETE' }).catch(() => {});
@@ -250,9 +266,12 @@ export default function ClientesPage() {
         <button onClick={() => setEtiquetasModal(true)} className="flex items-center gap-2 rounded border border-line px-4 py-2 text-sm hover:bg-canvas"><Tag size={16} /> Etiquetas</button>
         <button onClick={exportar} disabled={exportando} title="Exporta todos os clientes do filtro/aba atual (não só a página)" className="flex items-center gap-2 rounded border border-line px-4 py-2 text-sm hover:bg-canvas disabled:opacity-60"><FileDown size={16} /> {exportando ? 'Exportando...' : 'Exportar CSV'}</button>
         <button onClick={() => setWizard(true)} className="flex items-center gap-2 rounded border border-line px-4 py-2 text-sm hover:bg-canvas"><Download size={16} /> Importar (Excel/CSV)</button>
-        {gateways.length > 0 && <button onClick={() => setImportModal(true)} className="flex items-center gap-2 rounded border border-line px-4 py-2 text-sm hover:bg-canvas"><Download size={16} /> Importar de gateway</button>}
+        {(gateways.length > 0 || temErp) && (
+          <button onClick={sincronizarFontes} disabled={sincronizando} title="Puxa clientes e cobranças novas do gateway e do ERP conectados" className="flex items-center gap-2 rounded border border-primary/40 bg-primary-tint px-4 py-2 text-sm font-medium text-primary hover:opacity-90 disabled:opacity-60"><RefreshCw size={16} className={sincronizando ? 'animate-spin' : ''} /> {sincronizando ? 'Sincronizando...' : 'Sincronizar'}</button>
+        )}
         <button onClick={async () => { await api('/clientes/risco/recalcular-todos', { method: 'POST' }).catch(() => {}); carregar(); }} className="flex items-center gap-2 rounded border border-line px-4 py-2 text-sm hover:bg-canvas"><RefreshCw size={16} /> Recalcular risco</button>
       </div>
+      {syncMsg && <p className="mb-3 text-sm text-primary">{syncMsg}</p>}
 
       <div className="mb-3 grid grid-cols-2 gap-2 md:grid-cols-6">
         <input placeholder="Buscar (nome ou CPF/CNPJ)" value={filtros.q} onChange={(e) => setFiltros({ ...filtros, q: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') aplicarFiltros(); }} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />

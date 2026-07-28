@@ -4,6 +4,7 @@ import { PrismaService } from '@/common/prisma/prisma.service';
 import { AuditService } from '@/common/audit/audit.service';
 import { PaymentProviderFactory } from './payment-provider.factory';
 import { ConnectorFactory } from '@/modules/connectors/connector.factory';
+import { SyncService } from '@/modules/connectors/sync.service';
 import { venceuAntesDeHoje } from '@/modules/connectors/source-connector.interface';
 import { assinarPagamento } from './pay-token';
 import { SplitRuleInput } from './payment-provider.interface';
@@ -39,6 +40,7 @@ export class ChargesService {
     private readonly factory: PaymentProviderFactory,
     private readonly connectors: ConnectorFactory,
     private readonly audit: AuditService,
+    private readonly sync: SyncService,
   ) {}
 
   /**
@@ -235,17 +237,26 @@ export class ChargesService {
    * um cliente específico, use `{ somentePagas: true, customerId }` (ação na tela do cliente).
    */
   /**
-   * Puxa clientes + cobranças novas de TODOS os gateways ativos do tenant de uma
-   * vez — é o que o botão "Sincronizar" da tela de Cobranças chama. Usa a janela
-   * padrão de cada conta (mesmo comportamento da importação automática diária).
-   * Gateways que ainda não suportam importação (MP/Stripe/Efí) são pulados sem
-   * falhar, e o erro de uma conta não impede as demais.
+   * Sincroniza TODAS as fontes do tenant de uma vez — é o que o botão "Sincronizar"
+   * chama (em Cobranças e Clientes). Traz clientes + cobranças novas:
+   *  - Gateways (Asaas...): importa na hora, usando a janela padrão de cada conta
+   *    (mesmo comportamento da importação automática diária). Os que não suportam
+   *    importação (MP/Stripe/Efí) são pulados sem falhar.
+   *  - ERPs (SGP/IXC...): dispara o sync em SEGUNDO PLANO (um ERP grande leva
+   *    minutos e estouraria o timeout); a lista atualiza sozinha em seguida.
+   * O erro de uma fonte não impede as demais.
    */
-  async sincronizarGateways(tenantId: string) {
-    const contas = await this.prisma.paymentProviderAccount.findMany({
-      where: { tenantId, ativo: true },
-      select: { id: true, provider: true, importLookbackDays: true, apelido: true },
-    });
+  async sincronizarFontes(tenantId: string) {
+    const [contas, integracoes] = await Promise.all([
+      this.prisma.paymentProviderAccount.findMany({
+        where: { tenantId, ativo: true },
+        select: { id: true, provider: true, importLookbackDays: true, apelido: true },
+      }),
+      this.prisma.sourceIntegration.findMany({
+        where: { tenantId, ativo: true, sistema: { in: ['IXC', 'SGP', 'HUBSOFT', 'VOALLE', 'MKAUTH'] } },
+        select: { id: true, sistema: true },
+      }),
+    ]);
     const total = { clientes: 0, clientesAtualizados: 0, faturas: 0, faturasAtualizadas: 0 };
     const erros: string[] = [];
     let contasOk = 0;
@@ -263,7 +274,17 @@ export class ChargesService {
         if (!/n[ãa]o suporta importa/i.test(msg)) erros.push(`${acc.apelido || acc.provider}: ${msg}`);
       }
     }
-    return { contas: contas.length, contasOk, ...total, erros };
+    // ERP em segundo plano — não trava a resposta.
+    let erpIniciados = 0;
+    for (const it of integracoes) {
+      try {
+        const r = await this.sync.iniciarSync(tenantId, it.id);
+        if (r.iniciado || r.jaRodando) erpIniciados++;
+      } catch (e) {
+        erros.push(`${it.sistema}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    return { contas: contas.length, contasOk, erpIntegracoes: integracoes.length, erpIniciados, ...total, erros };
   }
 
   async importarDoGateway(
