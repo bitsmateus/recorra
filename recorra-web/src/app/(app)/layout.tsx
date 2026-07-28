@@ -24,15 +24,15 @@ const grupos: Grupo[] = [
     { href: '/disparos', label: 'Disparos', icon: Send },
     { href: '/reguas', label: 'Réguas', icon: GitBranch },
     { href: '/andamento', label: 'Esteira', icon: Columns3 },
-    { href: '/templates', label: 'Templates WhatsApp', icon: MessageSquare },
-    { href: '/modelos-email', label: 'Modelos de e-mail', icon: Mail },
-    { href: '/canais', label: 'Canais', icon: Radio },
   ] },
   { label: 'Análises', icon: BarChart3, items: [
     { href: '/relatorios', label: 'Relatórios', icon: BarChart3 },
   ] },
   { label: 'Configurações', icon: SlidersHorizontal, items: [
     { href: '/integracoes', label: 'Integrações', icon: Plug },
+    { href: '/canais', label: 'Canais', icon: Radio },
+    { href: '/templates', label: 'Templates WhatsApp', icon: MessageSquare },
+    { href: '/modelos-email', label: 'Modelos de e-mail', icon: Mail },
     { href: '/equipe', label: 'Equipe', icon: UserCog },
     { href: '/plano', label: 'Plano', icon: Gauge },
   ] },
