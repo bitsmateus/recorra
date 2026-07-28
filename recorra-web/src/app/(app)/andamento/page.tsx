@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { UIEvent } from 'react';
 import Link from 'next/link';
 import { RefreshCw, Loader2, CheckCircle2, Clock, XCircle, Phone, ExternalLink, Send, Pause, Play, Pause as PauseIcon, CalendarDays, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -19,6 +20,8 @@ interface Andamento {
   usarFaixaRisco: boolean;
   colunas: Coluna[];
 }
+
+const CARDS_POR_LOTE = 30;
 
 const faixaLabel: Record<string, string> = { BOM: 'Bom pagador', ATENCAO: 'Atenção', RISCO: 'Risco' };
 /** Data AAAA-MM-DD local (para montar o intervalo do filtro de período). */
@@ -71,11 +74,26 @@ export default function AndamentoPage() {
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  const [visiveisPorColuna, setVisiveisPorColuna] = useState<Record<string, number>>({});
   const esteiraRef = useRef<HTMLDivElement>(null);
 
   const moverEsteira = (direcao: -1 | 1) => {
     esteiraRef.current?.scrollBy({ left: direcao * 300, behavior: 'smooth' });
   };
+
+  const carregarMaisCards = (e: UIEvent<HTMLDivElement>, coluna: string, total: number) => {
+    const el = e.currentTarget;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight > 120) return;
+    setVisiveisPorColuna((atuais) => {
+      const quantidade = atuais[coluna] ?? CARDS_POR_LOTE;
+      if (quantidade >= total) return atuais;
+      return { ...atuais, [coluna]: Math.min(quantidade + CARDS_POR_LOTE, total) };
+    });
+  };
+
+  useEffect(() => {
+    setVisiveisPorColuna({});
+  }, [situacao, canalFiltro, periodo.de, periodo.ate, ruleId]);
 
   const carregar = useCallback(async (silencioso = false) => {
     if (!silencioso) setLoading(true);
@@ -154,7 +172,9 @@ export default function AndamentoPage() {
   const totalAbertas = dados?.colunas
     .filter((c) => c.key !== 'encerradas')
     .reduce((s, c) => s + c.cards.filter(passaFiltro).length, 0) ?? 0;
-  const filtrosAtivos = situacao !== '' || canalFiltro !== '' || periodo.de !== '' || periodo.ate !== '';
+  // "Todas" preserva a estrutura completa da esteira, inclusive etapas zeradas.
+  // Apenas os filtros rápidos de situação escondem colunas sem cards.
+  const ocultarColunasVazias = situacao !== '';
 
   return (
     <div className="pb-16">
@@ -260,9 +280,10 @@ export default function AndamentoPage() {
           <div ref={esteiraRef} className="overflow-x-auto pb-3">
             <div className="flex gap-3" style={{ minWidth: 'min-content' }}>
               {dados.colunas
-                .filter((c) => !filtrosAtivos || c.cards.some(passaFiltro))
+                .filter((c) => !ocultarColunasVazias || c.cards.some(passaFiltro))
                 .map((c) => {
                 const cards = c.cards.filter(passaFiltro);
+                const quantidadeVisivel = visiveisPorColuna[c.key] ?? CARDS_POR_LOTE;
                 const selecionavelCol = c.key !== 'encerradas' && c.key !== 'sem-contato';
                 const idsCol = selecionavelCol ? cards.map((x) => x.invoiceId) : [];
                 const todosCol = idsCol.length > 0 && idsCol.every((id) => sel.has(id));
@@ -282,8 +303,12 @@ export default function AndamentoPage() {
                         <button onClick={() => acao('disparar', idsCol)} disabled={busy} className="mt-2 flex w-full items-center justify-center gap-1.5 rounded border border-[#C8392F]/40 bg-danger-tint px-2 py-1 text-xs font-medium text-[#A32D2D] hover:opacity-90 disabled:opacity-60"><Send size={12} /> Reenviar todos</button>
                       )}
                     </div>
-                    <div className="flex-1 space-y-2 overflow-y-auto p-2" style={{ maxHeight: 'calc(100vh - 260px)' }}>
-                      {cards.slice(0, 100).map((card) => {
+                    <div
+                      onScroll={(e) => carregarMaisCards(e, c.key, cards.length)}
+                      className="flex-1 space-y-2 overflow-y-auto p-2"
+                      style={{ maxHeight: 'calc(100vh - 260px)' }}
+                    >
+                      {cards.slice(0, quantidadeVisivel).map((card) => {
                         const p = prazoLabel(card.diffDias);
                         const marcado = sel.has(card.invoiceId);
                         const selecionavel = c.key !== 'encerradas' && c.key !== 'sem-contato';
@@ -315,7 +340,11 @@ export default function AndamentoPage() {
                           </div>
                         );
                       })}
-                      {cards.length > 100 && <div className="px-1 py-1 text-center text-xs text-muted">+{cards.length - 100} não mostrados</div>}
+                      {cards.length > quantidadeVisivel && (
+                        <div className="px-1 py-2 text-center text-xs text-muted">
+                          Role para carregar mais · {cards.length - quantidadeVisivel} restante(s)
+                        </div>
+                      )}
                       {cards.length === 0 && <div className="px-2 py-6 text-center text-xs text-muted">—</div>}
                     </div>
                   </div>
