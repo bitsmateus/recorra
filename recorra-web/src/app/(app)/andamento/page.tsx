@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { UIEvent } from 'react';
 import Link from 'next/link';
-import { RefreshCw, Loader2, CheckCircle2, Clock, XCircle, Phone, ExternalLink, Send, Pause, Play, Pause as PauseIcon, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, X, History } from 'lucide-react';
+import { RefreshCw, Loader2, CheckCircle2, Clock, XCircle, Phone, ExternalLink, Send, Pause, Play, Pause as PauseIcon, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, X, History, Search } from 'lucide-react';
 import { api } from '@/lib/api';
 import { PageTitle, brl } from '@/components/ui';
 
@@ -63,6 +63,7 @@ export default function AndamentoPage() {
   const [dados, setDados] = useState<Andamento | null>(null);
   const [loading, setLoading] = useState(true);
   const [ruleId, setRuleId] = useState('');
+  const [busca, setBusca] = useState('');
   const [canalFiltro, setCanalFiltro] = useState('');
   // Padrão: o mês atual (vencimentos deste mês). "Todo o período" fica a um clique.
   const [periodo, setPeriodo] = useState<{ de: string; ate: string }>(() => {
@@ -95,7 +96,7 @@ export default function AndamentoPage() {
 
   useEffect(() => {
     setVisiveisPorColuna({});
-  }, [situacao, canalFiltro, periodo.de, periodo.ate, ruleId]);
+  }, [situacao, canalFiltro, periodo.de, periodo.ate, ruleId, busca]);
 
   const carregar = useCallback(async (silencioso = false) => {
     if (!silencioso) setLoading(true);
@@ -137,7 +138,11 @@ export default function AndamentoPage() {
     if (situacao === 'avencer') return card.diffDias < 0;
     return true;
   };
+  // Busca por nome sem diferenciar acento/maiúscula.
+  const semAcento = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  const buscaNorm = semAcento(busca.trim());
   const passaFiltro = (card: Card) => {
+    if (buscaNorm && !semAcento(card.nome).includes(buscaNorm)) return false;
     if (canalFiltro && card.canal !== canalFiltro) return false;
     const v = vencKey(card.vencimento);
     if (periodo.de && v < periodo.de) return false;
@@ -179,6 +184,20 @@ export default function AndamentoPage() {
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <PageTitle title="Esteira de cobrança" subtitle="Em qual etapa da régua cada fatura em aberto está agora. Selecione cards para disparar ou pausar em lote." />
         <div className="flex flex-wrap items-center gap-2">
+          {dados?.regua && (
+            <div className="relative">
+              <Search size={15} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
+              <input
+                value={busca}
+                onChange={(e) => { setBusca(e.target.value); limpar(); }}
+                placeholder="Buscar cliente..."
+                className="w-48 rounded-lg border border-line bg-surface py-2 pl-8 pr-8 text-sm outline-none focus:border-primary"
+              />
+              {busca && (
+                <button onClick={() => { setBusca(''); limpar(); }} title="Limpar busca" className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-ink"><X size={14} /></button>
+              )}
+            </div>
+          )}
           {dados?.regua && (
             <div className="relative">
               <button onClick={() => setMenuPeriodo((v) => !v)} className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition ${menuPeriodo || periodoAtual !== 'tudo' ? 'border-primary bg-primary-tint text-primary' : 'border-line text-ink hover:bg-canvas'}`}><CalendarDays size={15} /> {periodoLabel[periodoAtual]} <ChevronDown size={14} /></button>
