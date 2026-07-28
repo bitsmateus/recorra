@@ -1,8 +1,8 @@
-/** Faixa de risco a partir do score (0-100). Função pura e testável. */
+/** Faixa de risco a partir do score de pagamento (0-100; quanto maior, melhor). */
 export type Band = 'BOM' | 'ATENCAO' | 'RISCO';
 
 export function bandFromScore(score: number): Band {
-  if (score <= 30) return 'BOM';
-  if (score <= 70) return 'ATENCAO';
+  if (score >= 70) return 'BOM';
+  if (score >= 30) return 'ATENCAO';
   return 'RISCO';
 }

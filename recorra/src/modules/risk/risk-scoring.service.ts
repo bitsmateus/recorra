@@ -23,7 +23,7 @@ export class RiskScoringService {
     const customer = await this.prisma.customer.findFirstOrThrow({ where: { id: customerId, tenantId } });
 
     const factors: RiskFactor[] = [];
-    let score = 20;
+    let score = 80;
 
     const atrasos = feature?.atrasosQtd ?? 0;
     const atrasoMedio = feature?.atrasoMedioDias ?? 0;
@@ -31,27 +31,27 @@ export class RiskScoringService {
     const vencidas = feature?.faturasVencidas ?? 0;
     const taxaResposta = feature?.taxaResposta ?? 0;
 
-    if (atrasos >= 6) factors.push({ fator: 'atrasos', pontos: 30, detalhe: `${atrasos} atrasos no historico` });
-    else if (atrasos >= 3) factors.push({ fator: 'atrasos', pontos: 18, detalhe: `${atrasos} atrasos` });
-    else if (atrasos >= 1) factors.push({ fator: 'atrasos', pontos: 8, detalhe: `${atrasos} atraso(s)` });
+    if (atrasos >= 6) factors.push({ fator: 'atrasos', pontos: -30, detalhe: `${atrasos} atrasos no historico` });
+    else if (atrasos >= 3) factors.push({ fator: 'atrasos', pontos: -18, detalhe: `${atrasos} atrasos` });
+    else if (atrasos >= 1) factors.push({ fator: 'atrasos', pontos: -8, detalhe: `${atrasos} atraso(s)` });
 
-    if (atrasoMedio >= 15) factors.push({ fator: 'atraso_medio', pontos: 20, detalhe: `media de ${Math.round(atrasoMedio)} dias de atraso` });
-    else if (atrasoMedio >= 5) factors.push({ fator: 'atraso_medio', pontos: 10, detalhe: `media de ${Math.round(atrasoMedio)} dias` });
+    if (atrasoMedio >= 15) factors.push({ fator: 'atraso_medio', pontos: -20, detalhe: `media de ${Math.round(atrasoMedio)} dias de atraso` });
+    else if (atrasoMedio >= 5) factors.push({ fator: 'atraso_medio', pontos: -10, detalhe: `media de ${Math.round(atrasoMedio)} dias` });
 
     const total = pagas + vencidas;
     if (total > 0) {
       const ratio = vencidas / total;
-      if (ratio >= 0.5) factors.push({ fator: 'proporcao_vencidas', pontos: 20, detalhe: `${Math.round(ratio * 100)}% das faturas vencidas` });
-      else if (ratio >= 0.2) factors.push({ fator: 'proporcao_vencidas', pontos: 10, detalhe: `${Math.round(ratio * 100)}% vencidas` });
-      else factors.push({ fator: 'bom_historico', pontos: -10, detalhe: 'maioria das faturas paga em dia' });
+      if (ratio >= 0.5) factors.push({ fator: 'proporcao_vencidas', pontos: -20, detalhe: `${Math.round(ratio * 100)}% das faturas vencidas` });
+      else if (ratio >= 0.2) factors.push({ fator: 'proporcao_vencidas', pontos: -10, detalhe: `${Math.round(ratio * 100)}% vencidas` });
+      else factors.push({ fator: 'bom_historico', pontos: 10, detalhe: 'maioria das faturas paga em dia' });
     }
 
     const tempoCasaDias = (Date.now() - customer.createdAt.getTime()) / 86400000;
     if (total === 0 && tempoCasaDias < 60) {
-      factors.push({ fator: 'cliente_novo', pontos: 8, detalhe: 'cliente novo, sem historico' });
+      factors.push({ fator: 'cliente_novo', pontos: -8, detalhe: 'cliente novo, sem historico' });
     }
 
-    if (taxaResposta >= 0.5) factors.push({ fator: 'engajamento', pontos: -8, detalhe: 'responde as mensagens' });
+    if (taxaResposta >= 0.5) factors.push({ fator: 'engajamento', pontos: 8, detalhe: 'responde as mensagens' });
 
     score += factors.reduce((sum, f) => sum + f.pontos, 0);
     score = Math.max(0, Math.min(100, Math.round(score)));
