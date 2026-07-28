@@ -61,7 +61,11 @@ export default function AndamentoPage() {
   const [loading, setLoading] = useState(true);
   const [ruleId, setRuleId] = useState('');
   const [canalFiltro, setCanalFiltro] = useState('');
-  const [periodo, setPeriodo] = useState<{ de: string; ate: string }>({ de: '', ate: '' });
+  // Padrão: o mês atual (vencimentos deste mês). "Todo o período" fica a um clique.
+  const [periodo, setPeriodo] = useState<{ de: string; ate: string }>(() => {
+    const h = new Date();
+    return { de: isoData(new Date(h.getFullYear(), h.getMonth(), 1)), ate: isoData(new Date(h.getFullYear(), h.getMonth() + 1, 0)) };
+  });
   const [menuPeriodo, setMenuPeriodo] = useState(false);
   const [situacao, setSituacao] = useState<'' | 'vencidas' | 'avencer'>('');
   const [sel, setSel] = useState<Set<string>>(new Set());
@@ -150,6 +154,7 @@ export default function AndamentoPage() {
   const totalAbertas = dados?.colunas
     .filter((c) => c.key !== 'encerradas')
     .reduce((s, c) => s + c.cards.filter(passaFiltro).length, 0) ?? 0;
+  const filtrosAtivos = situacao !== '' || canalFiltro !== '' || periodo.de !== '' || periodo.ate !== '';
 
   return (
     <div className="pb-16">
@@ -254,7 +259,9 @@ export default function AndamentoPage() {
           </div>
           <div ref={esteiraRef} className="overflow-x-auto pb-3">
             <div className="flex gap-3" style={{ minWidth: 'min-content' }}>
-              {dados.colunas.map((c) => {
+              {dados.colunas
+                .filter((c) => !filtrosAtivos || c.cards.some(passaFiltro))
+                .map((c) => {
                 const cards = c.cards.filter(passaFiltro);
                 const selecionavelCol = c.key !== 'encerradas' && c.key !== 'sem-contato';
                 const idsCol = selecionavelCol ? cards.map((x) => x.invoiceId) : [];
