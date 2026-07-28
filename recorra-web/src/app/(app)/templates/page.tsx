@@ -8,7 +8,7 @@ import { PageTitle } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { MessagePreview } from '@/components/MessagePreview';
 
-interface BotaoTemplate { tipo: 'QUICK_REPLY' | 'URL' | 'PHONE_NUMBER' | 'OUTRO'; texto: string; url?: string; telefone?: string }
+interface BotaoTemplate { tipo: 'QUICK_REPLY' | 'URL' | 'PHONE_NUMBER' | 'COPY_CODE' | 'OUTRO'; texto: string; url?: string; telefone?: string }
 interface Template {
   id: string; nome: string; corpo: string; idioma: string;
   categoria: 'UTILITY' | 'MARKETING' | 'AUTHENTICATION';
@@ -18,7 +18,7 @@ interface Template {
 }
 
 /** Ícone + rótulo por tipo de botão, para o chip da lista. */
-const botaoInfo: Record<string, string> = { QUICK_REPLY: '↩︎', URL: '🔗', PHONE_NUMBER: '📞', OUTRO: '•' };
+const botaoInfo: Record<string, string> = { QUICK_REPLY: '↩︎', URL: '🔗', PHONE_NUMBER: '📞', COPY_CODE: '🎟️', OUTRO: '•' };
 function ChipsBotoes({ botoes }: { botoes?: BotaoTemplate[] | null }) {
   if (!botoes?.length) return null;
   return (
@@ -189,7 +189,14 @@ export default function TemplatesPage() {
             <p className="line-clamp-4 whitespace-pre-wrap text-xs text-muted">{t.corpo || '(sem corpo)'}</p>
             <div className="flex-1"><ChipsBotoes botoes={t.botoes} /></div>
             {t.categoria === 'MARKETING' && (
-              <p className="mt-2 text-[11px] text-danger">Marketing tem limite de frequência e custa mais. Em cobrança, prefira Utilidade.</p>
+              <p className="mt-2 text-[11px] text-danger">
+                Marketing tem limite de frequência e custa mais. Em cobrança, prefira Utilidade.
+                {/* Diz o porquê quando dá para saber: o botão de cupom é o motivo mais comum
+                    de um template de cobrança cair em Marketing, e não é nada óbvio. */}
+                {t.botoes?.some((b) => b.tipo === 'COPY_CODE') && (
+                  <> Foi o botão <b>&ldquo;copiar código&rdquo;</b> (cupom da Meta) que jogou este aqui — recrie sem ele e mande o Pix com {'{{pix}}'} no corpo.</>
+                )}
+              </p>
             )}
           </div>
         ))}
@@ -254,6 +261,13 @@ function TemplateModal({ template, contas, onClose, onSaved }: {
     // para link do SGP/boleto (URL completa de outro site): oriente a usar o corpo.
     if (!editando && botoes.some((b) => b.tipo === 'URL' && !/^https?:\/\/[^\s{}]+/i.test((b.urlBase ?? '').trim()))) {
       return setMsg(`O botão de Link precisa de uma base fixa — use a página de pagamento da Recorrai (${BASE_BOLETO}). Se o link é de outro site (SGP/banco), coloque-o no corpo da mensagem em vez de num botão de URL.`);
+    }
+    // "Copiar código" é o botão de CUPOM da Meta (ela mesma rotula "copiar código
+    // da oferta"). Com ele, a Meta reclassifica o template para Marketing — que
+    // custa mais e tem limite de frequência — mesmo pedindo Utilidade. Barra a
+    // combinação contraditória em vez de deixar a troca acontecer calada.
+    if (!editando && categoria === 'UTILITY' && botoes.some((b) => b.tipo === 'COPY_CODE')) {
+      return setMsg('O botão "Copiar código" é o botão de cupom da Meta — com ele o template vira Marketing mesmo pedindo Utilidade. Para cobrança: remova o botão e mande o Pix com {{pix}} no corpo da mensagem. Se o cupom é mesmo o que você quer, troque a categoria para Marketing.');
     }
     setBusy(true); setMsg('');
     try {
@@ -348,7 +362,7 @@ function TemplateModal({ template, contas, onClose, onSaved }: {
               {botoes.length < 3 && (
                 <div className="flex gap-1">
                   <button type="button" onClick={() => setBotoes((b) => [...b, { tipo: 'URL', texto: 'Ver boleto', urlBase: BASE_BOLETO, dinamica: true, exemplo: 'abc123' }])} className="rounded border border-line px-2 py-0.5 text-[11px] hover:bg-canvas">+ Link (URL)</button>
-                  <button type="button" onClick={() => setBotoes((b) => [...b, { tipo: 'COPY_CODE', exemplo: 'PIX12345' }])} className="rounded border border-line px-2 py-0.5 text-[11px] hover:bg-canvas">+ Copiar código</button>
+                  <button type="button" title="Botão de cupom da Meta — força o template para Marketing. Para Pix, use {{pix}} no corpo." onClick={() => setBotoes((b) => [...b, { tipo: 'COPY_CODE', exemplo: 'PIX12345' }])} className="rounded border border-line px-2 py-0.5 text-[11px] hover:bg-canvas">+ Copiar código (cupom)</button>
                   <button type="button" onClick={() => setBotoes((b) => [...b, { tipo: 'QUICK_REPLY', texto: 'Falar com atendente' }])} className="rounded border border-line px-2 py-0.5 text-[11px] hover:bg-canvas">+ Resposta</button>
                 </div>
               )}
@@ -381,7 +395,12 @@ function TemplateModal({ template, contas, onClose, onSaved }: {
                     {b.tipo === 'COPY_CODE' && (
                       <div className="space-y-1">
                         <input value={b.exemplo ?? ''} onChange={(e) => upd({ exemplo: e.target.value.replace(/[^A-Za-z0-9]/g, '').slice(0, 15) })} placeholder="Código de exemplo (só p/ revisão)" maxLength={15} className={`${inputCls} text-xs`} />
-                        <p className="text-[11px] text-[#854F0B]">⚠️ Só cabe código curto (até 15 caracteres). Um <b>Pix copia-e-cola</b> completo NÃO cabe aqui — para mandar o Pix inteiro, coloque <b>{'{{pix}}'} no corpo da mensagem</b>.</p>
+                        <p className={`text-[11px] ${categoria === 'UTILITY' ? 'text-danger' : 'text-[#854F0B]'}`}>
+                          ⚠️ Este é o botão de <b>cupom</b> da Meta — ela o mostra como &ldquo;copiar código da oferta&rdquo; e
+                          <b> reclassifica o template para Marketing</b>, que custa mais e tem limite de frequência.
+                          {categoria === 'UTILITY' && <> Como você escolheu <b>Utilidade</b>, remova este botão.</>}
+                        </p>
+                        <p className="text-[11px] text-[#854F0B]">⚠️ Também só cabe código curto (até 15 caracteres). Um <b>Pix copia-e-cola</b> completo NÃO cabe aqui — para mandar o Pix inteiro, coloque <b>{'{{pix}}'} no corpo da mensagem</b>.</p>
                       </div>
                     )}
                     {b.tipo === 'QUICK_REPLY' && (
