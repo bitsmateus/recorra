@@ -147,6 +147,7 @@ export class DunningService {
     invoice: { id: string; customerId: string; valor: unknown; vencimento: Date; pixCopiaCola: string | null; boletoLinha?: string | null; boletoUrl?: string | null; linkPagamento: string | null; externalId?: string | null; providerAccountId?: string | null; sourceSystem?: SourceSystem | null; sourceExternalId?: string | null; customer: { nome: string; contrato: string | null } },
     step: DunningStep,
     rule: RuleWithSteps,
+    opts?: { imediato?: boolean },
   ) {
     let variante: string | null = null;
     let template = step.template;
@@ -186,7 +187,9 @@ export class DunningService {
       : [];
 
     const cadeia = channelChain(step.canal, step.canaisFallback) as ChannelType[];
-    const agendadoPara = this.proximoSlot(timezone, rule);
+    // Ação manual ("Disparar agora" na Esteira) envia imediatamente, ignorando a
+    // janela de horário da régua — que só governa os disparos automáticos.
+    const agendadoPara = opts?.imediato ? new Date() : this.proximoSlot(timezone, rule);
 
     await this.prisma.messageDispatch.create({
       data: {
@@ -279,7 +282,7 @@ export class DunningService {
     if (!rule || !rule.steps.length) throw new BadRequestException('Nenhuma régua ativa com passos para este cliente.');
     const diff = Math.round((this.midnight(new Date()).getTime() - this.midnight(invoice.vencimento).getTime()) / 86400000);
     const step = [...rule.steps].filter((s) => s.offsetDias <= diff).pop() ?? rule.steps[0];
-    await this.enqueueDispatch(tenantId, tenant.timezone, invoice, step, rule);
+    await this.enqueueDispatch(tenantId, tenant.timezone, invoice, step, rule, { imediato: true });
     return { ok: true, canal: step.canal };
   }
 
