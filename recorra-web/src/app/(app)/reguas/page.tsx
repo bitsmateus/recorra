@@ -75,7 +75,10 @@ const RECORRA_VARS: { token: string; label: string }[] = [
   { token: '{{valor}}', label: 'Valor da fatura' },
   { token: '{{vencimento}}', label: 'Data de vencimento' },
   { token: '{{pix}}', label: 'Pix copia e cola' },
-  { token: '{{link}}', label: 'Link de pagamento' },
+  { token: '{{link}}', label: 'Link de pagamento (URL do ERP)' },
+  // Sufixo assinado da página de pagamento da Recorrai. É o que preenche o botão
+  // de URL de um template: a base fica fixa na Meta e só o final muda por cliente.
+  { token: '{{pagina}}', label: 'Página de pagamento (Recorrai) — p/ botão' },
   { token: '{{contrato}}', label: 'Contrato' },
 ];
 
@@ -683,6 +686,10 @@ function FlowEditor({
       <p className="mt-3 text-xs text-muted">
         Variáveis: <code className="text-primary">{'{{nome}} {{valor}} {{vencimento}} {{pix}} {{link}} {{contrato}}'}</code>
       </p>
+      <p className="mt-1 text-xs text-muted">
+        No texto livre, <code className="text-primary">https://appapi.recorrai.com.br/pay/{'{{pagina}}'}</code> manda a página
+        de pagamento da Recorrai (Pix + boleto) — link curto e estável, no lugar da URL longa do ERP.
+      </p>
     </div>
   );
 }
@@ -805,7 +812,9 @@ function StepCard({
     const botoes: BotaoMapeado[] = (t.botoes ?? []).filter((b) => b.dinamico).map((b) => ({
       index: b.index,
       subType: b.tipo === 'COPY_CODE' ? 'copy_code' : 'url',
-      token: b.tipo === 'COPY_CODE' ? '{{pix}}' : '{{link}}', // palpite útil, editável
+      // Palpite útil, editável. Para URL é {{pagina}} e não {{link}}: o botão manda
+      // só o sufixo da base fixa do template, e a URL do ERP não casa com ela.
+      token: b.tipo === 'COPY_CODE' ? '{{pix}}' : '{{pagina}}',
       ...(b.url ? { urlBase: b.url.replace(/\{\{\s*\d+\s*\}\}.*$/, '') } : {}),
     }));
     onChange({ templateName: t.nome, template: t.corpo, templateParams: inicial, templateBotoes: botoes });

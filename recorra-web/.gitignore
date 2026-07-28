@@ -4,3 +4,7 @@ out
 .env*.local
 *.log
 .DS_Store
+
+# Cache de build do TypeScript (gerado — nao versionar)
+tsconfig.tsbuildinfo
+*.tsbuildinfo

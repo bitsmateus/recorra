@@ -8,7 +8,7 @@ import { PageTitle } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { MessagePreview } from '@/components/MessagePreview';
 
-interface BotaoTemplate { tipo: 'QUICK_REPLY' | 'URL' | 'PHONE_NUMBER' | 'OUTRO'; texto: string; url?: string; telefone?: string }
+interface BotaoTemplate { tipo: 'QUICK_REPLY' | 'URL' | 'PHONE_NUMBER' | 'COPY_CODE' | 'OUTRO'; texto: string; url?: string; telefone?: string }
 interface Template {
   id: string; nome: string; corpo: string; idioma: string;
   categoria: 'UTILITY' | 'MARKETING' | 'AUTHENTICATION';
@@ -18,7 +18,7 @@ interface Template {
 }
 
 /** Ícone + rótulo por tipo de botão, para o chip da lista. */
-const botaoInfo: Record<string, string> = { QUICK_REPLY: '↩︎', URL: '🔗', PHONE_NUMBER: '📞', OUTRO: '•' };
+const botaoInfo: Record<string, string> = { QUICK_REPLY: '↩︎', URL: '🔗', PHONE_NUMBER: '📞', COPY_CODE: '🎟️', OUTRO: '•' };
 function ChipsBotoes({ botoes }: { botoes?: BotaoTemplate[] | null }) {
   if (!botoes?.length) return null;
   return (
@@ -48,6 +48,19 @@ const catInfo: Record<string, { label: string; cls: string }> = {
 
 const inputCls = 'w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary';
 interface BotaoNovo { tipo: 'QUICK_REPLY' | 'URL' | 'COPY_CODE'; texto?: string; urlBase?: string; dinamica?: boolean; exemplo?: string }
+
+/**
+ * Páginas públicas de pagamento da Recorrai (rotas /boleto/:token e /pay/:token da
+ * API, fora do prefixo /api). São o destino certo do botão de URL: a base nunca
+ * muda, e o redirect resolve para o boleto que o ERP devolver na hora.
+ *
+ * Fixo de propósito, e não derivado de NEXT_PUBLIC_API_URL: o template é aprovado
+ * na Meta e usado por clientes reais, então precisa apontar para produção mesmo
+ * quando o painel está rodando em localhost.
+ */
+const API_PUBLICA = 'https://appapi.recorrai.com.br';
+const BASE_BOLETO = `${API_PUBLICA}/boleto/`;
+const BASE_PAGINA = `${API_PUBLICA}/pay/`;
 
 /** Botões (formato de criação) → formato de exibição da prévia. */
 function botoesParaPreview(botoes: BotaoNovo[]): { tipo: string; texto: string; url?: string }[] {
@@ -176,7 +189,14 @@ export default function TemplatesPage() {
             <p className="line-clamp-4 whitespace-pre-wrap text-xs text-muted">{t.corpo || '(sem corpo)'}</p>
             <div className="flex-1"><ChipsBotoes botoes={t.botoes} /></div>
             {t.categoria === 'MARKETING' && (
-              <p className="mt-2 text-[11px] text-danger">Marketing tem limite de frequência e custa mais. Em cobrança, prefira Utilidade.</p>
+              <p className="mt-2 text-[11px] text-danger">
+                Marketing tem limite de frequência e custa mais. Em cobrança, prefira Utilidade.
+                {/* Diz o porquê quando dá para saber: o botão de cupom é o motivo mais comum
+                    de um template de cobrança cair em Marketing, e não é nada óbvio. */}
+                {t.botoes?.some((b) => b.tipo === 'COPY_CODE') && (
+                  <> Foi o botão <b>&ldquo;copiar código&rdquo;</b> (cupom da Meta) que jogou este aqui — recrie sem ele e mande o Pix com {'{{pix}}'} no corpo.</>
+                )}
+              </p>
             )}
           </div>
         ))}
@@ -237,10 +257,17 @@ function TemplateModal({ template, contas, onClose, onSaved }: {
     if (!editando && !/^[a-z0-9_]+$/.test(nome)) return setMsg('O nome só aceita letras minúsculas, números e underscore — é regra da Meta.');
     if (!corpo.trim()) return setMsg('Escreva o corpo do template.');
     if (!sequencial) return setMsg('As variáveis precisam ser {{1}}, {{2}}, {{3}}... sem pular número.');
-    // Botão de URL precisa de um domínio fixo. Sem isso a Meta recusa — e não serve
+    // Botão de URL precisa de uma base fixa. Sem isso a Meta recusa — e não serve
     // para link do SGP/boleto (URL completa de outro site): oriente a usar o corpo.
     if (!editando && botoes.some((b) => b.tipo === 'URL' && !/^https?:\/\/[^\s{}]+/i.test((b.urlBase ?? '').trim()))) {
-      return setMsg('O botão de Link precisa de um domínio fixo seu (ex.: https://seusite.com/pagar/). Para o link do SGP/boleto, coloque o link no corpo da mensagem em vez de num botão de URL.');
+      return setMsg(`O botão de Link precisa de uma base fixa — use a página de pagamento da Recorrai (${BASE_BOLETO}). Se o link é de outro site (SGP/banco), coloque-o no corpo da mensagem em vez de num botão de URL.`);
+    }
+    // "Copiar código" é o botão de CUPOM da Meta (ela mesma rotula "copiar código
+    // da oferta"). Com ele, a Meta reclassifica o template para Marketing — que
+    // custa mais e tem limite de frequência — mesmo pedindo Utilidade. Barra a
+    // combinação contraditória em vez de deixar a troca acontecer calada.
+    if (!editando && categoria === 'UTILITY' && botoes.some((b) => b.tipo === 'COPY_CODE')) {
+      return setMsg('O botão "Copiar código" é o botão de cupom da Meta — com ele o template vira Marketing mesmo pedindo Utilidade. Para cobrança: remova o botão e mande o Pix com {{pix}} no corpo da mensagem. Se o cupom é mesmo o que você quer, troque a categoria para Marketing.');
     }
     setBusy(true); setMsg('');
     try {
@@ -334,13 +361,13 @@ function TemplateModal({ template, contas, onClose, onSaved }: {
               <span className="text-xs font-semibold text-muted">Botões (opcional)</span>
               {botoes.length < 3 && (
                 <div className="flex gap-1">
-                  <button type="button" onClick={() => setBotoes((b) => [...b, { tipo: 'URL', texto: 'Ver boleto', urlBase: '', dinamica: true, exemplo: 'abc123' }])} className="rounded border border-line px-2 py-0.5 text-[11px] hover:bg-canvas">+ Link (URL)</button>
-                  <button type="button" onClick={() => setBotoes((b) => [...b, { tipo: 'COPY_CODE', exemplo: 'PIX12345' }])} className="rounded border border-line px-2 py-0.5 text-[11px] hover:bg-canvas">+ Copiar código</button>
+                  <button type="button" onClick={() => setBotoes((b) => [...b, { tipo: 'URL', texto: 'Ver boleto', urlBase: BASE_BOLETO, dinamica: true, exemplo: 'abc123' }])} className="rounded border border-line px-2 py-0.5 text-[11px] hover:bg-canvas">+ Link (URL)</button>
+                  <button type="button" title="Botão de cupom da Meta — força o template para Marketing. Para Pix, use {{pix}} no corpo." onClick={() => setBotoes((b) => [...b, { tipo: 'COPY_CODE', exemplo: 'PIX12345' }])} className="rounded border border-line px-2 py-0.5 text-[11px] hover:bg-canvas">+ Copiar código (cupom)</button>
                   <button type="button" onClick={() => setBotoes((b) => [...b, { tipo: 'QUICK_REPLY', texto: 'Falar com atendente' }])} className="rounded border border-line px-2 py-0.5 text-[11px] hover:bg-canvas">+ Resposta</button>
                 </div>
               )}
             </div>
-            {botoes.length === 0 && <p className="text-[11px] text-muted">Sem botões. <b>Se o link de pagamento é uma URL completa de outro site (ex.: SGP/banco), coloque-o no CORPO da mensagem como variável</b> — botão de URL só serve para um domínio fixo seu. Para Pix, o botão <b>Copiar código</b> funciona.</p>}
+            {botoes.length === 0 && <p className="text-[11px] text-muted">Sem botões. Para cobrança, <b>+ Link (URL)</b> já vem apontado para a página de pagamento da Recorrai — é o caminho recomendado. <b>Link completo de outro site (SGP/banco) vai no CORPO da mensagem</b>, numa variável; em botão de URL ele não funciona.</p>}
             <div className="space-y-2">
               {botoes.map((b, i) => {
                 const upd = (patch: Partial<BotaoNovo>) => setBotoes((arr) => arr.map((x, idx) => idx === i ? { ...x, ...patch } : x));
@@ -353,16 +380,27 @@ function TemplateModal({ template, contas, onClose, onSaved }: {
                     {b.tipo === 'URL' && (
                       <div className="space-y-1.5">
                         <input value={b.texto ?? ''} onChange={(e) => upd({ texto: e.target.value })} placeholder="Rótulo do botão (ex.: Ver boleto)" maxLength={25} className={`${inputCls} text-sm`} />
-                        <input value={b.urlBase ?? ''} onChange={(e) => upd({ urlBase: e.target.value })} placeholder="Base FIXA do seu domínio (ex.: https://seusite.com/pagar/)" className={`${inputCls} font-mono text-xs`} />
+                        <input value={b.urlBase ?? ''} onChange={(e) => upd({ urlBase: e.target.value })} placeholder={BASE_BOLETO} className={`${inputCls} font-mono text-xs`} />
+                        <div className="flex flex-wrap items-center gap-1 text-[11px] text-muted">
+                          Destino:
+                          <button type="button" onClick={() => upd({ urlBase: BASE_BOLETO })} className={`rounded border px-1.5 py-0.5 ${b.urlBase === BASE_BOLETO ? 'border-primary bg-primary-tint text-primary' : 'border-line hover:bg-surface'}`}>boleto direto</button>
+                          <button type="button" onClick={() => upd({ urlBase: BASE_PAGINA })} className={`rounded border px-1.5 py-0.5 ${b.urlBase === BASE_PAGINA ? 'border-primary bg-primary-tint text-primary' : 'border-line hover:bg-surface'}`}>página com Pix + boleto</button>
+                        </div>
                         <label className="flex items-center gap-1.5 text-[11px] text-muted"><input type="checkbox" checked={!!b.dinamica} onChange={(e) => upd({ dinamica: e.target.checked })} /> o link muda por cliente (a Recorrai completa o final)</label>
                         {b.dinamica && <input value={b.exemplo ?? ''} onChange={(e) => upd({ exemplo: e.target.value })} placeholder="Exemplo do final (ex.: abc123)" className={`${inputCls} text-xs`} />}
-                        <p className="text-[11px] text-[#854F0B]">⚠️ O botão de URL exige um <b>domínio fixo seu</b> + um final que muda por cliente. <b>NÃO funciona com o link do SGP/boleto</b> (URL completa de outro site): nesse caso, ponha o link no <b>corpo</b> da mensagem, numa variável.</p>
+                        <p className="text-[11px] text-muted">Já vem apontado para a <b>página de pagamento da Recorrai</b>, que é o destino certo: a base fica fixa no template aprovado e o redirect leva ao boleto que o ERP devolver na hora. Ao usar o template, mapeie este botão para <code className="text-primary">{'{{pagina}}'}</code>.</p>
+                        <p className="text-[11px] text-[#854F0B]">⚠️ Só troque a base se o seu domínio servir o pagamento. <b>Não use o link do SGP/boleto aqui</b>: a Meta congela a base no template, e se ela não bater exatamente com o início do link o cliente recebe um endereço quebrado. Link de outro site vai no <b>corpo</b> da mensagem, numa variável.</p>
                       </div>
                     )}
                     {b.tipo === 'COPY_CODE' && (
                       <div className="space-y-1">
                         <input value={b.exemplo ?? ''} onChange={(e) => upd({ exemplo: e.target.value.replace(/[^A-Za-z0-9]/g, '').slice(0, 15) })} placeholder="Código de exemplo (só p/ revisão)" maxLength={15} className={`${inputCls} text-xs`} />
-                        <p className="text-[11px] text-[#854F0B]">⚠️ Só cabe código curto (até 15 caracteres). Um <b>Pix copia-e-cola</b> completo NÃO cabe aqui — para mandar o Pix inteiro, coloque <b>{'{{pix}}'} no corpo da mensagem</b>.</p>
+                        <p className={`text-[11px] ${categoria === 'UTILITY' ? 'text-danger' : 'text-[#854F0B]'}`}>
+                          ⚠️ Este é o botão de <b>cupom</b> da Meta — ela o mostra como &ldquo;copiar código da oferta&rdquo; e
+                          <b> reclassifica o template para Marketing</b>, que custa mais e tem limite de frequência.
+                          {categoria === 'UTILITY' && <> Como você escolheu <b>Utilidade</b>, remova este botão.</>}
+                        </p>
+                        <p className="text-[11px] text-[#854F0B]">⚠️ Também só cabe código curto (até 15 caracteres). Um <b>Pix copia-e-cola</b> completo NÃO cabe aqui — para mandar o Pix inteiro, coloque <b>{'{{pix}}'} no corpo da mensagem</b>.</p>
                       </div>
                     )}
                     {b.tipo === 'QUICK_REPLY' && (

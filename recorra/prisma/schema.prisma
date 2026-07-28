@@ -318,6 +318,11 @@ model Customer {
   @@unique([tenantId, doc])
   @@index([tenantId])
   @@index([tenantId, externalId])
+  // Busca por nome/telefone usa ILIKE '%termo%', que nenhum btree atende — sem
+  // estes o filtro de cliente em Disparos varre a tabela inteira. Dependem da
+  // extensão pg_trgm, criada na migration 20260727190000_disparos_indices.
+  @@index([nome(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([telefone(ops: raw("gin_trgm_ops"))], type: Gin)
   @@map("customers")
 }
 
@@ -591,10 +596,16 @@ model MessageDispatch {
   channelAccount ChannelAccount? @relation(fields: [channelAccountId], references: [id])
   rule           DunningRule?    @relation(fields: [ruleId], references: [id], onDelete: SetNull)
 
-  @@index([tenantId, status])
-  @@index([tenantId, createdAt])
-  @@index([tenantId, campaignId])
-  @@index([tenantId, ruleId])
+  // Todo filtro da tela de Disparos combina com a ordenação por data, então
+  // `createdAt` fecha cada índice: sem ele o Postgres acha as linhas do filtro e
+  // ordena tudo depois (sort de milhões de linhas para exibir 20). O `id` no
+  // primeiro índice completa a chave da paginação por cursor (createdAt, id).
+  @@index([tenantId, createdAt, id])
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, campaignId, createdAt])
+  @@index([tenantId, ruleId, createdAt])
+  @@index([tenantId, channelAccountId, createdAt])
+  @@index([tenantId, customerId, createdAt])
   @@map("message_dispatches")
 }
 

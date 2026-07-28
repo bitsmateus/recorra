@@ -1,5 +1,17 @@
 import { z } from 'zod';
 
+// Este módulo valida o ambiente já no import — ou seja, antes do
+// `ConfigModule.forRoot()` do Nest chegar a rodar. Sem carregar o .env aqui, um
+// `npm run start:dev` recém-clonado morre em "Variáveis de ambiente inválidas"
+// mesmo com o .env no lugar. Em produção não há .env e as variáveis já vêm do
+// ambiente: o erro é esperado e ignorado. `loadEnvFile` não sobrescreve o que já
+// está definido, então o ambiente real sempre vence.
+try {
+  process.loadEnvFile();
+} catch {
+  /* sem .env: segue com as variáveis do ambiente */
+}
+
 /**
  * Validação das variáveis de ambiente com Zod.
  * Falha rápido no boot se algo obrigatório estiver faltando.
