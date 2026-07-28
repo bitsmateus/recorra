@@ -78,9 +78,16 @@ export default function AndamentoPage() {
   const passaFiltro = (card: Card) => !canalFiltro || card.canal === canalFiltro;
   const toggle = (id: string) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const limpar = () => setSel(new Set());
+  /** Marca/desmarca todos os ids de uma coluna de uma vez. */
+  const toggleColuna = (ids: string[]) => setSel((s) => {
+    const n = new Set(s);
+    const todos = ids.length > 0 && ids.every((id) => n.has(id));
+    ids.forEach((id) => (todos ? n.delete(id) : n.add(id)));
+    return n;
+  });
 
-  async function acao(tipo: 'disparar' | 'pausar' | 'retomar') {
-    const ids = [...sel];
+  async function acao(tipo: 'disparar' | 'pausar' | 'retomar', idsArg?: string[]) {
+    const ids = idsArg ?? [...sel];
     if (!ids.length) return;
     setBusy(true); setMsg('');
     try {
@@ -134,13 +141,24 @@ export default function AndamentoPage() {
             <div className="flex gap-3" style={{ minWidth: 'min-content' }}>
               {dados.colunas.map((c) => {
                 const cards = c.cards.filter(passaFiltro);
+                const selecionavelCol = c.key !== 'encerradas' && c.key !== 'sem-contato';
+                const idsCol = selecionavelCol ? cards.map((x) => x.invoiceId) : [];
+                const todosCol = idsCol.length > 0 && idsCol.every((id) => sel.has(id));
                 return (
                   <div key={c.key} className="flex w-72 shrink-0 flex-col rounded-lg border border-line bg-canvas">
                     <div className="rounded-t-lg border-t-4 bg-surface px-3 py-2.5" style={{ borderTopColor: corDaColuna(c.key) }}>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-semibold text-ink">{c.label}</span>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex min-w-0 items-center gap-2">
+                          {selecionavelCol && idsCol.length > 0 && (
+                            <input type="checkbox" checked={todosCol} onChange={() => toggleColuna(idsCol)} title="Selecionar todos desta coluna" className="h-3.5 w-3.5 cursor-pointer accent-primary" />
+                          )}
+                          <span className="truncate text-sm font-semibold text-ink">{c.label}</span>
+                        </div>
                         <span className="rounded-full bg-canvas px-2 py-0.5 text-xs font-medium text-muted">{cards.length}</span>
                       </div>
+                      {c.key === 'falharam' && idsCol.length > 0 && (
+                        <button onClick={() => acao('disparar', idsCol)} disabled={busy} className="mt-2 flex w-full items-center justify-center gap-1.5 rounded border border-[#C8392F]/40 bg-danger-tint px-2 py-1 text-xs font-medium text-[#A32D2D] hover:opacity-90 disabled:opacity-60"><Send size={12} /> Reenviar todos</button>
+                      )}
                     </div>
                     <div className="flex-1 space-y-2 overflow-y-auto p-2" style={{ maxHeight: 'calc(100vh - 260px)' }}>
                       {cards.slice(0, 100).map((card) => {
