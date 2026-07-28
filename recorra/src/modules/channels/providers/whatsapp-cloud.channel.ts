@@ -1,4 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
+import { normalizeWhatsappBR } from '@/common/util/normalize';
 import {
   MessageChannel,
   SendMessageInput,
@@ -26,6 +27,8 @@ export class WhatsAppCloudChannel implements MessageChannel {
   }
 
   private waNumber(to: string): string {
+    const n = normalizeWhatsappBR(to);
+    if (n) return n;
     let d = (to || '').replace(/\D/g, '');
     if (d.length <= 11) d = '55' + d;
     return d;

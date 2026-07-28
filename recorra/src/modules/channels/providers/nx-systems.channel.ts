@@ -1,5 +1,6 @@
 import axios, { AxiosInstance } from 'axios';
 import { safeHttpAgents } from '@/common/net/safe-http';
+import { normalizeWhatsappBR } from '@/common/util/normalize';
 import { randomUUID } from 'node:crypto';
 import {
   MessageChannel,
@@ -37,8 +38,13 @@ export class NxSystemsChannel implements MessageChannel {
     });
   }
 
-  /** Telefone em dígitos com DDI (ex.: 5511999999999). */
+  /**
+   * Telefone em dígitos com DDI (ex.: 5511999999999), garantindo o 9º dígito do
+   * celular — sem ele o WhatsApp devolve "131026 destinatário indisponível".
+   */
   private waNumber(to: string): string {
+    const n = normalizeWhatsappBR(to);
+    if (n) return n;
     let d = (to || '').replace(/\D/g, '');
     if (d.length <= 11) d = '55' + d;
     return d;

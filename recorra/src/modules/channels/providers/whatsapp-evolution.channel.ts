@@ -1,5 +1,6 @@
 import axios, { AxiosInstance } from 'axios';
 import { safeHttpAgents } from '@/common/net/safe-http';
+import { normalizeWhatsappBR } from '@/common/util/normalize';
 import {
   MessageChannel,
   SendMessageInput,
@@ -29,6 +30,8 @@ export class WhatsAppEvolutionChannel implements MessageChannel {
 
   /** Garante o código do país (55) em números brasileiros sem DDI. */
   private waNumber(to: string): string {
+    const n = normalizeWhatsappBR(to);
+    if (n) return n;
     let d = (to || '').replace(/\D/g, '');
     if (d.length <= 11) d = '55' + d;
     return d;
