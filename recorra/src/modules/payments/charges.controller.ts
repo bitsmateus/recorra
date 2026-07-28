@@ -29,6 +29,13 @@ export class ChargesController {
     return this.charges.reavaliarStatus(tenantId);
   }
 
+  /** Sincroniza os gateways (traz clientes + cobranças novas). Botão na tela de Cobranças. */
+  @Post('sincronizar')
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
+  sincronizar(@TenantId() tenantId: string) {
+    return this.charges.sincronizarGateways(tenantId);
+  }
+
   @Get()
   list(@TenantId() tenantId: string, @Query() filtros: InvoiceFiltros) {
     return this.charges.listInvoices(tenantId, filtros);

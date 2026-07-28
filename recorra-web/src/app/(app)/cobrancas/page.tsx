@@ -211,6 +211,22 @@ export default function CobrancasPage() {
     load();
   }
 
+  async function sincronizarGateway() {
+    setBusy(true); setMsg('Sincronizando com o gateway (clientes e cobranças novas)...');
+    try {
+      const r = await api<{ contas: number; contasOk: number; clientes: number; clientesAtualizados: number; faturas: number; faturasAtualizadas: number; erros: string[] }>('/cobrancas/sincronizar', { method: 'POST' });
+      const partes = [
+        `${r.clientes} cliente(s) novo(s)`,
+        r.clientesAtualizados ? `${r.clientesAtualizados} atualizado(s)` : '',
+        `${r.faturas} cobrança(s) nova(s)`,
+        r.faturasAtualizadas ? `${r.faturasAtualizadas} atualizada(s)` : '',
+      ].filter(Boolean).join(' · ');
+      setMsg(r.erros?.length ? `✓ Sincronizado: ${partes}. ⚠️ ${r.erros.join('; ')}` : `✓ Sincronizado: ${partes}.`);
+      load();
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro ao sincronizar'); }
+    setBusy(false);
+  }
+
   async function conciliarPagamentos() {
     setBusy(true); setMsg('Verificando pagamentos no gateway...');
     try {
@@ -353,6 +369,9 @@ export default function CobrancasPage() {
           )}
         </div>
         <div className="flex items-center gap-1">
+          {gateways.length > 0 && (
+            <button onClick={sincronizarGateway} disabled={busy} title="Puxa do gateway os clientes e as cobranças novas (não altera pagamentos)" className="flex items-center gap-2 rounded border border-primary/40 bg-primary-tint px-4 py-2 text-sm font-medium text-primary hover:opacity-90 disabled:opacity-60"><Download size={15} /> Sincronizar</button>
+          )}
           <button onClick={conciliarPagamentos} disabled={busy} title="Consulta o gateway e dá baixa nas cobranças em aberto que já foram pagas" className="flex items-center gap-2 rounded border border-line px-4 py-2 text-sm hover:bg-canvas disabled:opacity-60"><RefreshCw size={15} /> Atualizar pagamentos</button>
           <button onClick={reavaliarStatus} className="flex items-center gap-2 rounded border border-line px-4 py-2 text-sm hover:bg-canvas"><RefreshCw size={15} /> Reavaliar status</button>
           <span className="group relative inline-block">

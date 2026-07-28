@@ -234,6 +234,38 @@ export class ChargesService {
    * (e canceladas/estornadas) NÃO entram na sincronização geral. Para trazer as pagas de
    * um cliente específico, use `{ somentePagas: true, customerId }` (ação na tela do cliente).
    */
+  /**
+   * Puxa clientes + cobranças novas de TODOS os gateways ativos do tenant de uma
+   * vez — é o que o botão "Sincronizar" da tela de Cobranças chama. Usa a janela
+   * padrão de cada conta (mesmo comportamento da importação automática diária).
+   * Gateways que ainda não suportam importação (MP/Stripe/Efí) são pulados sem
+   * falhar, e o erro de uma conta não impede as demais.
+   */
+  async sincronizarGateways(tenantId: string) {
+    const contas = await this.prisma.paymentProviderAccount.findMany({
+      where: { tenantId, ativo: true },
+      select: { id: true, provider: true, importLookbackDays: true, apelido: true },
+    });
+    const total = { clientes: 0, clientesAtualizados: 0, faturas: 0, faturasAtualizadas: 0 };
+    const erros: string[] = [];
+    let contasOk = 0;
+    for (const acc of contas) {
+      try {
+        const r = await this.importarDoGateway(tenantId, acc.id, { lookbackDays: acc.importLookbackDays });
+        total.clientes += r.clientes;
+        total.clientesAtualizados += r.clientesAtualizados;
+        total.faturas += r.faturas;
+        total.faturasAtualizadas += r.faturasAtualizadas;
+        contasOk++;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        // "não suporta importação" não é erro do usuário — só pula esse gateway.
+        if (!/n[ãa]o suporta importa/i.test(msg)) erros.push(`${acc.apelido || acc.provider}: ${msg}`);
+      }
+    }
+    return { contas: contas.length, contasOk, ...total, erros };
+  }
+
   async importarDoGateway(
     tenantId: string,
     accountId: string,
