@@ -1,6 +1,8 @@
 node_modules
 dist
 .env
+# Ajustes de compose específicos da máquina (ex.: porta do Postgres em conflito).
+docker-compose.override.yml
 *.log
 logs
 .DS_Store
