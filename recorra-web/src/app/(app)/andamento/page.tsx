@@ -66,6 +66,7 @@ export default function AndamentoPage() {
   const [ruleId, setRuleId] = useState('');
   const [canalFiltro, setCanalFiltro] = useState('');
   const [mesFiltro, setMesFiltro] = useState('');
+  const [situacao, setSituacao] = useState<'' | 'vencidas' | 'avencer' | 'mes'>('');
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
@@ -92,9 +93,17 @@ export default function AndamentoPage() {
     return [...s].sort();
   }, [dados]);
 
+  const mesAtual = useMemo(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; }, []);
+  const passaSituacao = (card: Card) => {
+    if (situacao === 'vencidas') return card.diffDias > 0;
+    if (situacao === 'avencer') return card.diffDias < 0;
+    if (situacao === 'mes') return mesKey(card.vencimento) === mesAtual;
+    return true;
+  };
   const passaFiltro = (card: Card) =>
     (!canalFiltro || card.canal === canalFiltro) &&
-    (!mesFiltro || mesKey(card.vencimento) === mesFiltro);
+    (!mesFiltro || mesKey(card.vencimento) === mesFiltro) &&
+    passaSituacao(card);
   const toggle = (id: string) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const limpar = () => setSel(new Set());
   /** Marca/desmarca todos os ids de uma coluna de uma vez. */
@@ -151,6 +160,25 @@ export default function AndamentoPage() {
           <button onClick={() => carregar()} className="flex items-center gap-2 rounded-lg border border-line px-3 py-2 text-sm hover:bg-canvas"><RefreshCw size={15} /> Atualizar</button>
         </div>
       </div>
+
+      {!loading && dados?.regua && (
+        <div className="mb-3 flex flex-wrap gap-1.5">
+          {([
+            ['', 'Todas'],
+            ['vencidas', 'Vencidas'],
+            ['avencer', 'A vencer'],
+            ['mes', 'Vence este mês'],
+          ] as const).map(([v, label]) => (
+            <button
+              key={v || 'todas'}
+              onClick={() => { setSituacao(v); limpar(); }}
+              className={`rounded-full border px-3 py-1 text-xs font-medium transition ${situacao === v ? 'border-primary bg-primary-tint text-primary' : 'border-line text-muted hover:bg-canvas'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {msg && <p className="mb-3 text-sm text-primary">{msg}</p>}
       {loading && <p className="flex items-center gap-2 text-sm text-muted"><Loader2 size={14} className="animate-spin text-primary" /> Carregando...</p>}
