@@ -5,6 +5,7 @@ import { SaveRuleDto } from './dto/rule.dto';
 import { NICHO_TEMPLATES, findNicho } from './nicho-templates';
 import { evaluateAb, Variante } from './abtest';
 import { selecionarRegua, DunningService } from './dunning.service';
+import { erroMapeamentoBotoes } from '@/modules/channels/meta-graph';
 
 /** Card do kanban de andamento (uma fatura em aberto posicionada na sua etapa). */
 export interface AndamentoCard {
@@ -304,7 +305,19 @@ export class RulesService {
     return rule;
   }
 
+  /**
+   * Botão de URL apontando para a URL do ERP: a Meta recusaria no envio (só aceita o
+   * sufixo do domínio fixo do template). Barra ao salvar, enquanto dá para corrigir.
+   */
+  private validarBotoes(dto: SaveRuleDto) {
+    for (const s of dto.steps ?? []) {
+      const erro = erroMapeamentoBotoes(s.templateBotoes);
+      if (erro) throw new BadRequestException(`Passo ${s.ordem}: ${erro}`);
+    }
+  }
+
   create(tenantId: string, dto: SaveRuleDto) {
+    this.validarBotoes(dto);
     return this.prisma.dunningRule.create({
       data: {
         tenantId,
@@ -341,6 +354,7 @@ export class RulesService {
   }
 
   async update(tenantId: string, id: string, dto: SaveRuleDto) {
+    this.validarBotoes(dto);
     await this.get(tenantId, id);
     await this.prisma.dunningStep.deleteMany({ where: { ruleId: id } });
     return this.prisma.dunningRule.update({

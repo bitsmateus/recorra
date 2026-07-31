@@ -1,5 +1,31 @@
 import { describe, it, expect } from 'vitest';
-import { botoesDeComponents, botoesDinamicos, sufixoUrlDinamica, botoesComponents } from '@/modules/channels/meta-graph';
+import { botoesDeComponents, botoesDinamicos, sufixoUrlDinamica, botoesComponents, erroMapeamentoBotoes } from '@/modules/channels/meta-graph';
+
+describe('erroMapeamentoBotoes — barra o botão de URL com link do ERP', () => {
+  const url = (token: string) => [{ index: 0, subType: 'url' as const, token }];
+
+  it('recusa os tokens que rendem URL inteira do ERP', () => {
+    for (const t of ['{{link}}', '{{linkPagamento}}', '{{pagamento}}', '{{boleto}}', '{{ link }}']) {
+      expect(erroMapeamentoBotoes(url(t))).toMatch(/domínio fixo|Página de pagamento/i);
+    }
+  });
+
+  it('aceita {{pagina}} — é só o token, o sufixo que a Meta espera', () => {
+    expect(erroMapeamentoBotoes(url('{{pagina}}'))).toBeNull();
+  });
+
+  it('{{pix}} no botão de copiar código não é afetado', () => {
+    expect(erroMapeamentoBotoes([{ index: 1, subType: 'copy_code', token: '{{pix}}' }])).toBeNull();
+    // Nem {{link}} — a restrição é só do botão de URL.
+    expect(erroMapeamentoBotoes([{ index: 1, subType: 'copy_code', token: '{{link}}' }])).toBeNull();
+  });
+
+  it('sem botões / token vazio não reclama', () => {
+    expect(erroMapeamentoBotoes([])).toBeNull();
+    expect(erroMapeamentoBotoes(undefined)).toBeNull();
+    expect(erroMapeamentoBotoes(url(''))).toBeNull();
+  });
+});
 
 describe('botoesDeComponents — espelha os botões da Meta', () => {
   it('lê quick-reply e URL, com index e se é dinâmico', () => {

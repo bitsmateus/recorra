@@ -7,7 +7,7 @@ import { ConnectorFactory } from '@/modules/connectors/connector.factory';
 import { DispatchQueue } from '@/queue/dispatch-queue';
 import { parseDateFilter } from '@/common/util/parse';
 import { channelChain } from '@/modules/dunning/fallback';
-import { resolverBotoesParaEnvio, BotaoMapeado } from '@/modules/channels/meta-graph';
+import { resolverBotoesParaEnvio, erroMapeamentoBotoes, BotaoMapeado } from '@/modules/channels/meta-graph';
 import { assinarPagamento } from '@/modules/payments/pay-token';
 
 /** WhatsApp só envia por template aprovado; texto livre sobra para SMS e e-mail. */
@@ -285,6 +285,12 @@ export class CampaignsService {
   private dados(input: CampaignInput) {
     // Template no WhatsApp (Mensagem única e Lembrete); texto livre em SMS/e-mail.
     const comTemplate = (input.tipoEnvio === 'MENSAGEM' || input.tipoEnvio === 'LEMBRETE') && exigeTemplate(input.canal);
+    // Botão de URL apontando para a URL do ERP: a Meta recusaria no envio. Barra aqui,
+    // enquanto ainda dá para corrigir, em vez de só falhar no relatório do disparo.
+    if (comTemplate && input.templateNome) {
+      const erro = erroMapeamentoBotoes(input.templateBotoes);
+      if (erro) throw new BadRequestException(erro);
+    }
     return {
       nome: input.nome?.trim(),
       tipoEnvio: input.tipoEnvio,

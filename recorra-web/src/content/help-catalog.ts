@@ -236,6 +236,7 @@ export const HELP_TOPICS: HelpTopic[] = [
       'O nome do template oficial deve corresponder ao aprovado no provedor.',
       'Parâmetros posicionais precisam seguir a mesma ordem aprovada.',
       'Variável sem valor pode bloquear template oficial.',
+      'Botão de link (URL): o WhatsApp só deixa completar o final de um domínio fixo aprovado no template. Por isso o botão deve receber "Página de pagamento (Recorrai)" — a régua e a campanha já sugerem essa opção e recusam ao salvar o mapeamento para "Link de pagamento" ou "Boleto", que são URLs do ERP e fariam a Meta rejeitar o envio. Para mandar o link do ERP, use {{link}} no texto da mensagem.',
       'Alterar um modelo não altera automaticamente mensagens já enfileiradas, pois o conteúdo pode já ter sido resolvido.',
     ],
   },

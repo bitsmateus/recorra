@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Plus, Trash2, ArrowUp, ArrowDown, Save, MessageCircle, Mail, Smartphone, RefreshCw, Sparkles, X, Webhook, MessageSquare } from 'lucide-react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
+import { erroMapeamentoBotoes } from '@/lib/botoes-template';
 import { PageTitle } from '@/components/ui';
 import { PreviewButton } from '@/components/MessagePreview';
 
@@ -278,6 +279,10 @@ export default function ReguasPage() {
 
   async function salvar() {
     if (!sel) return;
+    for (const [i, s] of sel.steps.entries()) {
+      const erroBotao = erroMapeamentoBotoes(s.templateBotoes);
+      if (erroBotao) return setMsg(`Passo ${i + 1}: ${erroBotao}`);
+    }
     setMsg('Salvando...');
     // Envia SÓ os campos que o backend aceita. A régua carregada traz extras de
     // leitura (id, campaigns, inadimplentesCobertos, steps[].id/condicoes...) que

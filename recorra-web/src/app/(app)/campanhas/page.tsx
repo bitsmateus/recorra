@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Plus, Play, Pause, BarChart3, Pencil, Trash2, X, Megaphone, ExternalLink, Copy, Filter, Loader2, HelpCircle, Radio, Archive, ArchiveRestore } from 'lucide-react';
 import { api } from '@/lib/api';
+import { erroMapeamentoBotoes } from '@/lib/botoes-template';
 import { PageTitle, brl } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { PreviewButton } from '@/components/MessagePreview';
@@ -617,7 +618,9 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
       setTemplateBotoes(din.map((b) => ({
         index: b.index,
         subType: b.tipo === 'COPY_CODE' ? 'copy_code' : 'url',
-        token: b.tipo === 'COPY_CODE' ? '{{pix}}' : '{{link}}',
+        // Palpite útil, editável. Para URL é {{pagina}} e não {{link}}: o botão manda
+        // só o sufixo da base fixa do template, e a URL do ERP não casa com ela.
+        token: b.tipo === 'COPY_CODE' ? '{{pix}}' : '{{pagina}}',
         ...(b.url ? { urlBase: b.url.replace(/\{\{\s*\d+\s*\}\}.*$/, '') } : {}),
       })));
     }
@@ -648,6 +651,10 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
 
   async function salvar() {
     if (comTemplate && !f.templateNome) return setMsg('Escolha um template aprovado — o WhatsApp não entrega texto livre.');
+    if (comTemplate && f.templateNome) {
+      const erroBotao = erroMapeamentoBotoes(templateBotoes);
+      if (erroBotao) return setMsg(erroBotao);
+    }
     if (isEmail && f.tipoEnvio !== 'REGUA' && !f.emailAssunto.trim()) return setMsg('Escreva o assunto do e-mail.');
     setSaving(true); setMsg('');
     const body = {
