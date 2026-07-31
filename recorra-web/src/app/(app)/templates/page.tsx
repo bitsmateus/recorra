@@ -240,6 +240,10 @@ function TemplateModal({ template, contas, onClose, onSaved }: {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
 
+  // Um de cada basta: são a mesma cobrança, só com destino diferente.
+  const temBoleto = botoes.some((b) => b.urlBase === BASE_BOLETO);
+  const temPix = botoes.some((b) => b.urlBase === BASE_PAGINA);
+
   const vars = varsDoCorpo(corpo);
   // A Meta recusa buracos: {{1}} e {{3}} sem {{2}} não passa.
   const sequencial = vars.every((n, i) => n === i + 1);
@@ -360,14 +364,22 @@ function TemplateModal({ template, contas, onClose, onSaved }: {
             <div className="mb-1.5 flex items-center justify-between">
               <span className="text-xs font-semibold text-muted">Botões (opcional)</span>
               {botoes.length < 3 && (
-                <div className="flex gap-1">
-                  <button type="button" onClick={() => setBotoes((b) => [...b, { tipo: 'URL', texto: 'Ver boleto', urlBase: BASE_BOLETO, dinamica: true, exemplo: 'abc123' }])} className="rounded border border-line px-2 py-0.5 text-[11px] hover:bg-canvas">+ Link (URL)</button>
-                  <button type="button" title="Botão de cupom da Meta — força o template para Marketing. Para Pix, use {{pix}} no corpo." onClick={() => setBotoes((b) => [...b, { tipo: 'COPY_CODE', exemplo: 'PIX12345' }])} className="rounded border border-line px-2 py-0.5 text-[11px] hover:bg-canvas">+ Copiar código (cupom)</button>
+                <div className="flex flex-wrap gap-1">
+                  {/*
+                   * Os dois botões de cobrança já nascem prontos — só muda a base, que
+                   * fica congelada na aprovação da Meta e decide o destino:
+                   *   /boleto/{{1}} → 302 para o boleto original do SGP/gateway
+                   *   /pay/{{1}}    → página da Recorrai com QR, Pix copia-e-cola e boleto
+                   * Os dois recebem {{pagina}} no mapeamento da campanha/régua.
+                   */}
+                  <button type="button" disabled={temBoleto} title={temBoleto ? 'Já adicionado' : 'Abre o boleto original do SGP/gateway, sem página intermediária'} onClick={() => setBotoes((b) => [...b, { tipo: 'URL', texto: 'Ver boleto', urlBase: BASE_BOLETO, dinamica: true, exemplo: 'abc123' }])} className="rounded border border-line px-2 py-0.5 text-[11px] hover:bg-canvas disabled:opacity-40">+ Boleto (abre direto)</button>
+                  <button type="button" disabled={temPix} title={temPix ? 'Já adicionado' : 'Abre a página da Recorrai com QR Code e botão de copiar o Pix'} onClick={() => setBotoes((b) => [...b, { tipo: 'URL', texto: 'Pagar com Pix', urlBase: BASE_PAGINA, dinamica: true, exemplo: 'abc123' }])} className="rounded border border-line px-2 py-0.5 text-[11px] hover:bg-canvas disabled:opacity-40">+ Pix (página com QR)</button>
                   <button type="button" onClick={() => setBotoes((b) => [...b, { tipo: 'QUICK_REPLY', texto: 'Falar com atendente' }])} className="rounded border border-line px-2 py-0.5 text-[11px] hover:bg-canvas">+ Resposta</button>
+                  <button type="button" title="Botão de cupom da Meta: rótulo fixo 'Copiar código da oferta' e só cabe um código curto — o Pix copia-e-cola NÃO cabe e a Meta recusa o envio. Use + Pix." onClick={() => setBotoes((b) => [...b, { tipo: 'COPY_CODE', exemplo: 'PIX12345' }])} className="rounded border border-line px-2 py-0.5 text-[11px] text-muted hover:bg-canvas">+ Cupom</button>
                 </div>
               )}
             </div>
-            {botoes.length === 0 && <p className="text-[11px] text-muted">Sem botões. Para cobrança, <b>+ Link (URL)</b> já vem apontado para a página de pagamento da Recorrai — é o caminho recomendado. <b>Link completo de outro site (SGP/banco) vai no CORPO da mensagem</b>, numa variável; em botão de URL ele não funciona.</p>}
+            {botoes.length === 0 && <p className="text-[11px] text-muted">Sem botões. Para cobrança, adicione <b>+ Boleto</b> e <b>+ Pix</b> — os dois já vêm apontados para a Recorrai e prontos para usar. <b>Link completo de outro site (SGP/banco) vai no CORPO da mensagem</b>, numa variável; em botão de URL ele não funciona.</p>}
             <div className="space-y-2">
               {botoes.map((b, i) => {
                 const upd = (patch: Partial<BotaoNovo>) => setBotoes((arr) => arr.map((x, idx) => idx === i ? { ...x, ...patch } : x));

@@ -128,16 +128,39 @@ export interface BotaoMapeado {
  */
 const TOKENS_URL_INTEIRA = /^\{\{\s*(link|linkpagamento|pagamento|boleto)\s*\}\}$/i;
 
+/**
+ * Tokens que rendem um valor longo. O botão "Copiar código da oferta" é o cupom da
+ * Meta e só carrega um código curto — o Pix copia-e-cola (200+ caracteres), um link
+ * ou o token da página estouram o limite e a Meta recusa o envio (#132018).
+ * Confirmado em produção: o mesmo template passou com um valor curto no botão.
+ */
+const TOKENS_LONGOS = /^\{\{\s*(pix|link|linkpagamento|pagamento|boleto|pagina)\s*\}\}$/i;
+
 export const ERRO_BOTAO_URL =
   'O botão de link não aceita "Link de pagamento"/"Boleto": o WhatsApp só deixa completar o final de um domínio fixo aprovado no template, e a URL do ERP é de outro domínio — a Meta recusaria o envio. Escolha "Página de pagamento (Recorrai)" no botão, ou use {{link}} no texto da mensagem.';
+
+export const ERRO_BOTAO_COPY =
+  'O botão "Copiar código da oferta" é o cupom da Meta e só carrega um código curto — o Pix copia-e-cola não cabe, e a Meta recusa o envio. Para mandar o Pix: use o botão de link com "Página de pagamento (Recorrai)", que já mostra o QR Code e o botão de copiar, e/ou coloque {{pix}} no texto da mensagem. O ideal é um template sem este botão.';
+
+/** Mensagem de erro para um botão, ou null se o mapeamento serve. */
+export function erroBotao(subType: 'url' | 'copy_code' | undefined, token: string | undefined): string | null {
+  const t = (token ?? '').trim();
+  if (!t) return null;
+  if (subType === 'url' && TOKENS_URL_INTEIRA.test(t)) return ERRO_BOTAO_URL;
+  if (subType === 'copy_code' && TOKENS_LONGOS.test(t)) return ERRO_BOTAO_COPY;
+  return null;
+}
 
 /**
  * Valida o mapeamento dos botões antes de salvar. Devolve a mensagem de erro, ou
  * null se está tudo bem. Vale para campanha e para passo de régua.
  */
 export function erroMapeamentoBotoes(mapeados?: BotaoMapeado[] | null): string | null {
-  const ruim = (mapeados ?? []).some((m) => m?.subType === 'url' && TOKENS_URL_INTEIRA.test((m.token ?? '').trim()));
-  return ruim ? ERRO_BOTAO_URL : null;
+  for (const m of mapeados ?? []) {
+    const erro = erroBotao(m?.subType, m?.token);
+    if (erro) return erro;
+  }
+  return null;
 }
 
 /** Parâmetro de botão já resolvido (valor final do cliente), pronto para o envio. */

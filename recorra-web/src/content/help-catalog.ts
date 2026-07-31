@@ -231,12 +231,14 @@ export const HELP_TOPICS: HelpTopic[] = [
   {
     id: 'templates', section: 'Comunicação', title: 'Templates de WhatsApp e modelos de e-mail',
     summary: 'Conteúdo reutilizável usado nas mensagens da operação.',
-    steps: ['Abra Templates WhatsApp ou Modelos de e-mail.', 'Crie ou sincronize o modelo.', 'Defina nome, corpo e assunto quando for e-mail.', 'Mapeie variáveis na ordem exigida pelo provedor.', 'Selecione o modelo na régua, campanha ou confirmação de pagamento.'],
+    steps: ['Abra Templates WhatsApp ou Modelos de e-mail.', 'Crie ou sincronize o modelo.', 'Defina nome, corpo e assunto quando for e-mail.', 'Em template de cobrança, adicione os botões "+ Boleto (abre direto)" e "+ Pix (página com QR)".', 'Mapeie variáveis na ordem exigida pelo provedor.', 'Selecione o modelo na régua, campanha ou confirmação de pagamento.'],
     rules: [
       'O nome do template oficial deve corresponder ao aprovado no provedor.',
       'Parâmetros posicionais precisam seguir a mesma ordem aprovada.',
       'Variável sem valor pode bloquear template oficial.',
       'Botão de link (URL): o WhatsApp só deixa completar o final de um domínio fixo aprovado no template. Por isso o botão deve receber "Página de pagamento (Recorrai)" — a régua e a campanha já sugerem essa opção e recusam ao salvar o mapeamento para "Link de pagamento" ou "Boleto", que são URLs do ERP e fariam a Meta rejeitar o envio. Para mandar o link do ERP, use {{link}} no texto da mensagem.',
+      'Botão "Copiar código da oferta": é o cupom da Meta, tem rótulo fixo e só carrega um código curto — o Pix copia-e-cola não cabe e a Meta recusa o envio. A régua e a campanha não oferecem mais Pix nem link nesse botão.',
+      'Modelo recomendado de template de cobrança: dois botões de link, ambos apontando para a Recorrai e mapeados para "Página de pagamento (Recorrai)". "Ver boleto" usa a base .../boleto/ e redireciona direto para o boleto original do gateway ou ERP; "Pagar com Pix" usa a base .../pay/ e abre a página da Recorrai com QR Code, Pix copia-e-cola e o boleto. Na tela de Templates os botões "+ Boleto (abre direto)" e "+ Pix (página com QR)" já criam esse par pronto, com rótulo, base e exemplo preenchidos.',
       'Alterar um modelo não altera automaticamente mensagens já enfileiradas, pois o conteúdo pode já ter sido resolvido.',
     ],
   },

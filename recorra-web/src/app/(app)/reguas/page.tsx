@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Plus, Trash2, ArrowUp, ArrowDown, Save, MessageCircle, Mail, Smartphone, RefreshCw, Sparkles, X, Webhook, MessageSquare } from 'lucide-react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
-import { erroMapeamentoBotoes } from '@/lib/botoes-template';
+import { erroMapeamentoBotoes, varsDoBotao } from '@/lib/botoes-template';
 import { PageTitle } from '@/components/ui';
 import { PreviewButton } from '@/components/MessagePreview';
 
@@ -819,7 +819,8 @@ function StepCard({
       subType: b.tipo === 'COPY_CODE' ? 'copy_code' : 'url',
       // Palpite útil, editável. Para URL é {{pagina}} e não {{link}}: o botão manda
       // só o sufixo da base fixa do template, e a URL do ERP não casa com ela.
-      token: b.tipo === 'COPY_CODE' ? '{{pix}}' : '{{pagina}}',
+      // Copiar código não ganha palpite: o Pix não cabe nele e não há bom padrão.
+      token: b.tipo === 'COPY_CODE' ? '' : '{{pagina}}',
       ...(b.url ? { urlBase: b.url.replace(/\{\{\s*\d+\s*\}\}.*$/, '') } : {}),
     }));
     onChange({ templateName: t.nome, template: t.corpo, templateParams: inicial, templateBotoes: botoes });
@@ -953,18 +954,27 @@ function StepCard({
                 <div className="mt-3 border-t border-line pt-3">
                   <p className="mb-2 text-xs text-muted">O que cada botão do template leva:</p>
                   <div className="space-y-2">
-                    {botoesDin.map((b) => (
-                      <div key={b.index} className="flex flex-wrap items-center gap-2">
-                        <span className="shrink-0 rounded bg-canvas px-2 py-1 text-xs font-medium text-ink">🔘 {b.texto} <span className="font-normal text-muted">({labelBotao(b)})</span></span>
-                        <span className="text-muted">→</span>
-                        <select value={tokenDoBotao(b.index)} onChange={(e) => setBotao(b.index, e.target.value)} className="min-w-0 flex-1 rounded border border-line px-2 py-1.5 text-sm outline-none focus:border-primary">
-                          <option value="">Selecione o dado...</option>
-                          {RECORRA_VARS.map((v) => <option key={v.token} value={v.token}>{v.label} · {v.token}</option>)}
-                        </select>
-                      </div>
-                    ))}
+                    {botoesDin.map((b) => {
+                      const sub = b.tipo === 'COPY_CODE' ? 'copy_code' : 'url';
+                      // Só oferece o que a Meta aceita neste tipo de botão — evita o
+                      // erro em vez de reclamar depois de escolhido.
+                      const opcoes = varsDoBotao(RECORRA_VARS, sub, (v) => v.token);
+                      return (
+                        <div key={b.index} className="flex flex-wrap items-center gap-2">
+                          <span className="shrink-0 rounded bg-canvas px-2 py-1 text-xs font-medium text-ink">🔘 {b.texto} <span className="font-normal text-muted">({labelBotao(b)})</span></span>
+                          <span className="text-muted">→</span>
+                          <select value={tokenDoBotao(b.index)} onChange={(e) => setBotao(b.index, e.target.value)} className="min-w-0 flex-1 rounded border border-line px-2 py-1.5 text-sm outline-none focus:border-primary">
+                            <option value="">Selecione o dado...</option>
+                            {opcoes.map((v) => <option key={v.token} value={v.token}>{v.label} · {v.token}</option>)}
+                          </select>
+                        </div>
+                      );
+                    })}
                   </div>
-                  <p className="mt-1.5 text-[11px] text-muted">Ex.: botão &quot;Ver boleto&quot; → Link de pagamento; &quot;Copiar Pix&quot; → Pix copia e cola.</p>
+                  <p className="mt-1.5 text-[11px] text-muted">Botão de link → <b>Página de pagamento (Recorrai)</b>, que já mostra o QR Code, o Pix copia-e-cola e o boleto.</p>
+                  {botoesDin.some((b) => b.tipo === 'COPY_CODE') && (
+                    <p className="mt-1 text-[11px] text-muted">O botão &quot;Copiar código da oferta&quot; é o cupom da Meta: só cabe um código curto, não o Pix copia-e-cola. O ideal é um template sem ele.</p>
+                  )}
                 </div>
               )}
             </div>

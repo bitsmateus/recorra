@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Plus, Play, Pause, BarChart3, Pencil, Trash2, X, Megaphone, ExternalLink, Copy, Filter, Loader2, HelpCircle, Radio, Archive, ArchiveRestore } from 'lucide-react';
 import { api } from '@/lib/api';
-import { erroMapeamentoBotoes } from '@/lib/botoes-template';
+import { erroMapeamentoBotoes, varsDoBotao } from '@/lib/botoes-template';
 import { PageTitle, brl } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { PreviewButton } from '@/components/MessagePreview';
@@ -436,16 +436,28 @@ function BlocoTemplate({ templates, valor, onChange, params, setParam, botoes, s
       {sel && botoesDin.length > 0 && (
         <div className="space-y-2 rounded border border-line p-2">
           <span className="block text-xs font-semibold text-muted">O que cada botão leva</span>
-          {botoesDin.map((b) => (
-            <div key={b.index} className="flex flex-wrap items-center gap-2 text-sm">
-              <span className="shrink-0 rounded bg-canvas px-2 py-1 text-xs font-medium text-ink">🔘 {b.texto} <span className="font-normal text-muted">({labelBotao(b)})</span></span>
-              <span className="text-muted">→</span>
-              <select value={tokenBotao(b.index)} onChange={(e) => setBotao(b.index, e.target.value)} className="min-w-0 flex-1 rounded border border-line px-2 py-1 text-sm outline-none focus:border-primary">
-                <option value="">Selecione o dado...</option>
-                {MAP_OPCOES.filter((o) => o.v !== '__FIXO__').map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
-              </select>
-            </div>
-          ))}
+          {botoesDin.map((b) => {
+            const sub = b.tipo === 'COPY_CODE' ? 'copy_code' : 'url';
+            // Só oferece o que a Meta aceita neste tipo de botão — evita o erro
+            // em vez de reclamar depois de escolhido.
+            const opcoes = varsDoBotao(MAP_OPCOES.filter((o) => o.v !== '__FIXO__'), sub, (o) => o.v);
+            return (
+              <div key={b.index} className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="shrink-0 rounded bg-canvas px-2 py-1 text-xs font-medium text-ink">🔘 {b.texto} <span className="font-normal text-muted">({labelBotao(b)})</span></span>
+                <span className="text-muted">→</span>
+                <select value={tokenBotao(b.index)} onChange={(e) => setBotao(b.index, e.target.value)} className="min-w-0 flex-1 rounded border border-line px-2 py-1 text-sm outline-none focus:border-primary">
+                  <option value="">Selecione o dado...</option>
+                  {opcoes.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
+                </select>
+              </div>
+            );
+          })}
+          {botoesDin.some((b) => b.tipo === 'COPY_CODE') && (
+            <p className="text-[11px] text-muted">
+              O botão &quot;Copiar código da oferta&quot; é o cupom da Meta: só cabe um código curto, não o Pix copia-e-cola.
+              Para o Pix, use o botão de link com <b>Página de pagamento (Recorrai)</b> — ela mostra o QR Code e o botão de copiar.
+            </p>
+          )}
         </div>
       )}
     </div>
@@ -620,7 +632,8 @@ function CampanhaModal({ edit, onClose, onSaved }: { edit?: Campaign | null; onC
         subType: b.tipo === 'COPY_CODE' ? 'copy_code' : 'url',
         // Palpite útil, editável. Para URL é {{pagina}} e não {{link}}: o botão manda
         // só o sufixo da base fixa do template, e a URL do ERP não casa com ela.
-        token: b.tipo === 'COPY_CODE' ? '{{pix}}' : '{{pagina}}',
+        // Copiar código não ganha palpite: o Pix não cabe nele e não há bom padrão.
+        token: b.tipo === 'COPY_CODE' ? '' : '{{pagina}}',
         ...(b.url ? { urlBase: b.url.replace(/\{\{\s*\d+\s*\}\}.*$/, '') } : {}),
       })));
     }

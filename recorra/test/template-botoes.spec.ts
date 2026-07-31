@@ -14,10 +14,24 @@ describe('erroMapeamentoBotoes — barra o botão de URL com link do ERP', () =>
     expect(erroMapeamentoBotoes(url('{{pagina}}'))).toBeNull();
   });
 
-  it('{{pix}} no botão de copiar código não é afetado', () => {
-    expect(erroMapeamentoBotoes([{ index: 1, subType: 'copy_code', token: '{{pix}}' }])).toBeNull();
-    // Nem {{link}} — a restrição é só do botão de URL.
-    expect(erroMapeamentoBotoes([{ index: 1, subType: 'copy_code', token: '{{link}}' }])).toBeNull();
+  it('recusa valor longo no botão de copiar código (cupom da Meta)', () => {
+    // Confirmado em produção: com {{pix}} a Meta devolve #132018; com um valor
+    // curto (CPF) o mesmo template passa.
+    for (const t of ['{{pix}}', '{{pagina}}', '{{link}}', '{{boleto}}']) {
+      expect(erroMapeamentoBotoes([{ index: 1, subType: 'copy_code', token: t }])).toMatch(/código curto|cupom/i);
+    }
+  });
+
+  it('aceita valor curto no botão de copiar código', () => {
+    expect(erroMapeamentoBotoes([{ index: 1, subType: 'copy_code', token: '{{documento}}' }])).toBeNull();
+    expect(erroMapeamentoBotoes([{ index: 1, subType: 'copy_code', token: '{{contrato}}' }])).toBeNull();
+  });
+
+  it('cada tipo de botão tem a sua restrição, não a do outro', () => {
+    // {{pagina}} serve no link, não no cupom; {{documento}} serve nos dois.
+    expect(erroMapeamentoBotoes(url('{{pagina}}'))).toBeNull();
+    expect(erroMapeamentoBotoes([{ index: 1, subType: 'copy_code', token: '{{pagina}}' }])).not.toBeNull();
+    expect(erroMapeamentoBotoes(url('{{documento}}'))).toBeNull();
   });
 
   it('sem botões / token vazio não reclama', () => {
