@@ -33,10 +33,6 @@ const REFERENCIA: { grupo: string; escopoBase: string; rotas: { m: string; path:
     { m: 'GET', path: '/v1/usuarios', scope: 'usuarios:read', desc: 'Lista usuários do tenant' },
     { m: 'POST', path: '/v1/usuarios', scope: 'usuarios:write', desc: 'Cria usuário ({ nome, email, senha, role? })' },
   ] },
-  { grupo: 'Tenants (plataforma)', escopoBase: 'tenants', rotas: [
-    { m: 'GET', path: '/v1/tenants', scope: 'tenants:read', desc: 'Lista tenants — requer token de plataforma' },
-    { m: 'POST', path: '/v1/tenants', scope: 'tenants:write', desc: 'Cria tenant ({ empresa, nome, email, senha }) — token de plataforma' },
-  ] },
 ];
 
 const metodoCor: Record<string, string> = { GET: 'bg-success-tint text-[#0F6E56]', POST: 'bg-primary-tint text-primary', PUT: 'bg-warning-tint text-[#854F0B]', DELETE: 'bg-danger-tint text-[#A32D2D]' };
@@ -193,7 +189,7 @@ export default function ApiTokensPage() {
                 </div>
               </div>
             ))}
-            <p className="text-xs text-muted">Os tokens de <b>plataforma</b> (que criam tenants) são gerados pelo superadmin — não por aqui. Esta tela cria tokens do seu tenant.</p>
+            <p className="text-xs text-muted">Cada token acessa <b>apenas os dados do seu tenant</b> — nunca de outro. Operações de plataforma (criar tenant) são exclusivas do superadmin.</p>
           </div>
         )}
       </div>
