@@ -8,10 +8,12 @@ import { AccountController } from './account.controller';
 import { AdminTutorialsController } from './admin-tutorials.controller';
 import { BillingSaasModule } from './billing-saas.module';
 import { TutorialsModule } from '@/modules/tutorials/tutorials.module';
+import { IngestModule } from '@/modules/ingest/ingest.module';
 
 @Module({
-  imports: [BillingSaasModule, TutorialsModule],
+  imports: [BillingSaasModule, TutorialsModule, IngestModule],
   controllers: [PlatformController, PlatformWebhookController, AccountController, AdminTutorialsController],
   providers: [PlatformService, PlatformGuard, PlatformAsaasService],
+  exports: [PlatformService],
 })
 export class PlatformModule {}

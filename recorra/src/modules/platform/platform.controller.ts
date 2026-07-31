@@ -6,6 +6,7 @@ import { PlatformService, PlanoInput } from './platform.service';
 import { PlatformGuard, PlatformPayload } from './platform.guard';
 import { BillingSaasService } from './billing-saas.service';
 import { PlatformAsaasService } from './platform-asaas.service';
+import { ApiKeyService } from '@/modules/ingest/api-key.service';
 
 @Controller('admin')
 export class PlatformController {
@@ -13,7 +14,27 @@ export class PlatformController {
     private readonly platform: PlatformService,
     private readonly billing: BillingSaasService,
     private readonly asaas: PlatformAsaasService,
+    private readonly apiKeys: ApiKeyService,
   ) {}
+
+  // ----- Tokens de PLATAFORMA (superadmin): API pública /api/v1/tenants etc. -----
+  @Get('api-keys')
+  @UseGuards(PlatformGuard)
+  listApiKeys() {
+    return this.apiKeys.list(null);
+  }
+
+  @Post('api-keys')
+  @UseGuards(PlatformGuard)
+  createApiKey(@Body() body: { nome?: string; scopes?: string[]; expiraEm?: string | null }) {
+    return this.apiKeys.create(null, body.nome || 'Token de plataforma', { scopes: body.scopes, expiraEm: body.expiraEm });
+  }
+
+  @Delete('api-keys/:id')
+  @UseGuards(PlatformGuard)
+  revokeApiKey(@Param('id') id: string) {
+    return this.apiKeys.revoke(null, id);
+  }
 
   // Rate limit estrito: o superadmin controla todos os tenants (alvo de brute force).
   @Throttle({ default: { ttl: 60_000, limit: 5 } })

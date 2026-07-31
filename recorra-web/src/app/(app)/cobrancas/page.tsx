@@ -225,11 +225,12 @@ export default function CobrancasPage() {
   async function conciliarPagamentos() {
     setBusy(true); setMsg('Atualizando pagamentos e recalculando vencidas...');
     try {
-      const r = await api<{ verificadas: number; baixadas: number; reclassificadas?: number; reavaliadas?: number; naoEncontradas?: number; exemplos?: { nome: string; valor: number; vencimento: string }[]; naoEncontradasIds?: string[] }>('/cobrancas/conciliar', { method: 'POST' });
+      const r = await api<{ verificadas: number; baixadas: number; reclassificadas?: number; canceladas?: number; reavaliadas?: number; naoEncontradas?: number; exemplos?: { nome: string; valor: number; vencimento: string }[]; naoEncontradasIds?: string[] }>('/cobrancas/conciliar', { method: 'POST' });
       const extra = r.reclassificadas ? ` ${r.reclassificadas} ajustada(s) para bater com o gateway (aguardando/vencido).` : '';
+      const canceladas = r.canceladas ? ` ${r.canceladas} cancelada(s) aqui porque foram removidas no gateway.` : '';
       const reaval = r.reavaliadas ? ` ${r.reavaliadas} recalculada(s) por vencimento (vencida/pendente).` : '';
-      if (r.baixadas > 0) setMsg(`✓ ${r.baixadas} cobrança(s) baixada(s) como Paga (de ${r.verificadas} verificadas).${extra}${reaval}`);
-      else if (r.reclassificadas && r.reclassificadas > 0) setMsg(`✓ ${r.reclassificadas} cobrança(s) ajustada(s) para a classificação do gateway (aguardando/vencido).${reaval} Nenhuma paga a baixar.`);
+      if (r.baixadas > 0) setMsg(`✓ ${r.baixadas} cobrança(s) baixada(s) como Paga (de ${r.verificadas} verificadas).${extra}${canceladas}${reaval}`);
+      else if ((r.reclassificadas ?? 0) > 0 || (r.canceladas ?? 0) > 0) setMsg(`✓ Pagamentos atualizados.${extra}${canceladas}${reaval} Nenhuma paga a baixar.`);
       else if (r.naoEncontradas && r.naoEncontradas > 0) {
         const lista = (r.exemplos ?? []).map((e) => `${e.nome} (${brl(Number(e.valor))})`).join(', ');
         setMsg(`⚠️ Nenhuma baixada. As demais o gateway confirma em aberto. Mas ${r.naoEncontradas} cobrança(s) NÃO existem no gateway (canceladas/apagadas lá): ${lista}.${reaval}`);
@@ -552,13 +553,14 @@ export default function CobrancasPage() {
                   {inv.status === 'PAGA' && inv.pagoEm && <div className="mt-1 text-xs text-[#0F6E56]">Pago em {new Date(inv.pagoEm).toLocaleDateString('pt-BR')}</div>}
                 </td>
                 <td className="px-4 py-3">
-                  {inv.externalId ? <span className="text-xs text-success">✓ gerada</span>
+                  {inv.status === 'CANCELADA' && inv.externalId ? <span className="text-xs text-muted">removida do gateway</span>
+                    : inv.externalId ? <span className="text-xs text-success">✓ gerada</span>
                     : inv.sourceSystem ? <span className="text-xs text-muted" title="Cobrança gerenciada no ERP de origem">{inv.sourceSystem}</span>
                     : <span className="text-xs text-muted">não gerada</span>}
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center justify-end gap-1">
-                    {(inv.externalId || inv.sourceSystem || inv.pixCopiaCola || inv.boletoUrl || inv.linkPagamento) && <button onClick={() => setPagamento(inv)} title="Pix / boleto / link de pagamento" className="rounded p-1.5 text-muted hover:bg-primary-tint hover:text-primary"><Receipt size={15} /></button>}
+                    {inv.status !== 'CANCELADA' && (inv.externalId || inv.sourceSystem || inv.pixCopiaCola || inv.boletoUrl || inv.linkPagamento) && <button onClick={() => setPagamento(inv)} title="Pix / boleto / link de pagamento" className="rounded p-1.5 text-muted hover:bg-primary-tint hover:text-primary"><Receipt size={15} /></button>}
                     <button onClick={() => setEditar(inv)} title="Editar" className="rounded p-1.5 text-muted hover:bg-canvas hover:text-primary"><Pencil size={15} /></button>
                     <button onClick={() => setExcluir(inv)} title="Excluir" className="rounded p-1.5 text-muted hover:bg-danger-tint hover:text-danger"><Trash2 size={15} /></button>
                   </div>

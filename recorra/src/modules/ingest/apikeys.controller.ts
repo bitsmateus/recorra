@@ -4,12 +4,19 @@ import { RolesGuard } from '@/common/auth/roles.guard';
 import { Roles } from '@/common/auth/roles.decorator';
 import { TenantId } from '@/common/auth/current-user.decorator';
 import { ApiKeyService } from './api-key.service';
+import { API_SCOPES } from '@/modules/public-api/scopes';
 
-/** Gestão das API keys do tenant (usadas na ingestão externa). */
+/** Gestão dos tokens de API do tenant (usados na API pública /api/v1/*). */
 @Controller('config/api-keys')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class ApiKeysController {
   constructor(private readonly keys: ApiKeyService) {}
+
+  /** Escopos que um token de tenant pode receber (sem os de plataforma). */
+  @Get('scopes')
+  scopes() {
+    return API_SCOPES.filter((s) => !s.plataforma);
+  }
 
   @Get()
   list(@TenantId() tenantId: string) {
@@ -18,8 +25,11 @@ export class ApiKeysController {
 
   @Post()
   @Roles('OWNER', 'ADMIN')
-  create(@TenantId() tenantId: string, @Body('nome') nome: string) {
-    return this.keys.create(tenantId, nome || 'Integração');
+  create(
+    @TenantId() tenantId: string,
+    @Body() body: { nome?: string; scopes?: string[]; expiraEm?: string | null },
+  ) {
+    return this.keys.create(tenantId, body.nome || 'Integração', { scopes: body.scopes, expiraEm: body.expiraEm });
   }
 
   @Delete(':id')

@@ -216,15 +216,21 @@ model Plan {
 
 model ApiKey {
   id        String    @id @default(cuid())
-  tenantId  String
+  // Nulo para tokens de PLATAFORMA (superadmin), que não pertencem a um tenant.
+  tenantId  String?
   nome      String
   prefixo   String
   keyHash   String    @unique
+  // TENANT (acessa só o próprio tenant) | PLATFORM (superadmin: cria tenants etc.)
+  tipo      String    @default("TENANT")
+  // Permissões do token (ex.: "clientes:read", "cobrancas:write", "tenants:write").
+  scopes    String[]  @default([])
   ativo     Boolean   @default(true)
+  expiraEm  DateTime?
   ultimoUso DateTime?
   createdAt DateTime  @default(now())
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@map("api_keys")

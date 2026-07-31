@@ -52,7 +52,7 @@ export class ReconciliationService {
       orderBy: { vencimento: 'asc' },
       include: { customer: { select: { nome: true } } },
     });
-    if (!abertas.length) return { verificadas: 0, baixadas: 0, reclassificadas: 0, naoEncontradas: 0, exemplos: [], naoEncontradasIds: [] };
+    if (!abertas.length) return { verificadas: 0, baixadas: 0, reclassificadas: 0, canceladas: 0, naoEncontradas: 0, exemplos: [], naoEncontradasIds: [] };
 
     // Agrupa por conta de gateway: dá para resolver a conta inteira de uma vez.
     const porConta = new Map<string, typeof abertas>();
@@ -65,6 +65,7 @@ export class ReconciliationService {
     let verificadas = 0;
     let baixadas = 0;
     let reclassificadas = 0; // aguardando↔vencido ajustadas para bater com o gateway
+    let canceladas = 0; // removidas/canceladas diretamente no gateway
     let naoEncontradas = 0; // faturas cujo id não existe na lista do gateway (id divergente)
     const exemplos: { nome: string; valor: number; vencimento: Date }[] = []; // as "não encontradas", para o usuário conferir
     const naoEncontradasIds: string[] = []; // ids das que sumiram do gateway (para cancelar em lote)
@@ -94,10 +95,28 @@ export class ReconciliationService {
             verificadas++;
             const p = mapa.get(inv.externalId!);
             if (!p) {
-              naoEncontradas++;
-              naoEncontradasIds.push(inv.id);
-              if (semMatch.length < 8) semMatch.push(inv.externalId!);
-              if (exemplos.length < 10) exemplos.push({ nome: (inv as { customer?: { nome?: string } }).customer?.nome ?? '—', valor: Number(inv.valor), vencimento: inv.vencimento });
+              // A listagem pode ser incompleta por paginação/limite do provedor. Antes
+              // de cancelar localmente, confirma a cobrança individualmente: somente um
+              // 404 é evidência de que ela realmente foi apagada no gateway.
+              try {
+                const st = await this.statusComRetry(provider, inv.externalId!);
+                if (st?.status === 'PAGA') {
+                  if (await this.baixar(tenantId, inv.id, inv.customerId, undefined, st.pagoEm)) baixadas++;
+                } else if (st && (st.status === 'PENDENTE' || st.status === 'VENCIDA') && st.status !== inv.status) {
+                  await this.prisma.invoice.update({ where: { id: inv.id }, data: { status: st.status } });
+                  reclassificadas++;
+                }
+              } catch (e: unknown) {
+                const statusHttp = (e as { response?: { status?: number } })?.response?.status;
+                if (statusHttp === 404) {
+                  if (await this.cancelarRemovida(tenantId, inv.id)) canceladas++;
+                } else {
+                  naoEncontradas++;
+                  naoEncontradasIds.push(inv.id);
+                  if (semMatch.length < 8) semMatch.push(inv.externalId!);
+                  if (exemplos.length < 10) exemplos.push({ nome: (inv as { customer?: { nome?: string } }).customer?.nome ?? '—', valor: Number(inv.valor), vencimento: inv.vencimento });
+                }
+              }
               continue;
             }
             if (p.status === 'PAGA') {
@@ -134,7 +153,21 @@ export class ReconciliationService {
         await this.sleep(250);
       }
     }
-    return { verificadas, baixadas, reclassificadas, naoEncontradas, exemplos, naoEncontradasIds };
+    return { verificadas, baixadas, reclassificadas, canceladas, naoEncontradas, exemplos, naoEncontradasIds };
+  }
+
+  /** Espelha uma exclusão confirmada no gateway e interrompe cobranças pendentes. */
+  private async cancelarRemovida(tenantId: string, invoiceId: string): Promise<boolean> {
+    const r = await this.prisma.invoice.updateMany({
+      where: { id: invoiceId, tenantId, status: { in: ['PENDENTE', 'VENCIDA'] } },
+      data: { status: 'CANCELADA', pixCopiaCola: null, boletoLinha: null, boletoUrl: null, linkPagamento: null },
+    });
+    if (!r.count) return false;
+    await this.prisma.messageDispatch.updateMany({
+      where: { tenantId, invoiceId, status: 'FILA' },
+      data: { status: 'IGNORADO', erro: 'Cobrança cancelada (removida no gateway)' },
+    });
+    return true;
   }
 
   /** Baixa + pausa régua + confirmação (mesma lógica do webhook). */

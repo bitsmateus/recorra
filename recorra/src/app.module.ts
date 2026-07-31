@@ -21,6 +21,7 @@ import { RiskModule } from '@/modules/risk/risk.module';
 import { ImportsModule } from '@/modules/imports/imports.module';
 import { SettingsModule } from '@/modules/settings/settings.module';
 import { IngestModule } from '@/modules/ingest/ingest.module';
+import { PublicApiModule } from '@/modules/public-api/public-api.module';
 import { PlatformModule } from '@/modules/platform/platform.module';
 import { DispatchesModule } from '@/modules/dispatches/dispatches.module';
 import { TutorialsModule } from '@/modules/tutorials/tutorials.module';
@@ -78,6 +79,7 @@ import { HealthController } from '@/health.controller';
     ImportsModule,
     SettingsModule,
     IngestModule,
+    PublicApiModule,
     PlatformModule,
     DispatchesModule,
     TutorialsModule,
