@@ -7,6 +7,7 @@ import { PlatformGuard, PlatformPayload } from './platform.guard';
 import { BillingSaasService } from './billing-saas.service';
 import { PlatformAsaasService } from './platform-asaas.service';
 import { ApiKeyService } from '@/modules/ingest/api-key.service';
+import { API_SCOPES } from '@/modules/public-api/scopes';
 
 @Controller('admin')
 export class PlatformController {
@@ -18,6 +19,13 @@ export class PlatformController {
   ) {}
 
   // ----- Tokens de PLATAFORMA (superadmin): API pública /api/v1/tenants etc. -----
+  /** Escopos que um token de plataforma pode receber (os de plataforma). */
+  @Get('api-keys/scopes')
+  @UseGuards(PlatformGuard)
+  apiKeyScopes() {
+    return API_SCOPES.filter((s) => s.plataforma);
+  }
+
   @Get('api-keys')
   @UseGuards(PlatformGuard)
   listApiKeys() {

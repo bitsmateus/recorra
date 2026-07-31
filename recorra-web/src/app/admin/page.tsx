@@ -2,12 +2,12 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { LogOut, Plus, Pencil, Trash2, X, KeyRound, UserPlus, ShieldCheck, MailCheck } from 'lucide-react';
+import { LogOut, Plus, Pencil, Trash2, X, KeyRound, UserPlus, ShieldCheck, MailCheck, Copy, Check } from 'lucide-react';
 import { adminApi, getAdminToken, clearAdminToken } from '@/lib/adminApi';
 import { Logo } from '@/components/Logo';
 import { Metric, brl } from '@/components/ui';
 
-type Tab = 'dashboard' | 'relatorios' | 'tenants' | 'financeiro' | 'planos' | 'tutoriais' | 'admins';
+type Tab = 'dashboard' | 'relatorios' | 'tenants' | 'financeiro' | 'planos' | 'tutoriais' | 'admins' | 'api';
 const TABS: { id: Tab; label: string }[] = [
   { id: 'dashboard', label: 'Dashboard' },
   { id: 'relatorios', label: 'Relatórios' },
@@ -16,6 +16,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'planos', label: 'Planos' },
   { id: 'tutoriais', label: 'Tutoriais' },
   { id: 'admins', label: 'Admins' },
+  { id: 'api', label: 'API' },
 ];
 
 export default function AdminPage() {
@@ -57,6 +58,7 @@ export default function AdminPage() {
         {tab === 'planos' && <PlanosTab />}
         {tab === 'tutoriais' && <TutoriaisTab />}
         {tab === 'admins' && <AdminsTab />}
+        {tab === 'api' && <ApiTokensTab />}
       </main>
     </div>
   );
@@ -846,6 +848,119 @@ function AdminsTab() {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ---- Tokens de plataforma (criam/gerenciam tenants via API /api/v1/tenants) ----
+interface PlatformToken { id: string; nome: string; prefixo: string; scopes: string[]; ativo: boolean; expiraEm?: string | null; ultimoUso?: string | null; createdAt: string }
+interface ApiScope { scope: string; label: string }
+const apiBaseAdmin = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api').replace(/\/$/, '');
+const dataHoraAdmin = (s?: string | null) => (s ? new Date(s).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—');
+
+function ApiTokensTab() {
+  const [tokens, setTokens] = useState<PlatformToken[]>([]);
+  const [scopes, setScopes] = useState<ApiScope[]>([]);
+  const [nome, setNome] = useState('');
+  const [sel, setSel] = useState<Set<string>>(new Set());
+  const [expiraEm, setExpiraEm] = useState('');
+  const [novo, setNovo] = useState<string | null>(null);
+  const [copiado, setCopiado] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(() => {
+    adminApi<PlatformToken[]>('/admin/api-keys').then(setTokens).catch(() => {});
+    adminApi<ApiScope[]>('/admin/api-keys/scopes').then(setScopes).catch(() => {});
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const toggle = (s: string) => setSel((p) => { const n = new Set(p); n.has(s) ? n.delete(s) : n.add(s); return n; });
+
+  async function criar() {
+    if (!nome.trim()) return setMsg('Dê um nome ao token.');
+    if (sel.size === 0) return setMsg('Selecione ao menos uma permissão.');
+    setBusy(true); setMsg('');
+    try {
+      const r = await adminApi<{ apiKey: string }>('/admin/api-keys', { method: 'POST', body: { nome: nome.trim(), scopes: [...sel], expiraEm: expiraEm || null } });
+      setNovo(r.apiKey); setCopiado(false); setNome(''); setSel(new Set()); setExpiraEm(''); load();
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro ao criar token'); }
+    setBusy(false);
+  }
+  async function revogar(id: string) {
+    if (!window.confirm('Revogar este token de plataforma?')) return;
+    await adminApi(`/admin/api-keys/${id}`, { method: 'DELETE' }).catch(() => {});
+    load();
+  }
+  function copiar() {
+    if (!novo) return;
+    navigator.clipboard?.writeText(novo).then(() => { setCopiado(true); setTimeout(() => setCopiado(false), 2000); }).catch(() => {});
+  }
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-ink"><KeyRound size={16} className="text-primary" /> Tokens de plataforma</h2>
+        <p className="mt-1 text-xs text-muted">Tokens de superadmin para a API <code className="rounded bg-canvas px-1 text-ink">/api/v1/tenants</code> (criar/listar tenants). Acesse com o header <code className="rounded bg-canvas px-1 text-ink">x-api-key</code>.</p>
+      </div>
+
+      {novo && (
+        <div className="rounded-lg border border-primary/40 bg-primary-tint/40 p-4">
+          <div className="mb-2 flex items-center justify-between"><h3 className="text-sm font-semibold text-ink">Token criado — copie agora</h3><button onClick={() => setNovo(null)} className="rounded p-1 text-muted hover:bg-canvas"><X size={16} /></button></div>
+          <p className="mb-2 text-xs text-muted">Não será exibido de novo. Guarde num lugar seguro.</p>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 overflow-x-auto rounded border border-line bg-surface px-3 py-2 text-sm text-ink">{novo}</code>
+            <button onClick={copiar} className="flex shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-white hover:bg-primary-hover">{copiado ? <Check size={15} /> : <Copy size={15} />} {copiado ? 'Copiado' : 'Copiar'}</button>
+          </div>
+        </div>
+      )}
+
+      <div className="rounded-lg border border-line bg-surface p-4">
+        <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-ink"><Plus size={16} className="text-primary" /> Criar token</h3>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <label className="block md:col-span-2"><span className="mb-1 block text-xs text-muted">Nome</span><input value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex.: Provisionamento de contas" className="w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" /></label>
+          <label className="block"><span className="mb-1 block text-xs text-muted">Expira em (opcional)</span><input type="date" value={expiraEm} onChange={(e) => setExpiraEm(e.target.value)} className="w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" /></label>
+        </div>
+        <div className="mt-3">
+          <span className="mb-1.5 block text-xs text-muted">Permissões</span>
+          <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+            {scopes.map((s) => (
+              <label key={s.scope} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition ${sel.has(s.scope) ? 'border-primary bg-primary-tint/50 text-ink' : 'border-line hover:bg-canvas'}`}>
+                <input type="checkbox" checked={sel.has(s.scope)} onChange={() => toggle(s.scope)} className="h-4 w-4 accent-primary" />
+                <span className="flex-1">{s.label}</span><code className="text-[11px] text-muted">{s.scope}</code>
+              </label>
+            ))}
+            {scopes.length === 0 && <span className="text-xs text-muted">Carregando…</span>}
+          </div>
+        </div>
+        {msg && <p className="mt-2 text-sm text-danger">{msg}</p>}
+        <button onClick={criar} disabled={busy} className="mt-3 flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-60"><KeyRound size={15} /> {busy ? 'Criando…' : 'Criar token'}</button>
+      </div>
+
+      <div className="overflow-hidden rounded-lg border border-line bg-surface">
+        <div className="border-b border-line px-4 py-3 text-sm font-semibold text-ink">Tokens ativos</div>
+        <div className="w-full overflow-x-auto"><table className="w-full min-w-[560px] text-sm">
+          <thead className="border-b border-line bg-canvas text-left text-xs uppercase text-muted"><tr><th className="px-4 py-2.5 font-medium">Nome</th><th className="px-4 py-2.5 font-medium">Prefixo</th><th className="px-4 py-2.5 font-medium">Permissões</th><th className="px-4 py-2.5 font-medium">Último uso</th><th className="px-4 py-2.5 font-medium text-right">Ações</th></tr></thead>
+          <tbody>
+            {tokens.filter((t) => t.ativo).map((t) => (
+              <tr key={t.id} className="border-b border-line last:border-0">
+                <td className="px-4 py-3 font-medium text-ink">{t.nome}</td>
+                <td className="px-4 py-3"><code className="text-xs text-muted">{t.prefixo}…</code></td>
+                <td className="px-4 py-3"><div className="flex flex-wrap gap-1">{t.scopes.map((s) => <code key={s} className="rounded bg-canvas px-1.5 py-0.5 text-[11px] text-muted">{s}</code>)}</div></td>
+                <td className="px-4 py-3 text-muted">{dataHoraAdmin(t.ultimoUso)}</td>
+                <td className="px-4 py-3 text-right"><button onClick={() => revogar(t.id)} title="Revogar" className="rounded p-1.5 text-muted hover:bg-danger-tint hover:text-danger"><Trash2 size={15} /></button></td>
+              </tr>
+            ))}
+            {tokens.filter((t) => t.ativo).length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-muted">Nenhum token de plataforma ativo.</td></tr>}
+          </tbody>
+        </table></div>
+      </div>
+
+      <pre className="overflow-x-auto rounded-lg border border-line bg-canvas p-3 text-xs text-ink">{`# Criar um tenant via API
+curl -s -X POST "${apiBaseAdmin}/v1/tenants" \\
+  -H "x-api-key: SEU_TOKEN_DE_PLATAFORMA" \\
+  -H "Content-Type: application/json" \\
+  -d '{"empresa":"Acme LTDA","nome":"Dono","email":"dono@acme.com","senha":"senha-forte"}'`}</pre>
     </div>
   );
 }
