@@ -72,6 +72,25 @@ export const HELP_TOPICS: HelpTopic[] = [
     ],
   },
   {
+    id: 'api-tokens', section: 'Integrações', title: 'API e tokens de acesso',
+    summary: 'Integre sistemas externos à API pública do Recorrai (/api/v1) com tokens por escopo.',
+    steps: [
+      'Abra Configurações > API.',
+      'Em "Criar token", dê um nome, marque as permissões (escopos) e, se quiser, uma data de expiração.',
+      'Copie o token na hora — ele é exibido uma única vez.',
+      'Envie o token no header "x-api-key" em cada requisição para a base da API.',
+      'Consulte a "Referência da API" na mesma tela para ver todos os endpoints (método, caminho, escopo).',
+    ],
+    rules: [
+      'O token é guardado apenas como hash: se perder, revogue e gere outro.',
+      'Cada rota exige um escopo específico (ex.: clientes:read, cobrancas:write); o token só acessa o que os escopos permitem.',
+      'Tokens do tenant só acessam os dados do próprio tenant.',
+      'Criar tenants exige um token de PLATAFORMA, gerado pelo superadmin — não pela tela do tenant.',
+      'Revogar um token o desativa na hora; integrações que o usam param de funcionar.',
+    ],
+    keywords: ['api', 'token', 'integração', 'x-api-key', 'endpoint', 'escopo', 'webhook', 'rest'],
+  },
+  {
     id: 'integracoes-erp', section: 'Integrações', title: 'Integrações com ERP',
     summary: 'Sincronização de clientes e títulos abertos vindos do sistema de gestão.',
     steps: ['Abra Configurações > Integrações.', 'Escolha o ERP disponível e informe URL/token exigidos.', 'Salve e use Testar.', 'Clique em Sincronizar para trazer clientes e cobranças.', 'Revise o resultado nas telas de Clientes e Cobranças.'],
