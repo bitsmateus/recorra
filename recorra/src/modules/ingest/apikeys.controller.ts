@@ -19,6 +19,7 @@ export class ApiKeysController {
   }
 
   @Get()
+  @Roles('OWNER', 'ADMIN')
   list(@TenantId() tenantId: string) {
     return this.keys.list(tenantId);
   }

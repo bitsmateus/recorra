@@ -5,6 +5,7 @@ import { venceuAntesDeHoje } from '@/modules/connectors/source-connector.interfa
 import { onlyDigits } from '@/common/util/normalize';
 import { isValidCpfCnpj, isValidEmail, toE164BR } from '@/common/util/validators';
 import { ApiKeyGuard } from './api-key.guard';
+import { Scopes } from '@/common/auth/scopes.decorator';
 
 interface IngestCustomer {
   nome: string;
@@ -41,6 +42,7 @@ export class IngestController {
   }
 
   @Post('clientes')
+  @Scopes('clientes:write')
   async clientes(@Req() req: Request, @Body('clientes') clientes: IngestCustomer[]) {
     const tenantId = this.tenant(req);
     if (clientes != null && !Array.isArray(clientes)) {
@@ -93,6 +95,7 @@ export class IngestController {
   }
 
   @Post('faturas')
+  @Scopes('cobrancas:write')
   async faturas(@Req() req: Request, @Body('faturas') faturas: IngestInvoice[]) {
     const tenantId = this.tenant(req);
     if (faturas != null && !Array.isArray(faturas)) {

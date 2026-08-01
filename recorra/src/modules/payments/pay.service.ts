@@ -11,7 +11,7 @@ const COR_PADRAO = '#0f6e56';
 /** Cor hex válida ou o padrão — a cor entra no CSS, então precisa ser segura. */
 const corSegura = (c?: string) => (/^#[0-9a-f]{3}([0-9a-f]{3})?$/i.test((c ?? '').trim()) ? (c as string).trim() : COR_PADRAO);
 /** Só http(s) vira src/href — evita javascript:/data: na página. */
-const urlSegura = (u?: string) => (/^https?:\/\//i.test((u ?? '').trim()) ? (u as string).trim() : null);
+export const urlSegura = (u?: string) => (/^https?:\/\//i.test((u ?? '').trim()) ? (u as string).trim() : null);
 
 /** Site da Recorrai para o selo no rodapé (promoção para o cliente final). */
 const RECORRAI_SITE = 'https://recorrai.com.br';
@@ -50,10 +50,13 @@ export class PayService {
     if (!invoiceId) return null;
     const inv = await this.prisma.invoice.findUnique({ where: { id: invoiceId }, select: { id: true, tenantId: true, boletoUrl: true } });
     if (!inv) return null;
-    if (inv.boletoUrl) return inv.boletoUrl;
+    // urlSegura: o boleto vem do ERP/gateway ou da ingestão externa, sem garantia
+    // de esquema. Redirecionar para um `javascript:`/`data:` cru seria transformar
+    // a nossa origem em vetor de ataque contra o cliente final.
+    if (inv.boletoUrl) return urlSegura(inv.boletoUrl);
     try {
       const d = await this.charges.buscarPagamento(inv.tenantId, inv.id);
-      return d.boletoUrl ?? null;
+      return urlSegura(d.boletoUrl ?? undefined);
     } catch {
       return null;
     }
@@ -74,12 +77,13 @@ export class PayService {
 
     // Garante Pix/boleto atualizados (busca no SGP/gateway se ainda não tiver).
     let pix = inv.pixCopiaCola;
-    let boletoUrl = inv.boletoUrl;
+    // Só http(s) vira href — ver urlSegura. O dado vem do ERP/gateway/ingestão.
+    let boletoUrl = urlSegura(inv.boletoUrl ?? undefined);
     let boletoLinha = inv.boletoLinha;
     try {
       const d = await this.charges.buscarPagamento(inv.tenantId, inv.id);
       pix = d.pixCopiaCola ?? pix;
-      boletoUrl = d.boletoUrl ?? boletoUrl;
+      boletoUrl = urlSegura(d.boletoUrl ?? undefined) ?? boletoUrl;
       boletoLinha = d.boletoLinha ?? boletoLinha;
     } catch { /* segue com o que já tem salvo */ }
 

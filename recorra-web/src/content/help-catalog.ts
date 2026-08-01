@@ -84,6 +84,9 @@ export const HELP_TOPICS: HelpTopic[] = [
     rules: [
       'O token é guardado apenas como hash: se perder, revogue e gere outro.',
       'Cada rota exige um escopo específico (ex.: clientes:read, cobrancas:write); o token só acessa o que os escopos permitem.',
+      'As rotas de ingestão também exigem escopo: /api/ingest/clientes pede clientes:write e /api/ingest/faturas pede cobrancas:write. Um token somente-leitura não grava por elas. Tokens antigos criados sem esses escopos param de ingerir e precisam ser recriados com a permissão de escrita.',
+      'Pela API, criar usuário só concede papéis operacionais (Financeiro, Operador, Leitura). Conceder Administrador ou Proprietário exige o painel, com login humano — assim um token de usuários não vira controle total da empresa.',
+      'Somente Proprietário e Administrador veem, criam ou revogam tokens.',
       'Tokens do tenant só acessam os dados do próprio tenant.',
       'Criar tenants exige um token de PLATAFORMA, gerado pelo superadmin — não pela tela do tenant.',
       'Revogar um token o desativa na hora; integrações que o usam param de funcionar.',
