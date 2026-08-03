@@ -1063,13 +1063,24 @@ export class CampaignsService {
   }
 
   /**
-   * Enfileira os disparos no BullMQ, com atraso escalonado para respeitar o intervalo
-   * entre mensagens. Usar a fila (jobId = id do disparo) evita duplicação: o worker é o
-   * único processador e o agendador (cron) não cria job repetido para o mesmo disparo.
+   * Escalona os disparos no tempo, um a cada `delaySeg`.
+   *
+   * O espaçamento é gravado em `agendadoPara` — e NÃO como delay de job do
+   * BullMQ. O envio deixou de passar pela fila: quem manda é o cron
+   * (`processQueue`), que lê os FILA por `agendadoPara <= agora`. Com o atraso só
+   * no job, o cron varria e mandava o lote inteiro de uma vez, e o intervalo
+   * anti-banimento configurado na campanha não valia nada.
    */
   private async enviarComDelay(ids: string[], delaySeg: number) {
+    const passo = Math.max(0, delaySeg) * 1000;
+    const base = Date.now();
     for (let i = 0; i < ids.length; i++) {
-      try { await this.dispatchQueue.enqueue(ids[i], i * (delaySeg > 0 ? delaySeg : 0) * 1000); } catch { /* erro já registrado no disparo */ }
+      try {
+        await this.prisma.messageDispatch.update({
+          where: { id: ids[i] },
+          data: { agendadoPara: new Date(base + i * passo) },
+        });
+      } catch { /* erro já registrado no disparo */ }
     }
   }
 

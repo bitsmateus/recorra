@@ -104,6 +104,13 @@ export class SaveRuleDto {
   @IsInt()
   maxMsgsDia?: number;
 
+  // Espaçamento entre mensagens do lote (anti-banimento). 0 = rajada.
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(600)
+  delaySegundos?: number;
+
   @IsOptional()
   @IsBoolean()
   roteamentoPorCusto?: boolean;

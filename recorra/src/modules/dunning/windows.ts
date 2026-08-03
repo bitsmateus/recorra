@@ -72,6 +72,24 @@ export function zonedSlotToUtc(base: Date, timeZone: string, addDias: number, ho
   return new Date(inst);
 }
 
+/**
+ * Empurra um instante para dentro da janela de envio: devolve o próprio instante
+ * se já é permitido, senão o início do próximo slot válido (no fuso do tenant).
+ *
+ * É o que sustenta o espaçamento entre mensagens: o motor avança um cursor de
+ * `delaySegundos` a cada disparo e passa por aqui: quando o lote encosta no fim
+ * do dia, o restante cai no início do próximo dia útil em vez de sair de
+ * madrugada — hora em que cobrança nem pode ser feita.
+ */
+export function dentroDaJanelaOuProximo(d: Date, timeZone: string, cfg: WindowConfig): Date {
+  const p = tzParts(d, timeZone);
+  // Dia da semana do calendário LOCAL: montar como UTC evita o fuso do servidor.
+  const diaSemana = new Date(Date.UTC(p.year, p.month - 1, p.day)).getUTCDay();
+  if (isWithinWindow(p.hour, diaSemana, cfg)) return d;
+  const slot = nextAllowedSlot(p.hour, diaSemana, cfg);
+  return zonedSlotToUtc(d, timeZone, slot.addDias, slot.hora);
+}
+
 /** Verdadeiro se ainda cabe envio no limite diário (0/undefined = sem limite). */
 export function withinDailyLimit(enviadosHoje: number, maxPorDia?: number | null): boolean {
   if (!maxPorDia || maxPorDia <= 0) return true;

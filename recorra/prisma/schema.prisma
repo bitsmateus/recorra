@@ -528,6 +528,9 @@ model DunningRule {
   janelaFim        Int     @default(20)
   diasUteisSomente Boolean @default(false)
   maxMsgsDia       Int?
+  // Espaçamento entre mensagens do lote diário (anti-banimento do WhatsApp).
+  // 0 = sem espaçamento (rajada).
+  delaySegundos    Int     @default(30)
 
   roteamentoPorCusto Boolean @default(false)
 

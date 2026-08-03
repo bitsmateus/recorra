@@ -352,6 +352,7 @@ export class RulesService {
         janelaFim: dto.janelaFim ?? 20,
         diasUteisSomente: dto.diasUteisSomente ?? false,
         maxMsgsDia: dto.maxMsgsDia ?? null,
+        delaySegundos: dto.delaySegundos ?? 30,
         roteamentoPorCusto: dto.roteamentoPorCusto ?? false,
         ativo: dto.ativo ?? true,
         steps: {
@@ -391,6 +392,7 @@ export class RulesService {
         janelaFim: dto.janelaFim ?? 20,
         diasUteisSomente: dto.diasUteisSomente ?? false,
         maxMsgsDia: dto.maxMsgsDia ?? null,
+        delaySegundos: dto.delaySegundos ?? 30,
         roteamentoPorCusto: dto.roteamentoPorCusto ?? false,
         ativo: dto.ativo ?? true,
         steps: {

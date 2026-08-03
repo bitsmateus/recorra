@@ -37,6 +37,7 @@ interface Rule {
   janelaFim?: number;
   diasUteisSomente?: boolean;
   maxMsgsDia?: number | null;
+  delaySegundos?: number;
   roteamentoPorCusto?: boolean;
   ativo?: boolean;
   steps: Step[];
@@ -95,6 +96,15 @@ function maxVarPos(corpo: string): number {
 /** Troca cada {{k}} do corpo pela variável Recorrai mapeada (mantém {{k}} se ainda não mapeada). */
 function aplicarMapa(corpo: string, mapa: string[]): string {
   return corpo.replace(/\{\{\s*(\d+)\s*\}\}/g, (_m, n) => mapa[Number(n) - 1] || `{{${n}}}`);
+}
+
+/** Traduz o intervalo em ritmo por hora e capacidade da janela — o número sozinho não diz nada. */
+function ritmo(rule: Rule): string {
+  const seg = rule.delaySegundos ?? 30;
+  if (seg <= 0) return 'Sem espaçamento: o lote inteiro sai de uma vez.';
+  const horas = Math.max(0, (rule.janelaFim ?? 20) - (rule.janelaInicio ?? 9));
+  const porHora = Math.floor(3600 / seg);
+  return `A ${seg}s, saem ~${porHora} mensagens/hora — até ~${porHora * horas} na janela de ${horas}h.`;
 }
 
 function novaRegua(): Rule {
@@ -295,6 +305,7 @@ export default function ReguasPage() {
       janelaFim: sel.janelaFim,
       diasUteisSomente: sel.diasUteisSomente,
       maxMsgsDia: sel.maxMsgsDia ?? undefined,
+      delaySegundos: sel.delaySegundos ?? 30,
       roteamentoPorCusto: sel.roteamentoPorCusto,
       ativo: sel.ativo,
       steps: sel.steps.map((s, i) => ({
@@ -612,9 +623,17 @@ function FlowEditor({
         <label className="text-sm"><span className="mb-1 block text-xs text-muted">Máx. msgs/dia</span>
           <input type="number" min={0} value={rule.maxMsgsDia ?? ''} placeholder="sem limite" onChange={(e) => update({ maxMsgsDia: e.target.value ? Number(e.target.value) : null })} className="w-28 rounded border border-line px-2 py-1.5 text-sm outline-none focus:border-primary" />
         </label>
+        <label className="text-sm"><span className="mb-1 block text-xs text-muted">Intervalo entre msgs (s)</span>
+          <input type="number" min={0} max={600} value={rule.delaySegundos ?? 30} onChange={(e) => update({ delaySegundos: Number(e.target.value) })} className="w-28 rounded border border-line px-2 py-1.5 text-sm outline-none focus:border-primary" />
+        </label>
         <label className="flex items-center gap-2 pb-1.5 text-sm text-muted">
           <input type="checkbox" checked={!!rule.diasUteisSomente} onChange={(e) => update({ diasUteisSomente: e.target.checked })} /> Só dias úteis
         </label>
+        <p className="w-full text-xs text-muted">
+          O intervalo espaça o lote do dia para não sair em rajada — o que derruba a qualidade do número no
+          WhatsApp oficial. {ritmo(rule)} Se o lote não couber na janela de horário, o restante continua no
+          próximo dia útil. <b>0</b> desliga o espaçamento.
+        </p>
       </div>
 
       {/* Pré-visualização da linha do tempo */}
