@@ -378,6 +378,9 @@ model SourceIntegration {
   ultimaSync  DateTime?
   status      String       @default("pendente")
   ativo       Boolean      @default(true)
+  // Janela de importação: só cria cobrança para faturas vencidas nos últimos N
+  // dias. null = sem limite (traz o passivo histórico inteiro do ERP).
+  diasHistorico Int?
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 

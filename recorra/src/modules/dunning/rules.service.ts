@@ -21,6 +21,9 @@ export interface AndamentoCard {
   status?: string;
 }
 
+/** Teto de cards lidos pela esteira — acima disso a tela avisa que está truncada. */
+const TETO_CARDS = 3000;
+
 /** Rótulo do passo da régua a partir do offset em dias (relativo ao vencimento). */
 function labelOffset(o: number): string {
   if (o < 0) return `${Math.abs(o)} dia${Math.abs(o) > 1 ? 's' : ''} antes`;
@@ -157,14 +160,17 @@ export class RulesService {
     const filtroCliente = { ativo: true, ...(faixa ? { faixaAtual: faixa } : {}) };
 
     const seteDias = new Date(Date.now() - 7 * 86400000);
-    const [abertas, encerradas] = await Promise.all([
+    const whereAbertas: Prisma.InvoiceWhereInput = {
+      // Inclui PAUSADA para o card mostrar o estado e permitir retomar (a régua só
+      // dispara nas ATIVAS; a pausada fica visível mas parada na sua etapa).
+      tenantId, status: { in: ['PENDENTE', 'VENCIDA'] }, gestaoCobranca: { in: ['ATIVA', 'PAUSADA'] }, contestada: false, customer: filtroCliente,
+    };
+    const [abertas, encerradas, totalAbertas] = await Promise.all([
       this.prisma.invoice.findMany({
-        // Inclui PAUSADA para o card mostrar o estado e permitir retomar (a régua só
-        // dispara nas ATIVAS; a pausada fica visível mas parada na sua etapa).
-        where: { tenantId, status: { in: ['PENDENTE', 'VENCIDA'] }, gestaoCobranca: { in: ['ATIVA', 'PAUSADA'] }, contestada: false, customer: filtroCliente },
+        where: whereAbertas,
         include: { customer: { select: { id: true, nome: true, telefone: true, email: true } } },
         orderBy: { vencimento: 'asc' },
-        take: 3000,
+        take: TETO_CARDS,
       }),
       this.prisma.invoice.findMany({
         where: { tenantId, status: { in: ['PAGA', 'CANCELADA'] }, updatedAt: { gte: seteDias }, customer: filtroCliente },
@@ -172,6 +178,7 @@ export class RulesService {
         orderBy: { updatedAt: 'desc' },
         take: 200,
       }),
+      this.prisma.invoice.count({ where: whereAbertas }),
     ]);
 
     // Último disparo por fatura (status + quando) para enriquecer o card.
@@ -230,6 +237,12 @@ export class RulesService {
       regua: { id: regua.id, nome: regua.nome, steps: regua.steps.map((s) => ({ offsetDias: s.offsetDias, canal: s.canal })) },
       reguas: opcoesReguas,
       usarFaixaRisco,
+      // A esteira lê no máximo TETO_CARDS faturas. Sem avisar, a tela mostrava o
+      // teto como se fosse o total e escondia o resto — quem tem passivo grande
+      // tomava decisão em cima de um número truncado.
+      totalAbertas,
+      truncado: totalAbertas > abertas.length,
+      teto: TETO_CARDS,
       colunas: colunas.map((c) => ({ ...c, total: c.cards.length, valor: c.cards.reduce((s, x) => s + x.valor, 0) })),
     };
   }

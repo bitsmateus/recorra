@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { UIEvent } from 'react';
 import Link from 'next/link';
-import { RefreshCw, Loader2, CheckCircle2, Clock, XCircle, Phone, ExternalLink, Send, Pause, Play, Pause as PauseIcon, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, X, History, Search } from 'lucide-react';
+import { RefreshCw, Loader2, CheckCircle2, Clock, XCircle, Phone, ExternalLink, Send, Pause, Play, Pause as PauseIcon, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, X, History, Search, AlertTriangle } from 'lucide-react';
 import { api } from '@/lib/api';
 import { PageTitle, brl } from '@/components/ui';
 
@@ -19,6 +19,9 @@ interface Andamento {
   reguas: { id: string; nome: string; faixaRisco?: string | null }[];
   usarFaixaRisco: boolean;
   colunas: Coluna[];
+  totalAbertas?: number;
+  truncado?: boolean;
+  teto?: number;
 }
 
 const CARDS_POR_LOTE = 30;
@@ -271,6 +274,17 @@ export default function AndamentoPage() {
 
       {!loading && dados?.regua && (
         <>
+          {dados.truncado && (
+            <div className="mb-3 flex items-start gap-2 rounded-lg bg-warning-tint p-3 text-sm text-[#854F0B]">
+              <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+              <span>
+                Você tem <b>{dados.totalAbertas}</b> faturas em aberto, mas a esteira mostra só as <b>{dados.teto}</b> mais
+                antigas. Um passivo desse tamanho quase sempre é histórico importado do ERP —
+                defina a janela de importação em <Link href="/integracoes" className="underline">Integrações</Link> e
+                aplique o corte no histórico.
+              </span>
+            </div>
+          )}
           <div className="mb-3 flex items-center justify-between gap-3">
             <p className="text-sm text-muted">Régua <b className="text-ink">{dados.regua.nome}</b> · <b className="text-ink">{totalAbertas}</b> fatura(s) em aberto.</p>
             <div className="flex shrink-0 items-center gap-2">

@@ -1,5 +1,6 @@
-import { IsArray, IsBoolean, IsIn, IsObject, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsBoolean, IsIn, IsInt, IsObject, IsOptional, IsString, Max, Min } from 'class-validator';
 import { ChannelType, PaymentProviderType, SourceSystem } from '@prisma/client';
+import { DIAS_HISTORICO_MAX } from '@/modules/connectors/sync-janela';
 
 export class CreateIntegrationDto {
   @IsIn(['IXC', 'SGP', 'HUBSOFT', 'VOALLE', 'MKAUTH', 'CSV', 'API'])
@@ -11,6 +12,13 @@ export class CreateIntegrationDto {
   // token e credenciais específicas do ERP (serão cifradas)
   @IsObject()
   credentials!: Record<string, unknown>;
+
+  // Janela de importação em dias. null = sem limite (traz o histórico inteiro).
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(DIAS_HISTORICO_MAX)
+  diasHistorico?: number | null;
 }
 
 export class UpdateIntegrationDto {
@@ -22,6 +30,12 @@ export class UpdateIntegrationDto {
   @IsOptional()
   @IsObject()
   credentials?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(DIAS_HISTORICO_MAX)
+  diasHistorico?: number | null;
 }
 
 export class CreatePaymentAccountDto {

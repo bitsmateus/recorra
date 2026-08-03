@@ -1,9 +1,10 @@
 import { Injectable, Logger, UnprocessableEntityException } from '@nestjs/common';
-import { InvoiceStatus } from '@prisma/client';
+import { InvoiceStatus, SourceSystem } from '@prisma/client';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { canTransition } from '@/modules/payments/invoice-status';
 import { ConnectorFactory } from './connector.factory';
 import { faturasQuitadasPorAusencia } from './sync-reconcile';
+import { dataCorte, dentroDaJanela } from './sync-janela';
 
 /**
  * Orquestra a sincronização de um sistema de origem para o Recorrai.
@@ -90,12 +91,12 @@ export class SyncService {
   async syncAll(tenantId: string, integrationId: string) {
     try {
       const clientes = await this.syncCustomers(tenantId, integrationId);
-      const { sincronizadas, quitadas } = await this.syncInvoices(tenantId, integrationId);
+      const { sincronizadas, quitadas, ignoradas } = await this.syncInvoices(tenantId, integrationId);
       await this.prisma.sourceIntegration.update({
         where: { id: integrationId },
         data: { ultimaSync: new Date(), status: 'ok' },
       });
-      return { clientes, faturas: sincronizadas, quitadas };
+      return { clientes, faturas: sincronizadas, quitadas, ignoradas };
     } catch (e) {
       const mensagem = e instanceof Error ? e.message : String(e);
       this.logger.error(`Falha na sincronização da integração ${integrationId}: ${mensagem}`);
@@ -167,7 +168,7 @@ export class SyncService {
     return count;
   }
 
-  async syncInvoices(tenantId: string, integrationId: string): Promise<{ sincronizadas: number; quitadas: number }> {
+  async syncInvoices(tenantId: string, integrationId: string): Promise<{ sincronizadas: number; quitadas: number; ignoradas: number }> {
     // Escopo por tenant: impede sincronizar integração de outro tenant (IDOR).
     const integ = await this.prisma.sourceIntegration.findFirstOrThrow({ where: { id: integrationId, tenantId } });
     const connector = await this.connectors.forIntegration(integrationId, tenantId);
@@ -178,14 +179,20 @@ export class SyncService {
     let count = 0;
     let erros = 0;
     let quitadas = 0;
+    let ignoradas = 0;
     // Guarda o motivo da falha para a tela poder mostrar (e não só 'falha').
     let detalhe: string | null = null;
+    const corte = dataCorte(integ.diasHistorico);
     try {
       const faturas = await connector.fetchOpenInvoices();
       const presentes = new Set<string>();
 
       for (const f of faturas) {
         try {
+          // `presentes` recebe TODAS as faturas do ERP, inclusive as de fora da
+          // janela: a conciliação por ausência compara contra este conjunto e,
+          // se a janela o encolhesse, quitaria por engano todo o histórico que
+          // já está na base. A janela decide o que ENTRA, nunca o que sai.
           presentes.add(f.externalId);
           const customer = await this.prisma.customer.findFirst({
             where: { tenantId, externalId: f.customerExternalId, sourceSystem: integ.sistema },
@@ -195,6 +202,10 @@ export class SyncService {
           const existing = await this.prisma.invoice.findFirst({
             where: { tenantId, sourceSystem: integ.sistema, sourceExternalId: f.externalId },
           });
+          // Fora da janela e ainda não importada: não vira cobrança nova. Quando
+          // já existe localmente seguimos atualizando — é assim que uma antiga
+          // que foi paga no ERP recebe baixa em vez de ficar aberta para sempre.
+          if (!existing && !dentroDaJanela(f.vencimento, corte)) { ignoradas++; continue; }
           const novoStatus = f.status as InvoiceStatus;
 
           if (existing) {
@@ -256,6 +267,11 @@ export class SyncService {
         }
         if (quitadas > 0) this.logger.log(`Conciliação por ausência (${integ.sistema}): ${quitadas} fatura(s) quitada(s)`);
       }
+      // Sem erro, o `detalhe` vira o aviso da janela — é o que a tela mostra para
+      // o usuário entender por que veio menos fatura do que o ERP tem.
+      if (ignoradas > 0 && corte) {
+        detalhe = `${ignoradas} fatura(s) fora da janela de ${integ.diasHistorico} dias (vencimento anterior a ${corte.toISOString().slice(0, 10)}) não foram importadas.`;
+      }
     } catch (e) {
       detalhe = (e instanceof Error ? e.message : String(e)).slice(0, 500);
       throw e;
@@ -265,7 +281,59 @@ export class SyncService {
         data: { quantidade: count, erros, detalhe, terminadoEm: new Date() },
       });
     }
-    return { sincronizadas: count, quitadas };
+    return { sincronizadas: count, quitadas, ignoradas };
+  }
+
+  /**
+   * Faturas antigas que JÁ entraram antes da janela existir. O corte no sync só
+   * impede novas: sem isto o passivo histórico continua na esteira e pode ser
+   * disparado em lote. Pausar (em vez de apagar) preserva o histórico contábil e
+   * é reversível pelo botão "Retomar" da esteira.
+   */
+  private whereAntigas(tenantId: string, sistema: SourceSystem, corte: Date) {
+    return {
+      tenantId,
+      sourceSystem: sistema,
+      status: { in: ['PENDENTE', 'VENCIDA'] as InvoiceStatus[] },
+      gestaoCobranca: 'ATIVA' as const,
+      vencimento: { lt: corte },
+    };
+  }
+
+  /** Quantas faturas antigas seriam pausadas — para a tela confirmar antes de aplicar. */
+  async previewAntigas(tenantId: string, integrationId: string) {
+    const integ = await this.prisma.sourceIntegration.findFirstOrThrow({ where: { id: integrationId, tenantId } });
+    const corte = dataCorte(integ.diasHistorico);
+    const emAberto = await this.prisma.invoice.count({
+      where: { tenantId, sourceSystem: integ.sistema, status: { in: ['PENDENTE', 'VENCIDA'] } },
+    });
+    if (!corte) return { diasHistorico: null, corte: null, emAberto, aPausar: 0 };
+    const aPausar = await this.prisma.invoice.count({ where: this.whereAntigas(tenantId, integ.sistema, corte) });
+    return { diasHistorico: integ.diasHistorico, corte, emAberto, aPausar };
+  }
+
+  /** Aplica o corte no que já está na base: pausa a cobrança das faturas antigas. */
+  async pausarAntigas(tenantId: string, integrationId: string) {
+    const integ = await this.prisma.sourceIntegration.findFirstOrThrow({ where: { id: integrationId, tenantId } });
+    const corte = dataCorte(integ.diasHistorico);
+    if (!corte) {
+      throw new UnprocessableEntityException('Defina a janela de importação (em dias) na integração antes de aplicar o corte.');
+    }
+    const alvo = await this.prisma.invoice.findMany({
+      where: this.whereAntigas(tenantId, integ.sistema, corte),
+      select: { id: true },
+    });
+    if (!alvo.length) return { pausadas: 0, corte };
+    const ids = alvo.map((i) => i.id);
+    const r = await this.prisma.invoice.updateMany({ where: { id: { in: ids } }, data: { gestaoCobranca: 'PAUSADA' } });
+    // Segura o que já estava enfileirado para essas faturas — pausar depois do
+    // disparo entrar na fila não adiantaria nada.
+    await this.prisma.messageDispatch.updateMany({
+      where: { tenantId, invoiceId: { in: ids }, status: 'FILA' },
+      data: { status: 'IGNORADO', erro: 'Fatura fora da janela de cobrança' },
+    });
+    this.logger.log(`Corte de histórico (${integ.sistema}): ${r.count} fatura(s) pausada(s) antes de ${corte.toISOString().slice(0, 10)}`);
+    return { pausadas: r.count, corte };
   }
 
   /** Baixa idempotente: marca PAGA e para a cobrança. Não repete se já estava paga. */

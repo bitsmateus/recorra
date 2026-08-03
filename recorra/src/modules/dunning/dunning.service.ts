@@ -272,6 +272,10 @@ export class DunningService {
     const invoice = await this.prisma.invoice.findFirst({ where: { id: invoiceId, tenantId }, include: { customer: true } });
     if (!invoice) throw new NotFoundException('Fatura não encontrada');
     if (invoice.status === 'PAGA' || invoice.status === 'CANCELADA') throw new BadRequestException('Fatura não está em aberto.');
+    // Pausada não dispara nem no manual. A esteira deixa selecionar a coluna
+    // inteira, e sem esta trava um clique reenviaria o histórico que foi pausado
+    // justamente para não ser cobrado. Retomar é explícito.
+    if (invoice.gestaoCobranca === 'PAUSADA') throw new BadRequestException('Cobrança pausada para esta fatura — retome antes de disparar.');
     const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
     const regras = await this.prisma.dunningRule.findMany({
       where: { tenantId, ativo: true },

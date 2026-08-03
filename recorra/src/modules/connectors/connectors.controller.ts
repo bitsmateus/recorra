@@ -26,4 +26,17 @@ export class ConnectorsController {
   syncStatus(@TenantId() tenantId: string, @Param('id') id: string) {
     return this.sync.syncStatus(tenantId, id);
   }
+
+  /** Quantas faturas antigas o corte de histórico pausaria (confirmação da tela). */
+  @Get(':id/corte-historico')
+  previewAntigas(@TenantId() tenantId: string, @Param('id') id: string) {
+    return this.sync.previewAntigas(tenantId, id);
+  }
+
+  /** Aplica o corte no que já foi importado: pausa a cobrança das faturas antigas. */
+  @Post(':id/corte-historico')
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
+  pausarAntigas(@TenantId() tenantId: string, @Param('id') id: string) {
+    return this.sync.pausarAntigas(tenantId, id);
+  }
 }

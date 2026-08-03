@@ -5,6 +5,7 @@ import { lerPagamentoRecebido } from '@/modules/payments/pagamento-recebido';
 import { CryptoService } from '@/common/crypto/crypto.service';
 import { ConnectorFactory } from '@/modules/connectors/connector.factory';
 import { PaymentProviderFactory } from '@/modules/payments/payment-provider.factory';
+import { DIAS_HISTORICO_PADRAO } from '@/modules/connectors/sync-janela';
 import { CreateIntegrationDto, UpdateIntegrationDto, CreatePaymentAccountDto, UpdatePaymentAccountDto, CreateChannelAccountDto, PagamentoRecebidoDto } from './dto/settings.dto';
 
 /**
@@ -36,6 +37,9 @@ export class SettingsService {
         urlBase: dto.urlBase,
         credentials: this.crypto.encryptJson({ ...dto.credentials, urlBase: dto.urlBase }),
         status: 'configurada',
+        // Integração nova já nasce com janela: sem ela, o primeiro sync traz o
+        // passivo histórico inteiro do ERP. `null` explícito = sem limite.
+        diasHistorico: dto.diasHistorico === undefined ? DIAS_HISTORICO_PADRAO : dto.diasHistorico,
       },
     });
     const { credentials, ...rest } = created;
@@ -51,9 +55,11 @@ export class SettingsService {
    */
   async updateIntegration(tenantId: string, id: string, dto: UpdateIntegrationDto) {
     const existing = await this.prisma.sourceIntegration.findFirstOrThrow({ where: { id, tenantId } });
-    const data: { urlBase?: string; credentials?: string; status?: string } = {};
+    const data: { urlBase?: string; credentials?: string; status?: string; diasHistorico?: number | null } = {};
 
     if (dto.urlBase !== undefined) data.urlBase = dto.urlBase;
+    // Só mexe na janela se o campo veio — ausente mantém o valor atual.
+    if (dto.diasHistorico !== undefined) data.diasHistorico = dto.diasHistorico;
     const urlBase = dto.urlBase ?? existing.urlBase ?? undefined;
 
     const hasNewCreds = dto.credentials && Object.keys(dto.credentials).length > 0;

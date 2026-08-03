@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { RefreshCw, Plus, Trash2, Pencil, X, Database } from 'lucide-react';
+import { RefreshCw, Plus, Trash2, Pencil, X, Database, CalendarClock, AlertTriangle } from 'lucide-react';
 import { api } from '@/lib/api';
 import { PageTitle } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -33,7 +33,12 @@ const ERPS: { id: string; nome: string; desc: string; campos: CampoCred[] }[] = 
   ] },
 ];
 
-interface Integracao { id: string; sistema: string; urlBase?: string | null; status: string }
+interface Integracao { id: string; sistema: string; urlBase?: string | null; status: string; diasHistorico?: number | null }
+
+// Janela de importação: quanto de passado o ERP pode trazer como cobrança nova.
+const JANELAS = [30, 60, 90, 180, 365];
+const DIAS_HISTORICO_PADRAO = 90;
+const janelaLabel = (d?: number | null) => (d == null ? 'sem limite' : `últimos ${d} dias`);
 
 export default function IntegracoesPage() {
   const [lista, setLista] = useState<Integracao[]>([]);
@@ -42,6 +47,7 @@ export default function IntegracoesPage() {
   const [editando, setEditando] = useState<Integracao | null>(null);
   const [msg, setMsg] = useState('');
   const [confirmarExclusao, setConfirmarExclusao] = useState<Integracao | null>(null);
+  const [corte, setCorte] = useState<Integracao | null>(null);
 
   const carregar = useCallback(async () => {
     setLoading(true);
@@ -134,7 +140,10 @@ export default function IntegracoesPage() {
                 </div>
               </div>
               {i.urlBase && <div className="mb-2 truncate font-mono text-[11px] text-muted">{i.urlBase}</div>}
-              <div className="mb-3"><StatusChip status={i.status} /></div>
+              <div className="mb-2 flex flex-wrap items-center gap-2"><StatusChip status={i.status} /><JanelaChip dias={i.diasHistorico} /></div>
+              <div className="mb-3">
+                <button onClick={() => setCorte(i)} className="flex items-center gap-1 text-xs text-primary hover:underline"><CalendarClock size={12} /> Aplicar corte no histórico já importado</button>
+              </div>
               <div className="flex gap-2">
                 <button onClick={() => testar(i.id)} disabled={testando === i.id} className="rounded border border-line px-3 py-1.5 text-xs hover:bg-canvas disabled:opacity-60">{testando === i.id ? 'Testando...' : 'Testar'}</button>
                 <button onClick={() => sincronizar(i.id)} disabled={sincronizando === i.id} className="flex items-center gap-1 rounded bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary-hover disabled:opacity-60"><RefreshCw size={12} className={sincronizando === i.id ? 'animate-spin' : ''} /> {sincronizando === i.id ? 'Sincronizando...' : 'Sincronizar'}</button>
@@ -147,6 +156,7 @@ export default function IntegracoesPage() {
 
       <GatewayPagamento />
 
+      {corte && <CorteHistoricoModal integracao={corte} onClose={() => setCorte(null)} onAplicado={(n) => { setCorte(null); setMsg(`✓ ${n} fatura(s) antiga(s) pausada(s) — saíram da cobrança automática.`); }} />}
       {novo && <NovaIntegracaoModal onClose={() => setNovo(false)} onCreated={() => { setNovo(false); carregar(); }} />}
       {editando && <NovaIntegracaoModal editando={editando} onClose={() => setEditando(null)} onCreated={() => { setEditando(null); carregar(); }} />}
       {confirmarExclusao && (
@@ -177,6 +187,90 @@ function StatusChip({ status }: { status: string }) {
   return <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${s.cls}`}>{s.label}</span>;
 }
 
+/** Janela de importação da integração. Sem limite é o estado de risco — destaca. */
+function JanelaChip({ dias }: { dias?: number | null }) {
+  const semLimite = dias == null;
+  return (
+    <span
+      title={semLimite
+        ? 'Sem janela: o sync traz todo o histórico em aberto do ERP, inclusive dívida antiga de contrato cancelado.'
+        : `Só entram faturas vencidas nos últimos ${dias} dias.`}
+      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${semLimite ? 'bg-warning-tint text-[#854F0B]' : 'bg-canvas text-muted'}`}
+    >
+      {semLimite ? <AlertTriangle size={11} /> : <CalendarClock size={11} />} Importa: {janelaLabel(dias)}
+    </span>
+  );
+}
+
+interface CortePreview { diasHistorico: number | null; corte: string | null; emAberto: number; aPausar: number }
+
+/**
+ * Aplica a janela ao que JÁ está na base. O corte no sync só impede faturas novas
+ * — o passivo importado antes continua na esteira até ser pausado aqui.
+ */
+function CorteHistoricoModal({ integracao, onClose, onAplicado }: { integracao: Integracao; onClose: () => void; onAplicado: (n: number) => void }) {
+  const [prev, setPrev] = useState<CortePreview | null>(null);
+  const [erro, setErro] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api<CortePreview>(`/integracoes/${integracao.id}/corte-historico`)
+      .then(setPrev)
+      .catch((e) => setErro(e instanceof Error ? e.message : 'Erro ao carregar'));
+  }, [integracao.id]);
+
+  async function aplicar() {
+    setBusy(true); setErro('');
+    try {
+      const r = await api<{ pausadas: number }>(`/integracoes/${integracao.id}/corte-historico`, { method: 'POST' });
+      onAplicado(r.pausadas);
+    } catch (e) { setErro(e instanceof Error ? e.message : 'Erro ao aplicar'); setBusy(false); }
+  }
+
+  const semJanela = prev && prev.diasHistorico == null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-lg">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-ink">Corte no histórico já importado</h2>
+          <button onClick={onClose} className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>
+        </div>
+        {!prev && !erro && <p className="py-6 text-sm text-muted">Calculando...</p>}
+        {prev && (
+          <div className="mb-4 space-y-3 text-sm">
+            {semJanela ? (
+              <p className="rounded-lg bg-warning-tint p-3 text-[#854F0B]">
+                Esta integração está <b>sem janela de importação</b>. Edite a integração e escolha uma janela
+                (ex.: últimos 90 dias) antes de aplicar o corte.
+              </p>
+            ) : (
+              <>
+                <p className="text-muted">Janela atual: <b className="text-ink">{janelaLabel(prev.diasHistorico)}</b> — corte em <b className="text-ink">{prev.corte ? new Date(prev.corte).toLocaleDateString('pt-BR') : '—'}</b>.</p>
+                <div className="rounded-lg border border-line bg-canvas p-3">
+                  <div className="flex justify-between py-0.5"><span className="text-muted">Faturas em aberto deste ERP</span><b className="tabular text-ink">{prev.emAberto}</b></div>
+                  <div className="flex justify-between py-0.5"><span className="text-muted">Serão pausadas (anteriores ao corte)</span><b className="tabular text-[#854F0B]">{prev.aPausar}</b></div>
+                  <div className="flex justify-between border-t border-line pt-1.5 mt-1.5"><span className="text-muted">Seguem em cobrança</span><b className="tabular text-primary">{prev.emAberto - prev.aPausar}</b></div>
+                </div>
+                <p className="text-xs text-muted">
+                  Pausar tira a fatura da cobrança automática e bloqueia o disparo manual — nada é apagado,
+                  nem aqui nem no ERP, e dá para retomar caso a caso pela Esteira.
+                </p>
+              </>
+            )}
+          </div>
+        )}
+        {erro && <p className="mb-3 text-sm text-danger">{erro}</p>}
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="rounded border border-line px-4 py-2 text-sm hover:bg-canvas">Cancelar</button>
+          <button onClick={aplicar} disabled={busy || !prev || semJanela || prev.aPausar === 0} className="rounded bg-primary px-5 py-2 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-60">
+            {busy ? 'Aplicando...' : `Pausar ${prev?.aPausar ?? 0} fatura(s)`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const inputCls = 'w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary';
 
 function NovaIntegracaoModal({ editando, onClose, onCreated }: { editando?: Integracao; onClose: () => void; onCreated: () => void }) {
@@ -184,6 +278,9 @@ function NovaIntegracaoModal({ editando, onClose, onCreated }: { editando?: Inte
   // Na edição o sistema é fixo (define o conector) e a URL já vem preenchida.
   const [sistema, setSistema] = useState(editando?.sistema ?? ERPS[0].id);
   const [urlBase, setUrlBase] = useState(editando?.urlBase ?? '');
+  // Na edição respeita o que está salvo (inclusive null = sem limite); nova já
+  // nasce com a janela padrão.
+  const [dias, setDias] = useState<number | null>(edicao ? editando!.diasHistorico ?? null : DIAS_HISTORICO_PADRAO);
   const [vals, setVals] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
@@ -206,11 +303,11 @@ function NovaIntegracaoModal({ editando, onClose, onCreated }: { editando?: Inte
     try {
       if (edicao) {
         // Sem credenciais preenchidas → mantém as atuais (backend só recifra se vier algo).
-        const body: Record<string, unknown> = { urlBase: urlBase.trim() };
+        const body: Record<string, unknown> = { urlBase: urlBase.trim(), diasHistorico: dias };
         if (Object.keys(credentials).length) body.credentials = credentials;
         await api(`/config/integracoes/${editando!.id}`, { method: 'PATCH', body });
       } else {
-        await api('/config/integracoes', { method: 'POST', body: { sistema, urlBase: urlBase.trim(), credentials } });
+        await api('/config/integracoes', { method: 'POST', body: { sistema, urlBase: urlBase.trim(), credentials, diasHistorico: dias } });
       }
       onCreated();
     } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro'); setBusy(false); }
@@ -233,6 +330,18 @@ function NovaIntegracaoModal({ editando, onClose, onCreated }: { editando?: Inte
 
         <label className="mb-3 block text-sm"><span className="mb-1 block text-xs text-muted">URL base</span>
           <input value={urlBase} onChange={(e) => setUrlBase(e.target.value)} placeholder="https://seu-erp.com.br" className={`${inputCls} font-mono text-xs`} />
+        </label>
+
+        <label className="mb-3 block text-sm"><span className="mb-1 block text-xs text-muted">Janela de importação</span>
+          <select value={String(dias ?? '')} onChange={(e) => setDias(e.target.value === '' ? null : Number(e.target.value))} className={inputCls}>
+            {JANELAS.map((d) => <option key={d} value={d}>Só faturas dos últimos {d} dias</option>)}
+            <option value="">Sem limite — trazer todo o histórico</option>
+          </select>
+          <span className="mt-1 block text-xs text-muted">
+            ERP de provedor guarda título em aberto para sempre. Sem janela, o primeiro sync traz o passivo
+            histórico inteiro (dívida de anos, de contrato já cancelado) e ele entra na esteira como cobrança
+            a fazer. A janela decide o que <b>entra</b> — nada é apagado no ERP.
+          </span>
         </label>
 
         {erp.campos.map((c) => (
