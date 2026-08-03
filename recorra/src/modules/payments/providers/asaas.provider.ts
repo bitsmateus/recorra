@@ -143,7 +143,9 @@ export class AsaasProvider implements PaymentProvider {
     const { data } = await this.http.get(`/payments/${externalId}`);
     return {
       externalId,
-      status: this.normalizeStatus(data.status),
+      // Cobrança excluída no Asaas volta com `deleted: true` (status às vezes ainda
+      // "PENDING"). Sem isto, a conciliação a via como pendente e seguia cobrando.
+      status: data.deleted === true ? 'CANCELADA' : this.normalizeStatus(data.status),
       pagoEm: data.paymentDate ? new Date(data.paymentDate) : undefined,
     };
   }
@@ -244,7 +246,7 @@ export class AsaasProvider implements PaymentProvider {
           customerExternalId: p.customer,
           valor: Number(p.value),
           vencimento: new Date(p.dueDate),
-          status: this.normalizeStatus(p.status),
+          status: p.deleted === true ? 'CANCELADA' : this.normalizeStatus(p.status),
           metodo: this.methodFromBillingType(p.billingType),
           descricao: p.description ?? undefined,
           linkPagamento: p.invoiceUrl ?? undefined,

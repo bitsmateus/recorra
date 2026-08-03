@@ -102,6 +102,8 @@ export class ReconciliationService {
                 const st = await this.statusComRetry(provider, inv.externalId!);
                 if (st?.status === 'PAGA') {
                   if (await this.baixar(tenantId, inv.id, inv.customerId, undefined, st.pagoEm)) baixadas++;
+                } else if (st && (st.status === 'CANCELADA' || st.status === 'ESTORNADA')) {
+                  if (await this.encerrarPorGateway(tenantId, inv.id, st.status)) canceladas++;
                 } else if (st && (st.status === 'PENDENTE' || st.status === 'VENCIDA') && st.status !== inv.status) {
                   await this.prisma.invoice.update({ where: { id: inv.id }, data: { status: st.status } });
                   reclassificadas++;
@@ -109,7 +111,7 @@ export class ReconciliationService {
               } catch (e: unknown) {
                 const statusHttp = (e as { response?: { status?: number } })?.response?.status;
                 if (statusHttp === 404) {
-                  if (await this.cancelarRemovida(tenantId, inv.id)) canceladas++;
+                  if (await this.encerrarPorGateway(tenantId, inv.id, 'CANCELADA')) canceladas++;
                 } else {
                   naoEncontradas++;
                   naoEncontradasIds.push(inv.id);
@@ -121,6 +123,8 @@ export class ReconciliationService {
             }
             if (p.status === 'PAGA') {
               if (await this.baixar(tenantId, inv.id, inv.customerId, undefined, p.pagoEm)) baixadas++;
+            } else if (p.status === 'CANCELADA' || p.status === 'ESTORNADA') {
+              if (await this.encerrarPorGateway(tenantId, inv.id, p.status)) canceladas++;
             } else if ((p.status === 'PENDENTE' || p.status === 'VENCIDA') && p.status !== inv.status) {
               // Espelha a classificação do gateway: ele é o dono da verdade dessas
               // cobranças (o Asaas dá mais carência antes de chamar de "vencido"), então
@@ -156,16 +160,20 @@ export class ReconciliationService {
     return { verificadas, baixadas, reclassificadas, canceladas, naoEncontradas, exemplos, naoEncontradasIds };
   }
 
-  /** Espelha uma exclusão confirmada no gateway e interrompe cobranças pendentes. */
-  private async cancelarRemovida(tenantId: string, invoiceId: string): Promise<boolean> {
+  /**
+   * Espelha um encerramento do gateway (cobrança excluída/cancelada = CANCELADA;
+   * estornada = ESTORNADA) e interrompe as cobranças pendentes/na fila. Não envia
+   * confirmação de pagamento — não houve pagamento.
+   */
+  private async encerrarPorGateway(tenantId: string, invoiceId: string, status: 'CANCELADA' | 'ESTORNADA'): Promise<boolean> {
     const r = await this.prisma.invoice.updateMany({
       where: { id: invoiceId, tenantId, status: { in: ['PENDENTE', 'VENCIDA'] } },
-      data: { status: 'CANCELADA', pixCopiaCola: null, boletoLinha: null, boletoUrl: null, linkPagamento: null },
+      data: { status, pixCopiaCola: null, boletoLinha: null, boletoUrl: null, linkPagamento: null },
     });
     if (!r.count) return false;
     await this.prisma.messageDispatch.updateMany({
       where: { tenantId, invoiceId, status: 'FILA' },
-      data: { status: 'IGNORADO', erro: 'Cobrança cancelada (removida no gateway)' },
+      data: { status: 'IGNORADO', erro: status === 'ESTORNADA' ? 'Cobrança estornada no gateway' : 'Cobrança cancelada/removida no gateway' },
     });
     return true;
   }

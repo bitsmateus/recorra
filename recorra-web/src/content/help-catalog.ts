@@ -169,6 +169,7 @@ export const HELP_TOPICS: HelpTopic[] = [
     rules: [
       'A conciliação consulta periodicamente cobranças abertas que possuem vínculo com gateway.',
       'Quando o pagamento é confirmado, a fatura passa para PAGA e recebe a data de pagamento.',
+      'Cobrança excluída/cancelada no gateway (ex.: Asaas marca "deleted") é encerrada automaticamente aqui (vira CANCELADA e para a régua) — sem enviar confirmação de pagamento, pois não houve pagamento.',
       'Mensagens ainda na fila para aquela fatura são ignoradas após a baixa.',
       'Cobranças LEGADO continuam sendo conciliadas, embora não recebam cobrança automática.',
       'O sistema pode enfileirar uma confirmação de pagamento após a baixa.',
