@@ -23,8 +23,12 @@ export class RulesController {
 
   /** Kanban de andamento: em que etapa da régua cada fatura em aberto está. */
   @Get('andamento')
-  andamento(@TenantId() tenantId: string, @Query('ruleId') ruleId?: string) {
-    return this.rules.andamento(tenantId, ruleId);
+  andamento(
+    @TenantId() tenantId: string,
+    @Query('ruleId') ruleId?: string,
+    @Query('pausadas') pausadas?: string,
+  ) {
+    return this.rules.andamento(tenantId, ruleId, pausadas === '1');
   }
 
   /** Pausa/retoma a cobrança de faturas selecionadas na Esteira. */

@@ -134,7 +134,7 @@ export class RulesService {
    * sozinha conforme o tempo passa e os disparos saem. Colunas = passos da régua +
    * Aguardando início + Pagas/Encerradas + Sem contato.
    */
-  async andamento(tenantId: string, ruleId?: string) {
+  async andamento(tenantId: string, ruleId?: string, incluirPausadas = false) {
     const [tenant, reguas] = await Promise.all([
       this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { usarFaixaRisco: true, reguaPadraoId: true } }),
       this.prisma.dunningRule.findMany({
@@ -160,12 +160,15 @@ export class RulesService {
     const filtroCliente = { ativo: true, ...(faixa ? { faixaAtual: faixa } : {}) };
 
     const seteDias = new Date(Date.now() - 7 * 86400000);
+    // Pausada fica FORA por padrão. Ela não é cobrada por ninguém — e, como o
+    // teto de cards pega os vencimentos mais antigos, o passivo histórico pausado
+    // ocupava a esteira inteira e escondia justamente a cobrança do mês.
+    // `incluirPausadas` traz de volta quando o usuário quer retomar alguma.
     const whereAbertas: Prisma.InvoiceWhereInput = {
-      // Inclui PAUSADA para o card mostrar o estado e permitir retomar (a régua só
-      // dispara nas ATIVAS; a pausada fica visível mas parada na sua etapa).
-      tenantId, status: { in: ['PENDENTE', 'VENCIDA'] }, gestaoCobranca: { in: ['ATIVA', 'PAUSADA'] }, contestada: false, customer: filtroCliente,
+      tenantId, status: { in: ['PENDENTE', 'VENCIDA'] }, contestada: false, customer: filtroCliente,
+      gestaoCobranca: incluirPausadas ? { in: ['ATIVA', 'PAUSADA'] } : 'ATIVA',
     };
-    const [abertas, encerradas, totalAbertas] = await Promise.all([
+    const [abertas, encerradas, totalAbertas, pausadasOcultas] = await Promise.all([
       this.prisma.invoice.findMany({
         where: whereAbertas,
         include: { customer: { select: { id: true, nome: true, telefone: true, email: true } } },
@@ -179,6 +182,11 @@ export class RulesService {
         take: 200,
       }),
       this.prisma.invoice.count({ where: whereAbertas }),
+      incluirPausadas
+        ? Promise.resolve(0)
+        : this.prisma.invoice.count({
+            where: { tenantId, status: { in: ['PENDENTE', 'VENCIDA'] }, gestaoCobranca: 'PAUSADA', contestada: false, customer: filtroCliente },
+          }),
     ]);
 
     // Último disparo por fatura (status + quando) para enriquecer o card.
@@ -243,6 +251,8 @@ export class RulesService {
       totalAbertas,
       truncado: totalAbertas > abertas.length,
       teto: TETO_CARDS,
+      pausadasOcultas,
+      incluirPausadas,
       colunas: colunas.map((c) => ({ ...c, total: c.cards.length, valor: c.cards.reduce((s, x) => s + x.valor, 0) })),
     };
   }

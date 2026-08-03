@@ -202,7 +202,7 @@ function JanelaChip({ dias }: { dias?: number | null }) {
   );
 }
 
-interface CortePreview { diasHistorico: number | null; corte: string | null; emAberto: number; aPausar: number }
+interface CortePreview { diasHistorico: number | null; corte: string | null; emAberto: number; jaPausadas: number; emCobranca: number; aPausar: number }
 
 /**
  * Aplica a janela ao que JÁ está na base. O corte no sync só impede faturas novas
@@ -248,9 +248,13 @@ function CorteHistoricoModal({ integracao, onClose, onAplicado }: { integracao: 
                 <p className="text-muted">Janela atual: <b className="text-ink">{janelaLabel(prev.diasHistorico)}</b> — corte em <b className="text-ink">{prev.corte ? new Date(prev.corte).toLocaleDateString('pt-BR') : '—'}</b>.</p>
                 <div className="rounded-lg border border-line bg-canvas p-3">
                   <div className="flex justify-between py-0.5"><span className="text-muted">Faturas em aberto deste ERP</span><b className="tabular text-ink">{prev.emAberto}</b></div>
+                  {prev.jaPausadas > 0 && <div className="flex justify-between py-0.5"><span className="text-muted">Já pausadas antes</span><b className="tabular text-muted">{prev.jaPausadas}</b></div>}
                   <div className="flex justify-between py-0.5"><span className="text-muted">Serão pausadas (anteriores ao corte)</span><b className="tabular text-[#854F0B]">{prev.aPausar}</b></div>
-                  <div className="flex justify-between border-t border-line pt-1.5 mt-1.5"><span className="text-muted">Seguem em cobrança</span><b className="tabular text-primary">{prev.emAberto - prev.aPausar}</b></div>
+                  <div className="flex justify-between border-t border-line pt-1.5 mt-1.5"><span className="text-muted">Seguem em cobrança</span><b className="tabular text-primary">{prev.emCobranca}</b></div>
                 </div>
+                {prev.aPausar === 0 && prev.jaPausadas > 0 && (
+                  <p className="rounded-lg bg-success-tint p-3 text-[#0F6E56]">O corte já está aplicado — não há fatura antiga sobrando para pausar.</p>
+                )}
                 <p className="text-xs text-muted">
                   Pausar tira a fatura da cobrança automática e bloqueia o disparo manual — nada é apagado,
                   nem aqui nem no ERP, e dá para retomar caso a caso pela Esteira.

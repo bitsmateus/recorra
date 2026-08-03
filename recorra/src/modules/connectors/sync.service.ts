@@ -304,12 +304,17 @@ export class SyncService {
   async previewAntigas(tenantId: string, integrationId: string) {
     const integ = await this.prisma.sourceIntegration.findFirstOrThrow({ where: { id: integrationId, tenantId } });
     const corte = dataCorte(integ.diasHistorico);
-    const emAberto = await this.prisma.invoice.count({
-      where: { tenantId, sourceSystem: integ.sistema, status: { in: ['PENDENTE', 'VENCIDA'] } },
-    });
-    if (!corte) return { diasHistorico: null, corte: null, emAberto, aPausar: 0 };
+    const emAbertoWhere = { tenantId, sourceSystem: integ.sistema, status: { in: ['PENDENTE', 'VENCIDA'] as InvoiceStatus[] } };
+    // "Em cobrança" tem que ser contado, não deduzido de emAberto − aPausar: numa
+    // segunda passada aPausar é 0 (já pausadas) e a subtração diria que o passivo
+    // inteiro segue sendo cobrado.
+    const [emAberto, jaPausadas] = await Promise.all([
+      this.prisma.invoice.count({ where: emAbertoWhere }),
+      this.prisma.invoice.count({ where: { ...emAbertoWhere, gestaoCobranca: 'PAUSADA' } }),
+    ]);
+    if (!corte) return { diasHistorico: null, corte: null, emAberto, jaPausadas, emCobranca: emAberto - jaPausadas, aPausar: 0 };
     const aPausar = await this.prisma.invoice.count({ where: this.whereAntigas(tenantId, integ.sistema, corte) });
-    return { diasHistorico: integ.diasHistorico, corte, emAberto, aPausar };
+    return { diasHistorico: integ.diasHistorico, corte, emAberto, jaPausadas, emCobranca: emAberto - jaPausadas - aPausar, aPausar };
   }
 
   /** Aplica o corte no que já está na base: pausa a cobrança das faturas antigas. */

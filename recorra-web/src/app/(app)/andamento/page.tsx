@@ -22,6 +22,8 @@ interface Andamento {
   totalAbertas?: number;
   truncado?: boolean;
   teto?: number;
+  pausadasOcultas?: number;
+  incluirPausadas?: boolean;
 }
 
 const CARDS_POR_LOTE = 30;
@@ -79,6 +81,9 @@ export default function AndamentoPage() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [somenteComCards, setSomenteComCards] = useState(true);
+  // Pausada fora por padrão: é cobrança que ninguém vai disparar. Fica a um
+  // clique para quem precisa retomar alguma.
+  const [verPausadas, setVerPausadas] = useState(false);
   const [historico, setHistorico] = useState<{ invoiceId: string; nome: string } | null>(null);
   const [visiveisPorColuna, setVisiveisPorColuna] = useState<Record<string, number>>({});
   const esteiraRef = useRef<HTMLDivElement>(null);
@@ -103,11 +108,14 @@ export default function AndamentoPage() {
 
   const carregar = useCallback(async (silencioso = false) => {
     if (!silencioso) setLoading(true);
-    const q = ruleId ? `?ruleId=${ruleId}` : '';
-    const r = await api<Andamento>(`/reguas/andamento${q}`).catch(() => null);
+    const p = new URLSearchParams();
+    if (ruleId) p.set('ruleId', ruleId);
+    if (verPausadas) p.set('pausadas', '1');
+    const q = p.toString();
+    const r = await api<Andamento>(`/reguas/andamento${q ? `?${q}` : ''}`).catch(() => null);
     if (r) { setDados(r); if (!ruleId && r.regua) setRuleId(r.regua.id); }
     if (!silencioso) setLoading(false);
-  }, [ruleId]);
+  }, [ruleId, verPausadas]);
   useEffect(() => { carregar(); }, [carregar]);
   useEffect(() => { const t = setInterval(() => carregar(true), 30000); return () => clearInterval(t); }, [carregar]);
 
@@ -278,7 +286,7 @@ export default function AndamentoPage() {
             <div className="mb-3 flex items-start gap-2 rounded-lg bg-warning-tint p-3 text-sm text-[#854F0B]">
               <AlertTriangle size={16} className="mt-0.5 shrink-0" />
               <span>
-                Você tem <b>{dados.totalAbertas}</b> faturas em aberto, mas a esteira mostra só as <b>{dados.teto}</b> mais
+                Você tem <b>{dados.totalAbertas}</b> faturas em cobrança, mas a esteira mostra só as <b>{dados.teto}</b> mais
                 antigas. Um passivo desse tamanho quase sempre é histórico importado do ERP —
                 defina a janela de importação em <Link href="/integracoes" className="underline">Integrações</Link> e
                 aplique o corte no histórico.
@@ -286,8 +294,24 @@ export default function AndamentoPage() {
             </div>
           )}
           <div className="mb-3 flex items-center justify-between gap-3">
-            <p className="text-sm text-muted">Régua <b className="text-ink">{dados.regua.nome}</b> · <b className="text-ink">{totalAbertas}</b> fatura(s) em aberto.</p>
+            <p className="text-sm text-muted">
+              Régua <b className="text-ink">{dados.regua.nome}</b> · <b className="text-ink">{totalAbertas}</b> fatura(s) em aberto.
+              {!!dados.pausadasOcultas && <> · <b className="text-ink">{dados.pausadasOcultas}</b> pausada(s) fora da esteira.</>}
+            </p>
             <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                role="switch"
+                aria-checked={verPausadas}
+                onClick={() => { setVerPausadas((v) => !v); limpar(); }}
+                title="Cobranças pausadas não são disparadas. Mostre-as só para retomar alguma."
+                className="flex select-none items-center gap-2 text-xs font-medium text-muted"
+              >
+                <span className={`relative h-5 w-9 rounded-full transition ${verPausadas ? 'bg-primary' : 'bg-line'}`}>
+                  <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-all ${verPausadas ? 'left-[18px]' : 'left-0.5'}`} />
+                </span>
+                Ver pausadas
+              </button>
               <button
                 type="button"
                 role="switch"
