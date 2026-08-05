@@ -191,18 +191,17 @@ export class DunningService {
       ? resolverBotoesParaEnvio(step.templateBotoes as BotaoMapeado[] | null, (tok) => renderTemplate(tok, vars))
       : [];
 
-    // Canal EFETIVO = o da conta selecionada no passo. Se o passo aponta para uma
-    // conta ativa, o canal é o dela — mesmo que o `canal` gravado no passo esteja
-    // divergente (ex.: régua nasceu em WHATSAPP_CLOUD e depois conectaram um canal
-    // NX). Sem isto, o envio quebrava com "Nenhuma conta ativa para o canal X".
-    let canalEfetivo = step.canal as ChannelType;
-    if (step.channelAccountId) {
-      const conta = await this.prisma.channelAccount.findFirst({
-        where: { id: step.channelAccountId, tenantId, ativo: true },
-        select: { canal: true },
-      });
-      if (conta) canalEfetivo = conta.canal;
-    }
+    // Resolve a CONTA que de fato vai enviar e usa o canal + id dela. O canal
+    // gravado no passo pode estar divergente da realidade (ex.: régua nasceu em
+    // WHATSAPP_CLOUD e depois o tenant só conectou NX): sem resolver a conta real,
+    // o envio quebra com "Nenhuma conta ativa para o canal X".
+    //  1) conta amarrada ao passo (se ativa);
+    //  2) qualquer conta ativa do canal gravado;
+    //  3) qualquer conta WhatsApp ativa do tenant (família intercambiável) —
+    //     cobre régua velha apontando pra um provedor de WhatsApp desativado.
+    const conta = await this.resolverContaEnvio(tenantId, step);
+    const canalEfetivo = (conta?.canal ?? step.canal) as ChannelType;
+    const channelAccountId = conta?.id ?? step.channelAccountId ?? undefined;
 
     const cadeia = channelChain(canalEfetivo, step.canaisFallback) as ChannelType[];
     // Ação manual ("Disparar agora" na Esteira) envia imediatamente, ignorando a
@@ -217,7 +216,7 @@ export class DunningService {
         ruleId: rule.id,
         ruleNome: rule.nome,
         canal: canalEfetivo,
-        channelAccountId: step.channelAccountId ?? undefined,
+        channelAccountId,
         cadeiaCanais: cadeia,
         template,
         conteudo,
@@ -230,6 +229,41 @@ export class DunningService {
         agendadoPara,
       },
     });
+  }
+
+  /** Canais da família WhatsApp — intercambiáveis para entrega (WABA/não-oficial). */
+  private static readonly CANAIS_WHATSAPP: ChannelType[] = [
+    'WHATSAPP_CLOUD', 'WHATSAPP_EVOLUTION', 'WHATSAPP_UAZAPI', 'NX_SYSTEMS',
+  ];
+
+  /**
+   * Descobre a conta de canal que realmente vai enviar este passo, tolerando
+   * régua com dado velho: conta amarrada > conta ativa do canal gravado >
+   * qualquer conta WhatsApp ativa do tenant (quando o passo é de WhatsApp).
+   * Retorna null só se o tenant não tiver conta ativa nenhuma que sirva.
+   */
+  private async resolverContaEnvio(
+    tenantId: string, step: DunningStep,
+  ): Promise<{ id: string; canal: ChannelType } | null> {
+    if (step.channelAccountId) {
+      const amarrada = await this.prisma.channelAccount.findFirst({
+        where: { id: step.channelAccountId, tenantId, ativo: true },
+        select: { id: true, canal: true },
+      });
+      if (amarrada) return amarrada;
+    }
+    const doCanal = await this.prisma.channelAccount.findFirst({
+      where: { tenantId, canal: step.canal, ativo: true },
+      select: { id: true, canal: true },
+    });
+    if (doCanal) return doCanal;
+    if (DunningService.CANAIS_WHATSAPP.includes(step.canal)) {
+      return this.prisma.channelAccount.findFirst({
+        where: { tenantId, ativo: true, canal: { in: DunningService.CANAIS_WHATSAPP } },
+        select: { id: true, canal: true },
+      });
+    }
+    return null;
   }
 
   /**
