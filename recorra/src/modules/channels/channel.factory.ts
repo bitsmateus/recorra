@@ -18,6 +18,9 @@ import { NxSystemsChannel } from './providers/nx-systems.channel';
  * Resolve o canal a partir da conta configurada pelo tenant.
  * WhatsApp: Cloud (oficial) | Evolution | uazapi — todos plugáveis.
  */
+/** Canais da família WhatsApp — intercambiáveis para entrega (WABA/não-oficial). */
+const CANAIS_WHATSAPP: ChannelType[] = ['WHATSAPP_CLOUD', 'WHATSAPP_EVOLUTION', 'WHATSAPP_UAZAPI', 'NX_SYSTEMS'];
+
 @Injectable()
 export class ChannelFactory {
   constructor(
@@ -35,6 +38,13 @@ export class ChannelFactory {
       : null;
     if (account && account.canal !== canal) account = null;
     if (!account) account = await this.prisma.channelAccount.findFirst({ where: { tenantId, canal, ativo: true } });
+    // Rede de segurança para disparos já na FILA com canal WhatsApp "velho" (ex.:
+    // régua antiga gravou WHATSAPP_CLOUD) quando o tenant só tem outro provedor de
+    // WhatsApp ativo (NX/Evolution/uazapi). A família é intercambiável para entrega,
+    // então usa a conta WhatsApp ativa em vez de falhar por canal inexistente.
+    if (!account && CANAIS_WHATSAPP.includes(canal)) {
+      account = await this.prisma.channelAccount.findFirst({ where: { tenantId, ativo: true, canal: { in: CANAIS_WHATSAPP } } });
+    }
     if (!account) throw new BadRequestException(`Nenhuma conta ativa para o canal ${canal}`);
     const creds = this.crypto.decryptJson<ChannelCredentials>(account.credentials);
     // A marca do e-mail é do tenant, não da conta: injeta na hora do envio.
