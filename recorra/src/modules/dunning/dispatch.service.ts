@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ChannelType } from '@prisma/client';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { ChannelFactory } from '@/modules/channels/channel.factory';
+import type { MessageChannel } from '@/modules/channels/message-channel.interface';
 import { nextChannel } from './fallback';
 
 /**
@@ -96,8 +97,21 @@ export class DispatchService {
       templateLanguage = tpl?.idioma ?? undefined;
     }
 
+    // Constrói o canal à parte: se não há conta ativa/está desconfigurado, isso
+    // lança. Antes o erro subia e o disparo VOLTAVA para a FILA, retentando para
+    // sempre (368 presos, sem virar Falha). Agora tenta um canal alternativo e,
+    // sem ele, marca FALHA com o motivo — o disparo para e aparece no painel.
+    let channel: MessageChannel;
     try {
-      const channel = await this.channels.forTenantChannel(d.tenantId, d.canal, (d as { channelAccountId?: string | null }).channelAccountId);
+      channel = await this.channels.forTenantChannel(d.tenantId, d.canal, (d as { channelAccountId?: string | null }).channelAccountId);
+    } catch (e) {
+      const motivo = e instanceof Error ? e.message : 'Canal indisponível';
+      if (await this.tentarFallback(d, [motivo])) throw new Error(`fallback: ${motivo}`);
+      await this.marcar(d.id, 'FALHA', motivo);
+      return 'FALHA';
+    }
+
+    try {
       const res = await channel.send({
         to: destino,
         text: d.conteudo ?? '',
