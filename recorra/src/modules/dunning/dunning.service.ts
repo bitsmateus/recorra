@@ -191,7 +191,20 @@ export class DunningService {
       ? resolverBotoesParaEnvio(step.templateBotoes as BotaoMapeado[] | null, (tok) => renderTemplate(tok, vars))
       : [];
 
-    const cadeia = channelChain(step.canal, step.canaisFallback) as ChannelType[];
+    // Canal EFETIVO = o da conta selecionada no passo. Se o passo aponta para uma
+    // conta ativa, o canal é o dela — mesmo que o `canal` gravado no passo esteja
+    // divergente (ex.: régua nasceu em WHATSAPP_CLOUD e depois conectaram um canal
+    // NX). Sem isto, o envio quebrava com "Nenhuma conta ativa para o canal X".
+    let canalEfetivo = step.canal as ChannelType;
+    if (step.channelAccountId) {
+      const conta = await this.prisma.channelAccount.findFirst({
+        where: { id: step.channelAccountId, tenantId, ativo: true },
+        select: { canal: true },
+      });
+      if (conta) canalEfetivo = conta.canal;
+    }
+
+    const cadeia = channelChain(canalEfetivo, step.canaisFallback) as ChannelType[];
     // Ação manual ("Disparar agora" na Esteira) envia imediatamente, ignorando a
     // janela de horário da régua — que só governa os disparos automáticos.
     const agendadoPara = opts?.imediato ? new Date() : opts?.agendadoPara ?? this.proximoSlot(timezone, rule);
@@ -203,7 +216,7 @@ export class DunningService {
         invoiceId: invoice.id,
         ruleId: rule.id,
         ruleNome: rule.nome,
-        canal: step.canal,
+        canal: canalEfetivo,
         channelAccountId: step.channelAccountId ?? undefined,
         cadeiaCanais: cadeia,
         template,
