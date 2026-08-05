@@ -127,22 +127,36 @@ export class DispatchService {
 
   async processQueue(limit = 200) {
     const agora = new Date();
-    const pendentes = await this.prisma.messageDispatch.findMany({
-      where: { status: 'FILA', OR: [{ agendadoPara: null }, { agendadoPara: { lte: agora } }] },
-      take: limit,
-      orderBy: { createdAt: 'asc' },
-      select: { id: true },
-    });
-    let enviados = 0;
+    const [pendentes, totalFila] = await Promise.all([
+      this.prisma.messageDispatch.findMany({
+        where: { status: 'FILA', OR: [{ agendadoPara: null }, { agendadoPara: { lte: agora } }] },
+        take: limit,
+        orderBy: { createdAt: 'asc' },
+        select: { id: true },
+      }),
+      this.prisma.messageDispatch.count({ where: { status: 'FILA' } }),
+    ]);
+    const c = { processados: pendentes.length, enviados: 0, falhas: 0, ignorados: 0, pulados: 0, erros: 0 };
     for (const p of pendentes) {
       try {
         const r = await this.processOne(p.id);
-        if (r === 'ENVIADO') enviados++;
+        if (r === 'ENVIADO') c.enviados++;
+        else if (r === 'FALHA') c.falhas++;
+        else if (r === 'IGNORADO') c.ignorados++;
+        else if (r === 'PULADO') c.pulados++;
       } catch (e) {
+        c.erros++;
         this.logger.warn(`Falha ao processar disparo ${p.id}: ${String(e)}`);
       }
     }
-    return { processados: pendentes.length, enviados };
+    // Loga sempre que há FILA — inclusive quando nada foi enviado — para diagnóstico.
+    // `agendados` = presos em FILA mas com agendadoPara no futuro (não vencidos agora):
+    // se for a maioria, o problema é a janela de horário da régua, não o worker.
+    const agendados = totalFila - c.processados;
+    if (totalFila > 0) {
+      this.logger.log(`Fila: ${totalFila} em FILA · ${c.processados} vencidos processados (enviados ${c.enviados}, falhas ${c.falhas}, ignorados ${c.ignorados}, pulados ${c.pulados}, erros ${c.erros})${agendados > 0 ? ` · ${agendados} agendados para depois` : ''}`);
+    }
+    return c;
   }
 
   private async tentarFallback(

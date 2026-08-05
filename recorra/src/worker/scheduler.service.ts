@@ -206,8 +206,8 @@ export class SchedulerService implements OnApplicationBootstrap {
     if (this.processandoFila) return;
     this.processandoFila = true;
     try {
-      const r = await this.dispatch.processQueue(500);
-      if (r.enviados > 0) this.logger.log(`Disparos enviados: ${r.enviados} de ${r.processados} processados`);
+      // processQueue já loga um resumo por rodada (achados/enviados/falhas/agendados).
+      await this.dispatch.processQueue(500);
     } catch (e) {
       this.logger.error(`Falha ao processar a fila de disparos: ${String(e)}`);
     } finally {
