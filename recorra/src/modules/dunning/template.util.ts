@@ -13,7 +13,11 @@ export function money(v: number): string {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
-/** Formata data como dd/mm/aaaa. */
+/**
+ * Formata data como dd/mm/aaaa. O vencimento é uma DATA-calendário gravada à
+ * meia-noite UTC — formatar em America/Sao_Paulo (UTC-3) voltaria para 21h do
+ * dia anterior e exibiria um dia a menos. Por isso lê em UTC, preservando o dia.
+ */
 export function dateBR(d: Date): string {
-  return d.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+  return d.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
 }

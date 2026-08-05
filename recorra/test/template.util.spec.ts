@@ -33,4 +33,8 @@ describe('dateBR', () => {
   it('formata dd/mm/aaaa', () => {
     expect(dateBR(new Date('2026-07-10T12:00:00Z'))).toBe('10/07/2026');
   });
+  it('mantem o dia da data gravada a meia-noite UTC (nao volta um dia)', () => {
+    expect(dateBR(new Date('2026-08-10T00:00:00Z'))).toBe('10/08/2026');
+    expect(dateBR(new Date('2026-08-05T00:00:00Z'))).toBe('05/08/2026');
+  });
 });

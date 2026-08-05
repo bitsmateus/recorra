@@ -738,7 +738,9 @@ export class CampaignsService {
 
   private render(txt: string | null | undefined, c: { nome: string; doc?: string | null }, inv?: { id?: string; valor: any; vencimento: Date; pixCopiaCola?: string | null; boletoUrl?: string | null; boletoLinha?: string | null; linkPagamento?: string | null } | null): string {
     const valor = inv ? Number(inv.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '';
-    const venc = inv ? new Date(inv.vencimento).toLocaleDateString('pt-BR') : '';
+    // Vencimento é data-calendário à meia-noite UTC: formata em UTC para não
+    // exibir um dia a menos (UTC-3 voltaria para 21h do dia anterior).
+    const venc = inv ? new Date(inv.vencimento).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : '';
     return (txt || '')
       .replace(/\{\{\s*nome\s*\}\}/gi, c.nome)
       .replace(/\{\{\s*documento\s*\}\}/gi, c.doc || '')
