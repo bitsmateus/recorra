@@ -288,7 +288,8 @@ export class DunningService {
    * Escolhe o passo cujo offset melhor casa com os dias de atraso e enfileira — sem
    * os limites diários da rodada automática (é uma ação explícita do usuário).
    */
-  async dispararManual(tenantId: string, invoiceId: string) {
+  /** Carrega fatura + régua + passo atual para um disparo manual (single ou lote). */
+  private async prepararDisparo(tenantId: string, invoiceId: string) {
     const invoice = await this.prisma.invoice.findFirst({ where: { id: invoiceId, tenantId }, include: { customer: true } });
     if (!invoice) throw new NotFoundException('Fatura não encontrada');
     if (invoice.status === 'PAGA' || invoice.status === 'CANCELADA') throw new BadRequestException('Fatura não está em aberto.');
@@ -306,8 +307,37 @@ export class DunningService {
     if (!rule || !rule.steps.length) throw new BadRequestException('Nenhuma régua ativa com passos para este cliente.');
     const diff = Math.round((this.midnight(new Date()).getTime() - this.midnight(invoice.vencimento).getTime()) / 86400000);
     const step = [...rule.steps].filter((s) => s.offsetDias <= diff).pop() ?? rule.steps[0];
+    return { tenant, invoice, rule, step };
+  }
+
+  async dispararManual(tenantId: string, invoiceId: string) {
+    const { tenant, invoice, rule, step } = await this.prepararDisparo(tenantId, invoiceId);
     await this.enqueueDispatch(tenantId, tenant.timezone, invoice, step, rule, { imediato: true });
     return { ok: true, canal: step.canal };
+  }
+
+  /**
+   * Reenvio em LOTE respeitando o intervalo entre mensagens (delaySegundos) e a
+   * janela da régua — espaça os disparos como a rodada automática, em vez de
+   * mandar todos de uma vez (o que derruba a qualidade do número no WhatsApp).
+   * Um único item sai praticamente na hora; N itens saem espaçados. Cursor por
+   * régua (faixas diferentes têm ritmos próprios). Não trava se uma fatura falhar.
+   */
+  async dispararEmLote(tenantId: string, invoiceIds: string[]) {
+    const cursor = new Map<string, Date>();
+    let enfileirados = 0;
+    const erros: { id: string; erro: string }[] = [];
+    for (const id of invoiceIds) {
+      try {
+        const { tenant, invoice, rule, step } = await this.prepararDisparo(tenantId, id);
+        const quando = this.proximoEspacado(cursor, tenant.timezone, rule);
+        await this.enqueueDispatch(tenantId, tenant.timezone, invoice, step, rule, { agendadoPara: quando });
+        enfileirados++;
+      } catch (e) {
+        erros.push({ id, erro: e instanceof Error ? e.message : String(e) });
+      }
+    }
+    return { enfileirados, falhas: erros.length, erros };
   }
 
   private midnight(d: Date): Date {

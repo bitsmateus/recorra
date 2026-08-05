@@ -177,7 +177,7 @@ export default function AndamentoPage() {
     try {
       if (tipo === 'disparar') {
         const r = await api<{ enfileirados: number; falhas: number }>('/reguas/andamento/disparar', { method: 'POST', body: { invoiceIds: ids } });
-        setMsg(`✓ ${r.enfileirados} disparo(s) na fila${r.falhas ? ` · ${r.falhas} falharam` : ''}.`);
+        setMsg(`✓ ${r.enfileirados} disparo(s) na fila${r.enfileirados > 1 ? ' — enviados espaçados pelo intervalo da régua' : ''}${r.falhas ? ` · ${r.falhas} falharam` : ''}.`);
       } else {
         const r = await api<{ alteradas: number }>('/reguas/andamento/pausar', { method: 'POST', body: { invoiceIds: ids, pausar: tipo === 'pausar' } });
         setMsg(`✓ ${r.alteradas} cobrança(s) ${tipo === 'pausar' ? 'pausada(s)' : 'retomada(s)'}.`);

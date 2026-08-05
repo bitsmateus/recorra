@@ -58,16 +58,17 @@ export class RulesService {
     return { alteradas: r.count };
   }
 
-  /** Dispara a etapa atual da régua para várias faturas (botão da Esteira). */
+  /**
+   * Dispara a etapa atual da régua para várias faturas (botão da Esteira),
+   * RESPEITANDO o intervalo entre mensagens (delaySegundos) e a janela da régua —
+   * espaça em vez de mandar tudo de uma vez. Um item só sai na hora; muitos saem
+   * escalonados (ex.: 30s → ~120/hora), continuando no próximo dia útil se não
+   * couber na janela.
+   */
   async dispararLote(tenantId: string, invoiceIds: string[]) {
     const ids = [...new Set(invoiceIds)].filter(Boolean);
-    let enfileirados = 0;
-    const erros: { id: string; erro: string }[] = [];
-    for (const id of ids) {
-      try { await this.dunning.dispararManual(tenantId, id); enfileirados++; }
-      catch (e) { erros.push({ id, erro: e instanceof Error ? e.message : String(e) }); }
-    }
-    return { enfileirados, falhas: erros.length, erros: erros.slice(0, 5) };
+    const r = await this.dunning.dispararEmLote(tenantId, ids);
+    return { enfileirados: r.enfileirados, falhas: r.falhas, erros: r.erros.slice(0, 5) };
   }
 
   /** Descrição legível de um erro do Prisma (código + alvo) para diagnóstico. */
