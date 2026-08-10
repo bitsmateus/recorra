@@ -71,6 +71,12 @@ export class SettingsController {
     return this.settings.removePaymentAccount(tenantId, id);
   }
 
+  @Post('gateways/:id/registrar-webhook')
+  @Roles('OWNER', 'ADMIN')
+  registrarWebhook(@TenantId() tenantId: string, @Param('id') id: string, @Body('url') url?: string) {
+    return this.settings.registrarWebhookGateway(tenantId, id, url);
+  }
+
   // Canais
   @Get('canais')
   listChannels(@TenantId() tenantId: string) {

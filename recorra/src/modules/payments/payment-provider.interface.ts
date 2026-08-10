@@ -78,6 +78,8 @@ export interface PaymentProvider {
   cancelCharge(externalId: string): Promise<void>;
   getPixCopiaCola?(externalId: string): Promise<string | null>;
   parseWebhook(headers: Record<string, string>, body: unknown, rawBody?: string): WebhookParseResult;
+  /** Registra a URL de webhook no provedor (quando ele exige registro via API, ex.: Efí Pix). */
+  registerWebhook?(url: string): Promise<void>;
   supportsImport?(): boolean;
   listCustomers?(): Promise<ImportedCustomer[]>;
   listPayments?(): Promise<ImportedPayment[]>;

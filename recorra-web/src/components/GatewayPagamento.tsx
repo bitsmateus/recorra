@@ -66,6 +66,7 @@ export default function GatewayPagamento() {
   const [importando, setImportando] = useState<string | null>(null);
   const [janelas, setJanelas] = useState<Record<string, string>>({});
   const [copiado, setCopiado] = useState<string | null>(null);
+  const [registrando, setRegistrando] = useState<string | null>(null);
   const isBanco = USA_CERTIFICADO.includes(provider);
   const setB = (k: string, v: string) => setBanco((s) => ({ ...s, [k]: v }));
 
@@ -74,6 +75,16 @@ export default function GatewayPagamento() {
   const webhookUrlDe = (r: Row) => `${apiBase}/webhooks/${String(r.provider)}/${r.id}`;
   async function copiarUrl(url: string, id: string) {
     try { await navigator.clipboard.writeText(url); setCopiado(id); setTimeout(() => setCopiado(null), 1500); } catch { /* clipboard indisponível */ }
+  }
+  // Efí exige registrar o webhook via API (não basta colar a URL). Envia a URL
+  // que o painel já calcula; o backend valida e chama a API da Efí com o certificado.
+  async function registrarWebhook(r: Row) {
+    setRegistrando(r.id); setMsg('Registrando webhook na Efí...');
+    try {
+      await api(`/config/gateways/${r.id}/registrar-webhook`, { method: 'POST', body: { url: webhookUrlDe(r) } });
+      setMsg('✓ Webhook registrado na Efí — pagamentos passam a dar baixa em tempo real.');
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro ao registrar webhook'); }
+    finally { setRegistrando(null); }
   }
 
   const load = useCallback(() => {
@@ -206,7 +217,11 @@ export default function GatewayPagamento() {
                 <div className="flex items-center gap-2">
                   <input readOnly value={webhookUrlDe(r)} onFocus={(e) => e.currentTarget.select()} className="min-w-0 flex-1 rounded border border-line bg-canvas px-2 py-1.5 font-mono text-[11px] text-muted outline-none" />
                   <button type="button" onClick={() => copiarUrl(webhookUrlDe(r), r.id)} className="shrink-0 rounded border border-line px-3 py-1.5 text-xs hover:bg-canvas">{copiado === r.id ? 'Copiado!' : 'Copiar'}</button>
+                  {String(r.provider) === 'EFI' && (
+                    <button type="button" onClick={() => registrarWebhook(r)} disabled={registrando === r.id} className="shrink-0 rounded bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary-hover disabled:opacity-60">{registrando === r.id ? 'Registrando...' : 'Registrar na Efí'}</button>
+                  )}
                 </div>
+                {String(r.provider) === 'EFI' && <p className="mt-1 text-xs text-muted">A Efí exige registrar o webhook pela API — use o botão acima (o certificado já configurado é usado). Sem ele, a baixa ocorre pela conciliação a cada 30 min.</p>}
               </div>
               {String(r.provider) === 'ASAAS' && (
                 <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-line pt-3">

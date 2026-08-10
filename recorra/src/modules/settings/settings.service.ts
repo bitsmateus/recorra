@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { env } from '@/config/env';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { lerPagamentoRecebido } from '@/modules/payments/pagamento-recebido';
 import { CryptoService } from '@/common/crypto/crypto.service';
@@ -175,6 +176,35 @@ export class SettingsService {
       return { ok };
     } catch (e) {
       return { ok: false, erro: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  /**
+   * Registra a URL de webhook do gateway automaticamente (quando ele exige
+   * registro via API, ex.: Efí Pix). A URL alvo é sempre o NOSSO endpoint desta
+   * conta — aceita a URL calculada pelo painel (host público real), mas valida
+   * que ela aponta para `/webhooks/{provider}/{id}`; sem ela, monta por APP_URL.
+   */
+  async registrarWebhookGateway(tenantId: string, id: string, url?: string) {
+    const account = await this.prisma.paymentProviderAccount.findFirst({ where: { id, tenantId } });
+    if (!account) throw new BadRequestException('Conta de gateway não encontrada');
+
+    const sufixo = `/webhooks/${account.provider}/${id}`;
+    const alvo = url?.trim() || `${env.APP_URL.replace(/\/$/, '')}${sufixo}`;
+    if (!/^https?:\/\//.test(alvo) || !alvo.endsWith(sufixo)) {
+      throw new BadRequestException('URL de webhook inválida para esta conta');
+    }
+
+    const provider = await this.payments.forAccount(id, tenantId);
+    if (!provider.registerWebhook) {
+      throw new BadRequestException('Este gateway não suporta registro automático de webhook — cole a URL no painel do provedor.');
+    }
+    try {
+      await provider.registerWebhook(alvo);
+      return { ok: true, url: alvo };
+    } catch (e) {
+      const msg = (e as { response?: { data?: unknown } })?.response?.data;
+      throw new BadRequestException(`Falha ao registrar o webhook na Efí: ${msg ? JSON.stringify(msg) : (e instanceof Error ? e.message : String(e))}`);
     }
   }
 
