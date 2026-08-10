@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { Download, Pencil, Trash2, X, Filter, Plus, FileSpreadsheet, FileDown, ChevronDown, ChevronUp, ArrowUpDown, Receipt, Copy, ExternalLink, Check, HelpCircle, RefreshCw, CalendarDays } from 'lucide-react';
+import { Download, Pencil, Trash2, X, Filter, Plus, FileSpreadsheet, FileDown, ChevronDown, ChevronUp, ArrowUpDown, Receipt, Copy, ExternalLink, Check, HelpCircle, RefreshCw, CalendarDays, Eye, EyeOff } from 'lucide-react';
 import { ImportWizard } from '@/components/ImportWizard';
 import { api } from '@/lib/api';
 import { PageTitle, brl } from '@/components/ui';
@@ -118,6 +118,13 @@ export default function CobrancasPage() {
   const [pagina, setPagina] = useState(1);
   const [resumo, setResumo] = useState<ResumoCobrancas | null>(null);
   const [ordenacao, setOrdenacao] = useState<{ campo: 'valor' | 'vencimento' | null; dir: 'asc' | 'desc' }>({ campo: null, dir: 'asc' });
+  // Ocultar valores em R$ (útil para apresentar a tela sem expor faturamento).
+  // Preferência guardada no navegador para persistir entre visitas.
+  const [ocultarValores, setOcultarValores] = useState(false);
+  useEffect(() => { setOcultarValores(localStorage.getItem('recorra_ocultar_valores') === '1'); }, []);
+  function toggleOcultarValores() {
+    setOcultarValores((v) => { const n = !v; try { localStorage.setItem('recorra_ocultar_valores', n ? '1' : '0'); } catch { /* ignore */ } return n; });
+  }
   const [gateways, setGateways] = useState<Gateway[]>([]);
   const [temErp, setTemErp] = useState(false);
   const [filtros, setFiltros] = useState(() => ({ ...emptyFiltros, ...mesAtualISO() }));
@@ -343,6 +350,8 @@ export default function CobrancasPage() {
   ];
   const maxValorStatus = resumo ? Math.max(1, ...CARDS.map((c) => resumo.porStatus[c.key]?.valor ?? 0)) : 1;
   const periodoLabel: Record<string, string> = { hoje: 'Hoje', mes: 'Este mês', ano: 'Este ano', tudo: 'Desde o início', custom: 'Personalizado' };
+  // Formata em R$ ou mascara, conforme o botão "ocultar valores".
+  const dinheiro = (v: number) => (ocultarValores ? 'R$ ••••' : brl(v));
 
   return (
     <div>
@@ -365,6 +374,7 @@ export default function CobrancasPage() {
           )}
         </div>
         <div className="flex items-center gap-1">
+          <button onClick={toggleOcultarValores} title={ocultarValores ? 'Mostrar valores' : 'Ocultar valores'} aria-pressed={ocultarValores} className="flex items-center gap-2 rounded border border-line px-4 py-2 text-sm hover:bg-canvas">{ocultarValores ? <EyeOff size={15} /> : <Eye size={15} />} {ocultarValores ? 'Mostrar valores' : 'Ocultar valores'}</button>
           {(gateways.length > 0 || temErp) && (
             <button onClick={sincronizarFontes} disabled={busy} title="Puxa clientes e cobranças novas do gateway e do ERP conectados (não altera pagamentos)" className="flex items-center gap-2 rounded border border-primary/40 bg-primary-tint px-4 py-2 text-sm font-medium text-primary hover:opacity-90 disabled:opacity-60"><RefreshCw size={15} /> Sincronizar</button>
           )}
@@ -462,7 +472,7 @@ export default function CobrancasPage() {
               return (
                 <button key={c.key} onClick={() => setF('status', ativo ? '' : c.key)} title={`Filtrar por ${c.label}`} className={`rounded-lg border p-4 text-left transition hover:shadow-sm ${ativo ? 'border-primary ring-1 ring-primary/30' : 'border-line'}`}>
                   <div className="mb-1 text-xs font-medium text-muted">{c.label}</div>
-                  <div className="tabular text-xl font-semibold" style={{ color: c.cor }}>{brl(valor)}</div>
+                  <div className="tabular text-xl font-semibold" style={{ color: c.cor }}>{dinheiro(valor)}</div>
                   <div className={`my-2 h-1.5 w-full overflow-hidden rounded-full ${c.track}`}>
                     <div className="h-full rounded-full" style={{ width: `${largura}%`, background: c.cor }} />
                   </div>
@@ -492,16 +502,16 @@ export default function CobrancasPage() {
           <div className="mt-2 flex flex-wrap items-baseline gap-x-5 gap-y-1 text-sm text-muted">
             <span>Valor total: <span className="tabular font-semibold text-ink">{brl(resumo.soma)}</span></span>
             {resumo.emAberto > 0 && <span>Em aberto: <span className="tabular font-semibold text-danger">{brl(resumo.emAberto)}</span></span>}
-            <span>Ticket médio: <span className="tabular font-medium text-ink">{brl(resumo.ticketMedio)}</span></span>
+            <span>Ticket médio: <span className="tabular font-medium text-ink">{dinheiro(resumo.ticketMedio)}</span></span>
             <span>Clientes: <span className="tabular font-medium text-ink">{resumo.clientesDistintos}</span></span>
             {resumo.critico.n > 0 && (
               <span title="Cobranças vencidas há mais de 30 dias — o valor mais difícil de recuperar">
-                Atraso +30d: <span className="tabular font-semibold text-danger">{resumo.critico.n}</span> · <span className="tabular font-semibold text-danger">{brl(resumo.critico.valor)}</span>
+                Atraso +30d: <span className="tabular font-semibold text-danger">{resumo.critico.n}</span> · <span className="tabular font-semibold text-danger">{dinheiro(resumo.critico.valor)}</span>
               </span>
             )}
             {!!resumo.semContato?.n && (
               <span title="Clientes sem telefone e sem e-mail: a régua e as campanhas não conseguem avisar ninguém. Complete o cadastro em Clientes > Cadastro incompleto.">
-                ⚠️ Sem contato: <span className="tabular font-semibold text-[#854F0B]">{resumo.semContato.n}</span> · <span className="tabular font-semibold text-[#854F0B]">{brl(resumo.semContato.valor)}</span>
+                ⚠️ Sem contato: <span className="tabular font-semibold text-[#854F0B]">{resumo.semContato.n}</span> · <span className="tabular font-semibold text-[#854F0B]">{dinheiro(resumo.semContato.valor)}</span>
               </span>
             )}
           </div>
@@ -544,7 +554,7 @@ export default function CobrancasPage() {
                     </span>
                   )}
                 </td>
-                <td className="tabular px-4 py-3">{brl(Number(inv.valor))}</td>
+                <td className="tabular px-4 py-3">{dinheiro(Number(inv.valor))}</td>
                 <td className="px-4 py-3 text-muted">{new Date(inv.vencimento).toLocaleDateString('pt-BR')}</td>
                 <td className="px-4 py-3 text-muted">{inv.metodo}</td>
                 <td className="px-4 py-3">
