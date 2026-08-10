@@ -1,4 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
+import * as https from 'node:https';
 import {
   PaymentProvider,
   CreateChargeInput,
@@ -11,62 +12,91 @@ import {
 } from '../payment-provider.interface';
 
 /**
- * Gateway Efí (Gerencianet).
- * Pix via API (OAuth2 client_credentials). Docs: dev.efipay.com.br
- * Observação: o Pix da Efí exige certificado mTLS em produção — configure o
- * agente HTTPS com o .p12 do cliente. Aqui o fluxo lógico está pronto; ajuste
- * o transporte (certificado) conforme o ambiente.
+ * Gateway Efí (Efipay / Gerencianet).
+ * Pix via API BACEN (OAuth2 client_credentials sobre mTLS). Docs: dev.efipay.com.br
+ *
+ * A Efí EXIGE certificado de cliente (.p12/.pem) no handshake TLS em TODAS as
+ * chamadas — inclusive o /oauth/token. Sem o certificado, a Efí recusa a conexão.
+ * O certificado gerado no painel da Efí normalmente NÃO tem senha (deixe em branco).
+ *
+ * Credenciais (campos próprios, com retrocompatibilidade ao formato antigo):
+ *  - clientId / clientSecret  (fallback: apiKey no formato "Client_Id:Client_Secret")
+ *  - pixKey                   chave Pix recebedora (fallback: webhookToken)
+ *  - certBase64 / certPassword  certificado .p12/.pem do cliente
  */
 export class EfiProvider implements PaymentProvider {
   readonly type = 'EFI';
-  private readonly http: AxiosInstance;
   private readonly creds: ProviderCredentials;
+  private readonly baseURL: string;
+  private readonly agent: https.Agent;
+  private readonly clientId: string;
+  private readonly clientSecret: string;
+  private readonly pixKey: string;
+  private http?: AxiosInstance;
   private token?: string;
 
   constructor(creds: ProviderCredentials) {
     this.creds = creds;
-    const baseURL = creds.ambiente === 'production' ? 'https://pix.api.efipay.com.br' : 'https://pix-h.api.efipay.com.br';
-    this.http = axios.create({ baseURL, timeout: 20000 });
+    this.baseURL = creds.ambiente === 'production' ? 'https://pix.api.efipay.com.br' : 'https://pix-h.api.efipay.com.br';
+    // Certificado de cliente (.p12/.pfx) para o mTLS. Sem ele, a Efí recusa a conexão.
+    const cert = creds.certBase64 ? Buffer.from(creds.certBase64, 'base64') : undefined;
+    this.agent = new https.Agent({ pfx: cert, passphrase: creds.certPassword });
+    // clientId/clientSecret dos campos próprios; fallback ao formato legado "id:secret" em apiKey.
+    const [legadoId, legadoSecret] = (creds.apiKey ?? '').split(':');
+    this.clientId = creds.clientId ?? legadoId ?? '';
+    this.clientSecret = creds.clientSecret ?? legadoSecret ?? '';
+    // chave Pix recebedora: campo próprio; fallback ao webhookToken (uso legado).
+    this.pixKey = creds.pixKey ?? creds.webhookToken ?? '';
   }
 
-  private async auth(): Promise<string> {
-    if (this.token) return this.token;
-    // clientId:clientSecret separados por ':' na apiKey (ex.: "Client_Id:Client_Secret")
-    const [clientId, clientSecret] = this.creds.apiKey.split(':');
-    const basic = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
-    const { data } = await this.http.post(
-      '/oauth/token',
+  private async auth(): Promise<AxiosInstance> {
+    if (this.http && this.token) return this.http;
+    if (!this.clientId || !this.clientSecret) throw new Error('Efí: client_id/client_secret não configurados');
+    if (!this.creds.certBase64) throw new Error('Efí: certificado (mTLS) não configurado');
+
+    const basic = Buffer.from(`${this.clientId}:${this.clientSecret}`).toString('base64');
+    const { data } = await axios.post(
+      `${this.baseURL}/oauth/token`,
       { grant_type: 'client_credentials' },
-      { headers: { Authorization: `Basic ${basic}`, 'Content-Type': 'application/json' } },
+      {
+        httpsAgent: this.agent,
+        headers: { Authorization: `Basic ${basic}`, 'Content-Type': 'application/json' },
+        timeout: 20000,
+      },
     );
     this.token = data.access_token;
-    this.http.defaults.headers.common.Authorization = `Bearer ${this.token}`;
-    return this.token!;
+
+    this.http = axios.create({
+      baseURL: this.baseURL,
+      httpsAgent: this.agent,
+      timeout: 20000,
+      headers: { Authorization: `Bearer ${this.token}`, 'Content-Type': 'application/json' },
+    });
+    return this.http;
   }
 
   async testConnection(): Promise<boolean> {
-    // Obter o token OAuth2 já valida client_id/client_secret.
-    const token = await this.auth();
-    return !!token;
+    // O handshake mTLS + OAuth2 (client_credentials) valida certificado e credenciais.
+    const http = await this.auth();
+    return !!http;
   }
 
   async createCharge(input: CreateChargeInput): Promise<CreateChargeResult> {
-    await this.auth();
+    const http = await this.auth();
+    const doc = input.customer.doc.replace(/\D/g, '');
     // cobrança imediata Pix
-    const { data: cob } = await this.http.post('/v2/cob', {
+    const { data: cob } = await http.post('/v2/cob', {
       calendario: { expiracao: 86400 },
-      devedor: input.customer.doc.length > 11
-        ? { cnpj: input.customer.doc, nome: input.customer.nome }
-        : { cpf: input.customer.doc, nome: input.customer.nome },
+      devedor: doc.length > 11 ? { cnpj: doc, nome: input.customer.nome } : { cpf: doc, nome: input.customer.nome },
       valor: { original: input.valor.toFixed(2) },
-      chave: this.creds.webhookToken ?? '', // chave Pix recebedora (reaproveitada do campo)
+      chave: this.pixKey,
       solicitacaoPagador: input.descricao ?? 'Cobrança',
     });
 
     let pixCopiaCola: string | undefined = cob.pixCopiaeCola;
     // se não veio, gera o QR pela location
     if (!pixCopiaCola && cob.loc?.id) {
-      const { data: qr } = await this.http.get(`/v2/loc/${cob.loc.id}/qrcode`);
+      const { data: qr } = await http.get(`/v2/loc/${cob.loc.id}/qrcode`);
       pixCopiaCola = qr.qrcode;
     }
 
@@ -78,8 +108,8 @@ export class EfiProvider implements PaymentProvider {
   }
 
   async getChargeStatus(externalId: string): Promise<ChargeStatusResult> {
-    await this.auth();
-    const { data } = await this.http.get(`/v2/cob/${externalId}`);
+    const http = await this.auth();
+    const { data } = await http.get(`/v2/cob/${externalId}`);
     return {
       externalId,
       status: this.normalizeStatus(data.status),
@@ -87,9 +117,25 @@ export class EfiProvider implements PaymentProvider {
     };
   }
 
+  /** Pix copia-e-cola sob demanda (2ª via): busca a cobrança e devolve o BR Code. */
+  async getPixCopiaCola(externalId: string): Promise<string | null> {
+    try {
+      const http = await this.auth();
+      const { data } = await http.get(`/v2/cob/${externalId}`);
+      if (data?.pixCopiaeCola) return data.pixCopiaeCola;
+      if (data?.loc?.id) {
+        const { data: qr } = await http.get(`/v2/loc/${data.loc.id}/qrcode`);
+        return qr?.qrcode ?? null;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
   async cancelCharge(externalId: string): Promise<void> {
-    await this.auth();
-    await this.http.patch(`/v2/cob/${externalId}`, { status: 'REMOVIDA_PELO_USUARIO_RECEBEDOR' });
+    const http = await this.auth();
+    await http.patch(`/v2/cob/${externalId}`, { status: 'REMOVIDA_PELO_USUARIO_RECEBEDOR' });
   }
 
   parseWebhook(_headers: Record<string, string>, body: unknown): WebhookParseResult {
@@ -142,15 +188,15 @@ export class EfiProvider implements PaymentProvider {
     };
   }
 
-  /** Lista as cobranças Pix (/v2/cob) do último ano, paginando. Requer OAuth2 (auth). */
+  /** Lista as cobranças Pix (/v2/cob) do último ano, paginando. Requer OAuth2 + mTLS. */
   private async buscarCobs(): Promise<any[]> {
-    await this.auth();
+    const http = await this.auth();
     const fim = new Date();
     const inicio = new Date(fim.getTime() - 365 * 86400000);
     const out: any[] = [];
     let pagina = 0;
     for (let i = 0; i < 200; i++) {
-      const { data } = await this.http.get('/v2/cob', {
+      const { data } = await http.get('/v2/cob', {
         params: {
           inicio: inicio.toISOString(),
           fim: fim.toISOString(),
@@ -185,8 +231,8 @@ export class EfiProvider implements PaymentProvider {
 
   async getChargeDetail(externalId: string): Promise<ImportedPayment | null> {
     try {
-      await this.auth();
-      const { data } = await this.http.get(`/v2/cob/${externalId}`);
+      const http = await this.auth();
+      const { data } = await http.get(`/v2/cob/${externalId}`);
       if (!data?.txid) return null;
       return this.mapCob(data);
     } catch {

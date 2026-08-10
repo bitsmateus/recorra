@@ -98,7 +98,7 @@ export class SchedulerService implements OnApplicationBootstrap {
   /**
    * Importação diária dos gateways: puxa cobranças novas "a receber" (ex.: mensalidades
    * geradas por assinaturas criadas no próprio gateway). É a rede de segurança do webhook
-   * em tempo real. Agnóstico ao gateway — só age nos que suportam importação (hoje, Asaas);
+   * em tempo real. Agnóstico ao gateway — só age nos que suportam importação (Asaas, Efí);
    * os demais lançam "não suporta importação" e são pulados silenciosamente.
    */
   @Cron('0 6 * * *', { timeZone: 'America/Sao_Paulo' })
@@ -114,7 +114,7 @@ export class SchedulerService implements OnApplicationBootstrap {
           this.logger.log(`Import gateway ${acc.provider} (${acc.id}): ${r.faturas} novas, ${r.faturasAtualizadas} atualizadas`);
         }
       } catch {
-        // Gateways sem suporte a importação (MP/Stripe/Efí/bancos) caem aqui — ignora.
+        // Gateways sem suporte a importação (MP/Stripe/bancos) caem aqui — ignora.
       }
     }
   }

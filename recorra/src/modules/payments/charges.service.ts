@@ -239,9 +239,9 @@ export class ChargesService {
   /**
    * Sincroniza TODAS as fontes do tenant de uma vez — é o que o botão "Sincronizar"
    * chama (em Cobranças e Clientes). Traz clientes + cobranças novas:
-   *  - Gateways (Asaas...): importa na hora, usando a janela padrão de cada conta
-   *    (mesmo comportamento da importação automática diária). Os que não suportam
-   *    importação (MP/Stripe/Efí) são pulados sem falhar.
+   *  - Gateways (Asaas, Efí...): importa na hora, usando a janela padrão de cada
+   *    conta (mesmo comportamento da importação automática diária). Os que não
+   *    suportam importação (MP/Stripe) são pulados sem falhar.
    *  - ERPs (SGP/IXC...): dispara o sync em SEGUNDO PLANO (um ERP grande leva
    *    minutos e estouraria o timeout); a lista atualiza sozinha em seguida.
    * O erro de uma fonte não impede as demais.

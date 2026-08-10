@@ -24,6 +24,9 @@ const GATEWAYS = [
   { v: 'BANCO_INTER', l: 'Banco Inter' }, { v: 'SICOOB', l: 'Sicoob' }, { v: 'SICREDI', l: 'Sicredi' }, { v: 'BANCO_BRASIL', l: 'Banco do Brasil' },
 ];
 const BANCOS_PIX = ['BANCO_INTER', 'SICOOB', 'SICREDI', 'BANCO_BRASIL'];
+// Gateways que usam a API Pix (BACEN) com certificado mTLS + OAuth2 (client_id/secret).
+// A Efí segue o mesmo modelo dos bancos, então usa o mesmo formulário (com certificado).
+const USA_CERTIFICADO = [...BANCOS_PIX, 'EFI'];
 const gwLabel = (v: string) => GATEWAYS.find((g) => g.v === v)?.l || v;
 
 function Field({ label, value, onChange, type = 'text', placeholder }: { label: string; value: string; onChange: (v: string) => void; type?: string; placeholder?: string }) {
@@ -63,7 +66,7 @@ export default function GatewayPagamento() {
   const [importando, setImportando] = useState<string | null>(null);
   const [janelas, setJanelas] = useState<Record<string, string>>({});
   const [copiado, setCopiado] = useState<string | null>(null);
-  const isBanco = BANCOS_PIX.includes(provider);
+  const isBanco = USA_CERTIFICADO.includes(provider);
   const setB = (k: string, v: string) => setBanco((s) => ({ ...s, [k]: v }));
 
   // URL do webhook: a rota /webhooks é servida fora do prefixo /api, então tiramos o /api do base.
@@ -274,7 +277,8 @@ export default function GatewayPagamento() {
             </>
           )}
         </div>
-        {isBanco && <p className="mt-2 text-xs text-muted">Bancos usam a API Pix (padrão BACEN) com certificado mTLS. O certificado é cifrado antes de salvar. Confira client_id/secret e o ambiente no portal do banco.</p>}
+        {isBanco && provider === 'EFI' && <p className="mt-2 text-xs text-muted">A Efí usa a API Pix com certificado mTLS. Baixe o certificado <b>.p12</b> no painel da Efí (Aplicações → sua aplicação → Certificados) e informe o Client ID/Secret dela. O certificado da Efí normalmente <b>não tem senha</b> — deixe o campo em branco. Ele é cifrado antes de salvar.</p>}
+        {isBanco && provider !== 'EFI' && <p className="mt-2 text-xs text-muted">Bancos usam a API Pix (padrão BACEN) com certificado mTLS. O certificado é cifrado antes de salvar. Confira client_id/secret e o ambiente no portal do banco.</p>}
         {edicao && <p className="mt-2 text-xs text-muted">Por segurança, as credenciais salvas não são exibidas. Preencha um campo apenas se quiser substituí-lo.</p>}
         <div className="mt-3 flex items-center gap-3">
           <button onClick={salvar} className="rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover">{edicao ? 'Salvar alterações' : 'Salvar gateway'}</button>
