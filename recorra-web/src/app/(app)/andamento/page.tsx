@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { RefreshCw, Loader2, CheckCircle2, Clock, XCircle, Phone, ExternalLink, Send, Pause, Play, Pause as PauseIcon, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, X, History, Search, AlertTriangle, StickyNote } from 'lucide-react';
 import { api } from '@/lib/api';
 import { PageTitle, brl } from '@/components/ui';
-import { NotasCliente } from '@/components/NotasCliente';
+import { Timeline } from '@/components/Timeline';
 
 interface Card {
   invoiceId: string; customerId: string; nome: string; valor: number;
@@ -100,6 +100,7 @@ export default function AndamentoPage() {
   const [verPausadas, setVerPausadas] = useState(false);
   const [historico, setHistorico] = useState<{ invoiceId: string; nome: string } | null>(null);
   const [notaDe, setNotaDe] = useState<{ customerId: string; nome: string } | null>(null);
+  const [dispararComOpen, setDispararComOpen] = useState(false);
   const [visiveisPorColuna, setVisiveisPorColuna] = useState<Record<string, number>>({});
   const esteiraRef = useRef<HTMLDivElement>(null);
 
@@ -418,7 +419,7 @@ export default function AndamentoPage() {
                               </div>
                               <div className="flex shrink-0 items-center gap-1">
                                 <span className="tabular text-sm font-semibold text-ink">{brl(card.valor)}</span>
-                                <button type="button" onClick={(e) => { e.stopPropagation(); setNotaDe({ customerId: card.customerId, nome: card.nome }); }} title="Ver/registrar nota" className="text-muted hover:text-primary"><StickyNote size={13} /></button>
+                                <button type="button" onClick={(e) => { e.stopPropagation(); setNotaDe({ customerId: card.customerId, nome: card.nome }); }} title="Linha do tempo (notas, promessas, disparos)" className="text-muted hover:text-primary"><StickyNote size={13} /></button>
                                 <Link href={`/clientes/${card.customerId}`} onClick={(e) => e.stopPropagation()} title="Abrir cliente" className="text-muted hover:text-primary"><ExternalLink size={13} /></Link>
                               </div>
                             </div>
@@ -486,7 +487,14 @@ export default function AndamentoPage() {
       )}
 
       {historico && <HistoricoModal invoiceId={historico.invoiceId} nome={historico.nome} onClose={() => setHistorico(null)} />}
-      {notaDe && <NotaModal customerId={notaDe.customerId} nome={notaDe.nome} onClose={() => setNotaDe(null)} />}
+      {notaDe && <TimelineModal customerId={notaDe.customerId} nome={notaDe.nome} onClose={() => setNotaDe(null)} />}
+      {dispararComOpen && (
+        <DispararComTemplateModal
+          invoiceIds={[...sel]}
+          onClose={() => setDispararComOpen(false)}
+          onEnviado={(m) => { setDispararComOpen(false); limpar(); carregar(true); setMsg(m); }}
+        />
+      )}
 
       {sel.size > 0 && (
         <div className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface/95 px-4 py-3 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] backdrop-blur">
@@ -494,6 +502,7 @@ export default function AndamentoPage() {
             <span className="text-sm font-medium text-ink">{sel.size} selecionada(s)</span>
             <div className="ml-auto flex flex-wrap gap-2">
               <button onClick={() => acao('disparar')} disabled={busy} className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-60"><Send size={14} /> Disparar agora</button>
+              <button onClick={() => setDispararComOpen(true)} disabled={busy} className="flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary-tint px-3 py-1.5 text-sm font-medium text-primary hover:bg-primary hover:text-white disabled:opacity-60"><Send size={14} /> Disparar com...</button>
               <button onClick={() => acao('pausar')} disabled={busy} className="flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm hover:bg-canvas disabled:opacity-60"><Pause size={14} /> Pausar cobrança</button>
               <button onClick={() => acao('retomar')} disabled={busy} className="flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm hover:bg-canvas disabled:opacity-60"><Play size={14} /> Retomar</button>
               <button onClick={limpar} className="rounded-lg px-3 py-1.5 text-sm text-muted hover:text-ink">Limpar</button>
@@ -501,6 +510,74 @@ export default function AndamentoPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+interface TemplateDisparo { id: string; reguaNome: string; canal: string; templateName: string | null; resumo: string }
+interface ContaCanal { id: string; canal: string; apelido: string; ativo: boolean }
+/** Canais de WhatsApp são intercambiáveis pra fins de conta de envio (mesma família do backend). */
+const FAMILIA_WHATSAPP = new Set(['WHATSAPP_CLOUD', 'NX_SYSTEMS', 'WHATSAPP_EVOLUTION', 'WHATSAPP_UAZAPI']);
+const mesmoCanalFamilia = (a: string, b: string) => a === b || (FAMILIA_WHATSAPP.has(a) && FAMILIA_WHATSAPP.has(b));
+
+/** Escolhe manualmente o template (passo de qualquer régua) e a conta/canal de envio, ignorando a etapa atual da régua. */
+function DispararComTemplateModal({ invoiceIds, onClose, onEnviado }: { invoiceIds: string[]; onClose: () => void; onEnviado: (msg: string) => void }) {
+  const [templates, setTemplates] = useState<TemplateDisparo[]>([]);
+  const [contas, setContas] = useState<ContaCanal[]>([]);
+  const [stepId, setStepId] = useState('');
+  const [channelAccountId, setChannelAccountId] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  useEffect(() => {
+    api<TemplateDisparo[]>('/reguas/templates-disparo').then(setTemplates).catch(() => {});
+    api<ContaCanal[]>('/canais').then((cs) => setContas(cs.filter((c) => c.ativo))).catch(() => {});
+  }, []);
+
+  const templateSel = templates.find((t) => t.id === stepId);
+  const contasCompativeis = templateSel ? contas.filter((c) => mesmoCanalFamilia(c.canal, templateSel.canal)) : [];
+
+  async function enviar() {
+    if (!stepId || !channelAccountId) return setMsg('Escolha o template e a conta.');
+    setBusy(true); setMsg('');
+    try {
+      const r = await api<{ enfileirados: number; falhas: number }>('/reguas/andamento/disparar-com-template', {
+        method: 'POST', body: { invoiceIds, stepId, channelAccountId },
+      });
+      onEnviado(`✓ ${r.enfileirados} disparo(s) na fila com o template escolhido${r.falhas ? ` · ${r.falhas} falharam` : ''}.`);
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro'); setBusy(false); }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-ink">Disparar com template escolhido</h2>
+          <button onClick={onClose} className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>
+        </div>
+        <p className="mb-3 text-sm text-muted">{invoiceIds.length} fatura(s) selecionada(s). Escolhe a mensagem e a conta que envia, ignorando a etapa atual da régua.</p>
+
+        <label className="mb-3 block text-sm"><span className="mb-1 block text-xs text-muted">Template</span>
+          <select value={stepId} onChange={(e) => { setStepId(e.target.value); setChannelAccountId(''); }} className="w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
+            <option value="">Selecione...</option>
+            {templates.map((t) => <option key={t.id} value={t.id}>{t.reguaNome} — {canalLabel[t.canal] ?? t.canal}{t.templateName ? ` (${t.templateName})` : ''} — {t.resumo}</option>)}
+          </select>
+        </label>
+
+        <label className="mb-3 block text-sm"><span className="mb-1 block text-xs text-muted">Conta / número de envio</span>
+          <select value={channelAccountId} onChange={(e) => setChannelAccountId(e.target.value)} disabled={!stepId} className="w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary disabled:opacity-60">
+            <option value="">Selecione...</option>
+            {contasCompativeis.map((c) => <option key={c.id} value={c.id}>{c.apelido} ({canalLabel[c.canal] ?? c.canal})</option>)}
+          </select>
+          {stepId && contasCompativeis.length === 0 && <span className="mt-1 block text-xs text-danger">Nenhuma conta ativa compatível com este canal.</span>}
+        </label>
+
+        {msg && <p className="mb-2 text-sm text-danger">{msg}</p>}
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="rounded border border-line px-4 py-2 text-sm hover:bg-canvas">Cancelar</button>
+          <button onClick={enviar} disabled={busy || !stepId || !channelAccountId} className="rounded bg-primary px-5 py-2 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-60">{busy ? 'Enviando...' : 'Disparar'}</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -582,17 +659,17 @@ function HistoricoModal({ invoiceId, nome, onClose }: { invoiceId: string; nome:
   );
 }
 
-/** Notas do cliente, direto do card da esteira — sem precisar abrir o cadastro. */
-function NotaModal({ customerId, nome, onClose }: { customerId: string; nome: string; onClose: () => void }) {
+/** Linha do tempo do cliente (notas, promessas, disparos), direto do card da esteira — sem precisar abrir o cadastro. */
+function TimelineModal({ customerId, nome, onClose }: { customerId: string; nome: string; onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-lg bg-surface shadow-lg">
         <div className="flex items-center justify-between border-b border-line px-5 py-4">
-          <h2 className="flex items-center gap-2 text-base font-semibold text-ink"><StickyNote size={17} className="text-primary" /> Notas de {nome}</h2>
+          <h2 className="flex items-center gap-2 text-base font-semibold text-ink"><StickyNote size={17} className="text-primary" /> Linha do tempo — {nome}</h2>
           <button onClick={onClose} className="rounded p-1 text-muted hover:bg-canvas hover:text-ink"><X size={18} /></button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <NotasCliente customerId={customerId} />
+          <Timeline customerId={customerId} />
         </div>
       </div>
     </div>

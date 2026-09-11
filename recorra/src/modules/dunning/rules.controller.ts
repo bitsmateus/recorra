@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '@/common/auth/jwt-auth.guard';
 import { RolesGuard } from '@/common/auth/roles.guard';
 import { Roles } from '@/common/auth/roles.decorator';
@@ -46,6 +46,25 @@ export class RulesController {
   @Roles('OWNER', 'ADMIN', 'FINANCEIRO', 'OPERADOR')
   disparar(@TenantId() tenantId: string, @Body('invoiceIds') invoiceIds?: string[]) {
     return this.rules.dispararLote(tenantId, invoiceIds ?? []);
+  }
+
+  /** Templates disponíveis pra escolher manualmente no disparo (todo passo de toda régua ativa). */
+  @Get('templates-disparo')
+  templatesDisparo(@TenantId() tenantId: string) {
+    return this.rules.listTemplatesDisparo(tenantId);
+  }
+
+  /** Dispara escolhendo manualmente o template e a conta/canal, em vez da etapa atual da régua. */
+  @Post('andamento/disparar-com-template')
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO', 'OPERADOR')
+  dispararComTemplate(
+    @TenantId() tenantId: string,
+    @Body('invoiceIds') invoiceIds?: string[],
+    @Body('stepId') stepId?: string,
+    @Body('channelAccountId') channelAccountId?: string,
+  ) {
+    if (!stepId || !channelAccountId) throw new BadRequestException('Escolha o template e a conta de canal');
+    return this.rules.dispararComTemplate(tenantId, invoiceIds ?? [], stepId, channelAccountId);
   }
 
   // Carteiras (equipes de cobrança) — configuráveis por tenant. Antes de :id.

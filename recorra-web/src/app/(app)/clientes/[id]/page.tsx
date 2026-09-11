@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { ArrowLeft, Phone, Mail, MapPin, Plus, X, RefreshCw } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Metric, RiskBadge, brl } from '@/components/ui';
-import { NotasCliente } from '@/components/NotasCliente';
+import { Timeline } from '@/components/Timeline';
 
 interface Detalhe {
   customer: { id: string; nome: string; doc: string; email?: string; telefone?: string; plano?: string; valorPlano?: number; cidade?: string; uf?: string; tags?: string[]; contrato?: string; statusContrato?: string };
@@ -143,8 +143,8 @@ export default function ClienteDetalhePage() {
           {d.assinaturas.length === 0 && <p className="px-2 py-4 text-center text-sm text-muted">Nenhuma assinatura.</p>}
         </Card>
 
-        <Card title="Notas">
-          <NotasCliente customerId={c.id} />
+        <Card title="Linha do tempo">
+          <Timeline customerId={c.id} />
         </Card>
       </div>
 

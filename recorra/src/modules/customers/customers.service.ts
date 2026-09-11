@@ -2,9 +2,13 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma, RiskBand } from '@prisma/client';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { AuditService } from '@/common/audit/audit.service';
+import { ConnectorFactory } from '@/modules/connectors/connector.factory';
 import { onlyDigits } from '@/common/util/normalize';
 import { isValidCpfCnpj, isValidEmail, toE164BR } from '@/common/util/validators';
+import { parseDateOrThrow } from '@/common/util/parse';
+import { dateBR, money } from '@/modules/dunning/template.util';
 import { UpsertCustomerDto } from './dto/customer.dto';
+import { CreatePromessaDto } from './dto/promessa.dto';
 
 export interface SegmentFilter {
   q?: string;
@@ -45,6 +49,7 @@ export class CustomersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly connectors: ConnectorFactory,
   ) {}
 
   /** Valida e normaliza os campos do cliente. */
@@ -327,5 +332,98 @@ export class CustomersService {
       data: { tenantId, customerId, userId: actorId, texto: limpo },
       include: { user: { select: { nome: true } } },
     });
+  }
+
+  /**
+   * Promessa de pagamento — igual a uma nota (tipo PROMESSA), com data (e
+   * opcionalmente valor). Tenta registrar no ERP do cliente quando o conector
+   * suportar (ver SourceConnector.registrarPromessaPagamento); hoje nenhum
+   * conector implementa isso de verdade, então fica sempre `null` (não
+   * aplicável) até um deles ganhar a chamada real — nunca falha silenciosamente:
+   * o resultado (ou a ausência de suporte) fica visível na linha do tempo.
+   */
+  async addPromessa(tenantId: string, customerId: string, dto: CreatePromessaDto, actorId?: string) {
+    const customer = await this.getOrThrow(tenantId, customerId);
+    const dataPromessa = parseDateOrThrow(dto.dataPromessa, 'dataPromessa');
+    const texto = dto.observacao?.trim() || `Promessa de pagamento para ${dateBR(dataPromessa)}${dto.valor ? ` (${money(dto.valor)})` : ''}`;
+
+    let erpSincronizado: boolean | null = null;
+    let erpErro: string | null = null;
+    if (customer.sourceSystem && customer.externalId) {
+      try {
+        const connector = await this.connectors.forSystem(tenantId, customer.sourceSystem);
+        if (connector?.registrarPromessaPagamento) {
+          const r = await connector.registrarPromessaPagamento({
+            customerExternalId: customer.externalId,
+            dataPromessa,
+            valor: dto.valor,
+            observacao: dto.observacao,
+          });
+          erpSincronizado = r.ok;
+          erpErro = r.ok ? null : (r.motivo ?? 'Falha ao registrar no ERP');
+        }
+      } catch (e) {
+        erpSincronizado = false;
+        erpErro = e instanceof Error ? e.message : 'Falha ao registrar no ERP';
+      }
+    }
+
+    const nota = await this.prisma.customerNote.create({
+      data: {
+        tenantId, customerId, userId: actorId, tipo: 'PROMESSA', texto,
+        dataPromessa, valorPrometido: dto.valor, erpSincronizado, erpErro,
+      },
+      include: { user: { select: { nome: true } } },
+    });
+    await this.audit.record({
+      tenantId, userId: actorId, acao: 'customer.promessa.create', entidade: 'Customer', entidadeId: customerId,
+      depois: { dataPromessa, valor: dto.valor, erpSincronizado },
+    });
+    return nota;
+  }
+
+  /**
+   * Linha do tempo do cliente: notas/promessas + disparos já concluídos (fora da
+   * fila), em ordem cronológica — mesma leitura no perfil do cliente e no card
+   * da esteira.
+   */
+  async getTimeline(tenantId: string, customerId: string) {
+    await this.getOrThrow(tenantId, customerId);
+    const [notas, disparos] = await Promise.all([
+      this.prisma.customerNote.findMany({
+        where: { tenantId, customerId },
+        include: { user: { select: { nome: true } } },
+        orderBy: { createdAt: 'desc' },
+        take: 150,
+      }),
+      this.prisma.messageDispatch.findMany({
+        where: { tenantId, customerId, status: { not: 'FILA' } },
+        orderBy: { createdAt: 'desc' },
+        take: 150,
+        select: { id: true, canal: true, status: true, conteudo: true, enviadoEm: true, createdAt: true },
+      }),
+    ]);
+    const itens = [
+      ...notas.map((n) => ({
+        id: n.id,
+        tipo: n.tipo === 'PROMESSA' ? ('promessa' as const) : ('nota' as const),
+        data: n.createdAt,
+        texto: n.texto,
+        autor: n.user?.nome ?? null,
+        dataPromessa: n.dataPromessa,
+        valorPrometido: n.valorPrometido ? Number(n.valorPrometido) : null,
+        erpSincronizado: n.erpSincronizado,
+        erpErro: n.erpErro,
+      })),
+      ...disparos.map((d) => ({
+        id: d.id,
+        tipo: 'disparo' as const,
+        data: d.enviadoEm ?? d.createdAt,
+        texto: d.conteudo ?? '',
+        canal: d.canal as string | undefined,
+        status: d.status as string | undefined,
+      })),
+    ];
+    return itens.sort((a, b) => b.data.getTime() - a.data.getTime()).slice(0, 200);
   }
 }

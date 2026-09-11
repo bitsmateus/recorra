@@ -83,6 +83,31 @@ export class RulesService {
     return { enfileirados: r.enfileirados, falhas: r.falhas, erros: r.erros.slice(0, 5) };
   }
 
+  /** Dispara escolhendo manualmente o template (passo de qualquer régua) e a conta/canal, em vez da etapa atual. */
+  async dispararComTemplate(tenantId: string, invoiceIds: string[], stepId: string, channelAccountId: string) {
+    const ids = [...new Set(invoiceIds)].filter(Boolean);
+    const r = await this.dunning.dispararEmLoteComTemplate(tenantId, ids, stepId, channelAccountId);
+    return { enfileirados: r.enfileirados, falhas: r.falhas, erros: r.erros.slice(0, 5) };
+  }
+
+  /** Templates disponíveis pra disparo manual: todo passo de toda régua ativa do tenant. */
+  async listTemplatesDisparo(tenantId: string) {
+    const reguas = await this.prisma.dunningRule.findMany({
+      where: { tenantId, ativo: true },
+      include: { steps: { where: { ativo: true }, orderBy: { ordem: 'asc' } } },
+      orderBy: { createdAt: 'asc' },
+    });
+    return reguas.flatMap((r) =>
+      r.steps.map((s) => ({
+        id: s.id,
+        reguaNome: r.nome,
+        canal: s.canal,
+        templateName: s.templateName,
+        resumo: s.template.slice(0, 80),
+      })),
+    );
+  }
+
   /** Descrição legível de um erro do Prisma (código + alvo) para diagnóstico. */
   private detalheErro(e: unknown): string {
     if (e instanceof Prisma.PrismaClientKnownRequestError) {

@@ -8,6 +8,7 @@ import { AuthUser } from '@/common/auth/jwt.types';
 import { RiskScoringService } from '@/modules/risk/risk-scoring.service';
 import { CustomersService } from './customers.service';
 import { UpsertCustomerDto } from './dto/customer.dto';
+import { CreatePromessaDto } from './dto/promessa.dto';
 import { parseNumberFilter } from '@/common/util/parse';
 
 @Controller('clientes')
@@ -167,6 +168,20 @@ export class CustomersController {
   @Roles('OWNER', 'ADMIN', 'FINANCEIRO', 'OPERADOR')
   addNota(@TenantId() tenantId: string, @Param('id') id: string, @Body('texto') texto: string, @CurrentUser() user: AuthUser) {
     return this.customers.addNota(tenantId, id, texto ?? '', user.id);
+  }
+
+  /** Promessa de pagamento — vira um item PROMESSA na linha do tempo do cliente. */
+  @Post(':id/promessas')
+  @UseGuards(RolesGuard)
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO', 'OPERADOR')
+  addPromessa(@TenantId() tenantId: string, @Param('id') id: string, @Body() dto: CreatePromessaDto, @CurrentUser() user: AuthUser) {
+    return this.customers.addPromessa(tenantId, id, dto, user.id);
+  }
+
+  /** Linha do tempo: notas/promessas + disparos — mesma leitura no cliente e na esteira. */
+  @Get(':id/timeline')
+  timeline(@TenantId() tenantId: string, @Param('id') id: string) {
+    return this.customers.getTimeline(tenantId, id);
   }
 
   @Get(':id/risco')

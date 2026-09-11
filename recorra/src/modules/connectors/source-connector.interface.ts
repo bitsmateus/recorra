@@ -64,6 +64,20 @@ export interface SourceCredentials {
   extra?: Record<string, string>;
 }
 
+/** Promessa de pagamento a registrar no ERP (feature nativa em vários ERPs de provedor de internet). */
+export interface PromessaPagamento {
+  customerExternalId: string;
+  dataPromessa: Date;
+  valor?: number;
+  observacao?: string;
+}
+
+export interface RegistroErpResultado {
+  ok: boolean;
+  /** Motivo da falha, para exibir ao usuário — só quando ok = false. */
+  motivo?: string;
+}
+
 /**
  * Contrato único para todos os sistemas de origem (IXC, SGP, HubSoft, Voalle, MK-Auth, CSV, API).
  * O motor de sincronização usa esta interface — adicionar um ERP = implementar um conector.
@@ -94,4 +108,13 @@ export interface SourceConnector {
    * Usado no envio, quando a cobrança do ERP ainda não tem Pix/link gravado.
    */
   fetchInvoicePayment?(sourceExternalId: string): Promise<SourcePayment | null>;
+
+  /**
+   * Registra no ERP uma promessa de pagamento do cliente — vários ERPs de
+   * provedor de internet têm esse recurso nativo. OPCIONAL e NÃO implementado
+   * por nenhum conector ainda: cada ERP tem seu próprio endpoint/formato, e
+   * implementar sem a documentação real arriscaria gravar errado no sistema do
+   * cliente. Quando ausente, a promessa fica registrada só no Recorrai.
+   */
+  registrarPromessaPagamento?(promessa: PromessaPagamento): Promise<RegistroErpResultado>;
 }

@@ -367,17 +367,37 @@ model Carteira {
   @@map("carteiras")
 }
 
+// NOTA = anotação livre de interação (ligação, combinado etc.). PROMESSA =
+// promessa de pagamento com data (e opcionalmente valor) — mesma tabela, tipo
+// diferente, pra aparecer junto na linha do tempo do cliente.
+enum NotaTipo {
+  NOTA
+  PROMESSA
+}
+
 // Anotação manual de interação com o cliente (ligação telefônica, acordo verbal,
-// combinado etc.) — registro livre da equipe, sem alterar fatura/cadastro.
-// Editável de qualquer tela que tenha o cliente à mão (perfil do cliente ou o
-// card da esteira), sem precisar abrir o cadastro completo.
+// promessa de pagamento etc.) — registro livre da equipe, sem alterar fatura/
+// cadastro. Editável de qualquer tela que tenha o cliente à mão (perfil do
+// cliente ou o card da esteira), sem precisar abrir o cadastro completo.
+// Junto com MessageDispatch, forma a linha do tempo exibida nessas telas.
 model CustomerNote {
   id         String   @id @default(cuid())
   tenantId   String
   customerId String
   userId     String? // autor — null se o usuário foi removido depois
+  tipo       NotaTipo @default(NOTA)
   texto      String
   createdAt  DateTime @default(now())
+
+  // Só para tipo = PROMESSA:
+  dataPromessa   DateTime?
+  valorPrometido Decimal?  @db.Decimal(12, 2)
+  // Resultado do envio ao ERP (feature nativa em vários ERPs de provedor de
+  // internet): null = ERP não suporta/não tentou; true = confirmado no ERP;
+  // false = tentou e falhou (motivo em erpErro). Hoje nenhum conector implementa
+  // o envio de verdade — fica sempre null até um conector ganhar essa chamada.
+  erpSincronizado Boolean?
+  erpErro         String?
 
   tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)

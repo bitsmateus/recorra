@@ -51,8 +51,8 @@ export const HELP_TOPICS: HelpTopic[] = [
   },
   {
     id: 'clientes', section: 'Clientes', title: 'Cadastro e gestão de clientes',
-    summary: 'Cadastro individual, pesquisa, etiquetas, notas e visão consolidada de cada cliente.',
-    steps: ['Abra Cobrança > Clientes.', 'Cadastre manualmente ou use uma importação/integração.', 'Pesquise por nome ou CPF/CNPJ.', 'Use etiquetas para segmentar campanhas.', 'Abra o cliente para consultar cobranças, pagamentos, risco, disparos, acordos, assinaturas e notas.', 'Use a aba Notas para registrar uma interação (ligação, combinado, promessa de pagamento) — o mesmo registro também pode ser feito direto do card na Esteira.'],
+    summary: 'Cadastro individual, pesquisa, etiquetas, linha do tempo e visão consolidada de cada cliente.',
+    steps: ['Abra Cobrança > Clientes.', 'Cadastre manualmente ou use uma importação/integração.', 'Pesquise por nome ou CPF/CNPJ.', 'Use etiquetas para segmentar campanhas.', 'Abra o cliente para consultar cobranças, pagamentos, risco, disparos, acordos e assinaturas.', 'Use a Linha do tempo para ver notas, promessas de pagamento e disparos em ordem cronológica, e para registrar uma nova nota ou promessa — o mesmo registro também pode ser feito direto do card na Esteira.'],
     rules: [
       'CPF/CNPJ identifica o cliente dentro da empresa e evita duplicidade.',
       'Na sincronização, um cliente existente com o mesmo documento é atualizado em vez de duplicado.',
@@ -60,6 +60,7 @@ export const HELP_TOPICS: HelpTopic[] = [
       'A exclusão do cliente pode remover dados relacionados; revise o histórico antes de confirmar.',
       'Quando o ERP de origem informa a situação do contrato (ex.: Voalle), ela aparece ao lado do número do contrato — não é editável no Recorrai, vem da sincronização.',
       'Notas são um registro livre da equipe (não alteram fatura/cadastro) e mostram quem escreveu e quando.',
+      'Promessa de pagamento é uma nota com data (e valor opcional): fica destacada na linha do tempo e o Recorrai tenta registrá-la também no ERP do cliente — hoje nenhum ERP suportado tem esse envio implementado, então ela fica só no Recorrai até isso existir.',
     ],
   },
   {
@@ -201,9 +202,10 @@ export const HELP_TOPICS: HelpTopic[] = [
       'Use o filtro de Período (Hoje, Este mês, Este ano, Todo o período ou Personalizado) — por padrão abre em Este mês.',
       'Refine por situação (Todas, Vencidas, A vencer) e por canal.',
       'Selecione cards (ou a coluna inteira pelo checkbox do cabeçalho) para Disparar agora, Pausar ou Retomar em lote.',
+      'Use "Disparar com..." para escolher manualmente qual template (de qualquer régua) e qual conta/número de canal enviam, em vez da etapa atual da régua.',
       'Na coluna Falharam, use Reenviar todos para tentar novamente as que não saíram.',
       'Clique no selo de envio do card (enviado, na fila, falhou) para ver o histórico do que foi disparado naquela fatura: canal, data/hora, origem, o texto da mensagem e o erro, se houver.',
-      'Use os botões "Retido" e "Rescisão enviada" no card para marcar sem abrir o cliente; clique no ícone de nota para ver/registrar uma anotação de interação (ligação, combinado) direto do card.',
+      'Use os botões "Retido" e "Rescisão enviada" no card para marcar sem abrir o cliente; clique no ícone de linha do tempo para ver/registrar uma nota ou promessa de pagamento direto do card.',
     ],
     rules: [
       'A etapa é calculada na hora a partir de vencimento × hoje × passos da régua; nada é gravado e o card "anda" sozinho conforme o tempo passa.',
@@ -216,8 +218,9 @@ export const HELP_TOPICS: HelpTopic[] = [
       'Operador com carteira definida (Configurações > Equipe) só vê a faixa de dias da própria carteira; OWNER/ADMIN/FINANCEIRO sempre veem a esteira inteira. As carteiras (equipes, com nome e dia próprios) e os alertas de rescisão/Serasa ficam em Réguas.',
       'O aviso de rescisão/Serasa no card é só um sinal visual pela idade da fatura — nenhuma ação é enviada automaticamente ao Serasa nem contrato é rescindido sozinho.',
       'Se o cliente vem de um ERP que informa a situação do contrato (ex.: Voalle), um contrato cancelado/suspenso aparece destacado no card e no perfil do cliente.',
+      '"Disparar com..." lista só contas de canal compatíveis com o template escolhido (ex.: um template de WhatsApp só mostra contas de WhatsApp) e envia IMEDIATAMENTE, com o mesmo espaçamento do reenvio em lote.',
     ],
-    keywords: ['esteira', 'andamento', 'kanban', 'etapa', 'quadro', 'lote', 'reenviar', 'retido', 'rescisão', 'serasa', 'carteira', 'nota'],
+    keywords: ['esteira', 'andamento', 'kanban', 'etapa', 'quadro', 'lote', 'reenviar', 'retido', 'rescisão', 'serasa', 'carteira', 'nota', 'promessa', 'linha do tempo', 'disparar com'],
   },
   {
     id: 'campanhas', section: 'Automação', title: 'Campanhas',

@@ -387,6 +387,44 @@ export class DunningService {
     return { enfileirados, falhas: erros.length, erros };
   }
 
+  /**
+   * Disparo manual ESCOLHENDO o template (um passo de qualquer régua ativa,
+   * usado como "modelo" com sua mensagem e variáveis já configuradas) e a CONTA
+   * de canal que envia — em vez de deixar a régua decidir sozinha pela etapa
+   * atual. Mesmo espaçamento do reenvio em lote (`proximoEspacado`); a conta
+   * escolhida decide o canal efetivo (`resolverContaEnvio` prioriza a conta
+   * amarrada ao passo, então sobrepor `channelAccountId` já basta).
+   */
+  async dispararEmLoteComTemplate(tenantId: string, invoiceIds: string[], stepId: string, channelAccountId: string) {
+    const [step, conta, tenant] = await Promise.all([
+      this.prisma.dunningStep.findFirst({ where: { id: stepId, rule: { tenantId } }, include: { rule: true } }),
+      this.prisma.channelAccount.findFirst({ where: { id: channelAccountId, tenantId, ativo: true } }),
+      this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } }),
+    ]);
+    if (!step) throw new BadRequestException('Template não encontrado');
+    if (!conta) throw new BadRequestException('Conta de canal não encontrada ou inativa');
+    const rule: RuleWithSteps = { ...step.rule, steps: [] };
+    const stepComConta: DunningStep = { ...step, channelAccountId: conta.id };
+
+    const cursor = new Map<string, Date>();
+    let enfileirados = 0;
+    const erros: { id: string; erro: string }[] = [];
+    for (const id of invoiceIds) {
+      try {
+        const invoice = await this.prisma.invoice.findFirst({ where: { id, tenantId }, include: { customer: true } });
+        if (!invoice) throw new NotFoundException('Fatura não encontrada');
+        if (invoice.status === 'PAGA' || invoice.status === 'CANCELADA') throw new BadRequestException('Fatura não está em aberto.');
+        if (invoice.gestaoCobranca === 'PAUSADA') throw new BadRequestException('Cobrança pausada para esta fatura — retome antes de disparar.');
+        const quando = this.proximoEspacado(cursor, tenant.timezone, rule);
+        await this.enqueueDispatch(tenantId, tenant.timezone, invoice, stepComConta, rule, { agendadoPara: quando });
+        enfileirados++;
+      } catch (e) {
+        erros.push({ id, erro: e instanceof Error ? e.message : String(e) });
+      }
+    }
+    return { enfileirados, falhas: erros.length, erros };
+  }
+
   private midnight(d: Date): Date {
     const x = new Date(d);
     x.setHours(0, 0, 0, 0);
