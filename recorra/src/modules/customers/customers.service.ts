@@ -308,9 +308,18 @@ export class CustomersService {
     });
   }
 
-  /** Remove a etiqueta do catálogo (não altera clientes já marcados). */
+  /**
+   * Remove a etiqueta do catálogo E desmarca de todo cliente que a tinha —
+   * senão `listEtiquetas` (que junta catálogo + tags já em uso) a traz de volta
+   * pra lista como se nunca tivesse sido excluída.
+   */
   async excluirEtiqueta(tenantId: string, nome: string) {
-    await this.prisma.tag.deleteMany({ where: { tenantId, nome: nome.trim().toLowerCase() } });
+    const n = nome.trim().toLowerCase();
+    if (!n) return { ok: true };
+    await this.prisma.$transaction([
+      this.prisma.tag.deleteMany({ where: { tenantId, nome: n } }),
+      this.prisma.$executeRaw`UPDATE "customers" SET "tags" = array_remove("tags", ${n}) WHERE "tenantId" = ${tenantId} AND ${n} = ANY("tags")`,
+    ]);
     return { ok: true };
   }
 

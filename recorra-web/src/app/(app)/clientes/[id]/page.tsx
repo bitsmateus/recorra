@@ -144,7 +144,7 @@ export default function ClienteDetalhePage() {
         </Card>
 
         <Card title="Linha do tempo">
-          <Timeline customerId={c.id} />
+          <Timeline customerId={c.id} onChange={carregar} />
         </Card>
       </div>
 

@@ -37,7 +37,7 @@ const dataCurta = (s: string) => new Date(s).toLocaleDateString('pt-BR', { timeZ
 interface Etiqueta { nome: string; cor: string | null }
 interface UsuarioTenant { id: string; nome: string; ativo: boolean }
 
-export function Timeline({ customerId }: { customerId: string }) {
+export function Timeline({ customerId, onChange }: { customerId: string; onChange?: () => void }) {
   const [itens, setItens] = useState<TimelineItem[] | null>(null);
   const [erro, setErro] = useState('');
   const [modo, setModo] = useState<'nota' | 'promessa'>('nota');
@@ -69,6 +69,7 @@ export function Timeline({ customerId }: { customerId: string }) {
     try {
       await api(`/clientes/${customerId}/tags/toggle`, { method: 'PATCH', body: { tag } });
       carregarTags();
+      onChange?.();
     } catch (e) { setErro(e instanceof Error ? e.message : 'Erro ao marcar etiqueta'); }
     finally { setTagBusy(null); }
   }
@@ -78,6 +79,7 @@ export function Timeline({ customerId }: { customerId: string }) {
     try {
       await api(`/clientes/${customerId}/responsavel`, { method: 'PATCH', body: { responsavelId: id || null } });
       setResponsavelId(id || null);
+      onChange?.();
     } catch (e) { setErro(e instanceof Error ? e.message : 'Erro ao definir responsável'); }
     finally { setSalvandoResp(false); }
   }
@@ -90,6 +92,7 @@ export function Timeline({ customerId }: { customerId: string }) {
       await api(`/clientes/${customerId}/notas`, { method: 'POST', body: { texto: limpo } });
       setTexto('');
       carregar();
+      onChange?.();
     } catch (e) { setErro(e instanceof Error ? e.message : 'Erro ao salvar nota'); }
     finally { setBusy(false); }
   }
@@ -104,6 +107,7 @@ export function Timeline({ customerId }: { customerId: string }) {
       });
       setTexto(''); setDataPromessa(''); setValor('');
       carregar();
+      onChange?.();
     } catch (e) { setErro(e instanceof Error ? e.message : 'Erro ao registrar promessa'); }
     finally { setBusy(false); }
   }

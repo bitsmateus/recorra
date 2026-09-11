@@ -475,7 +475,7 @@ export default function AndamentoPage() {
       )}
 
       {historico && <HistoricoModal invoiceId={historico.invoiceId} nome={historico.nome} onClose={() => setHistorico(null)} />}
-      {notaDe && <TimelineModal customerId={notaDe.customerId} nome={notaDe.nome} onClose={() => setNotaDe(null)} />}
+      {notaDe && <TimelineModal customerId={notaDe.customerId} nome={notaDe.nome} onClose={() => setNotaDe(null)} onChange={() => carregar(true)} />}
       {dispararComOpen && (
         <DispararComTemplateModal
           invoiceIds={[...sel]}
@@ -648,7 +648,7 @@ function HistoricoModal({ invoiceId, nome, onClose }: { invoiceId: string; nome:
 }
 
 /** Linha do tempo do cliente (notas, promessas, disparos), direto do card da esteira — sem precisar abrir o cadastro. */
-function TimelineModal({ customerId, nome, onClose }: { customerId: string; nome: string; onClose: () => void }) {
+function TimelineModal({ customerId, nome, onClose, onChange }: { customerId: string; nome: string; onClose: () => void; onChange: () => void }) {
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="flex h-[85vh] w-full max-w-3xl flex-col rounded-lg bg-surface shadow-lg">
@@ -657,7 +657,7 @@ function TimelineModal({ customerId, nome, onClose }: { customerId: string; nome
           <button onClick={onClose} className="rounded p-1 text-muted hover:bg-canvas hover:text-ink"><X size={18} /></button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <Timeline customerId={customerId} />
+          <Timeline customerId={customerId} onChange={onChange} />
         </div>
       </div>
     </div>
