@@ -6,7 +6,9 @@ import { NICHO_TEMPLATES, findNicho } from './nicho-templates';
 import { evaluateAb, Variante } from './abtest';
 import { selecionarRegua, DunningService } from './dunning.service';
 import { erroMapeamentoBotoes } from '@/modules/channels/meta-graph';
-import { lerCarteiraConfig, equipeDaFaixa, CarteiraConfig } from './carteira-config';
+import { lerAlertasEsteira } from './carteira-config';
+import { carteiraDaFaixa, CarteiraFaixa } from './carteiras';
+import { SaveCarteiraDto } from './dto/carteira.dto';
 import { AuthUser } from '@/common/auth/jwt.types';
 
 /** Papéis que administram a cobrança e por isso veem a esteira inteira, sem filtro de carteira. */
@@ -28,6 +30,7 @@ export interface AndamentoCard {
   tags?: string[]; // tags do cliente (manuais, ex.: "retido", "rescisão enviada")
   alertaRescisao?: boolean; // atraso já passou do dia configurado para rescisão (só sinaliza — nada é acionado)
   alertaSerasa?: boolean; // atraso já passou do dia configurado para envio ao Serasa (só sinaliza — nada é acionado)
+  carteira?: string | null; // nome da carteira dona desta faixa de atraso (null = nenhuma carteira assumiu ainda)
 }
 
 /** Teto de cards lidos pela esteira — acima disso a tela avisa que está truncada. */
@@ -145,33 +148,36 @@ export class RulesService {
    * Aguardando início + Pagas/Encerradas + Sem contato.
    */
   async andamento(tenantId: string, ruleId?: string, incluirPausadas = false, viewer?: AuthUser) {
-    const [tenant, reguas] = await Promise.all([
+    const [tenant, reguas, carteirasTenant] = await Promise.all([
       this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { usarFaixaRisco: true, reguaPadraoId: true, config: true } }),
       this.prisma.dunningRule.findMany({
         where: { tenantId, ativo: true },
         include: { steps: { where: { ativo: true }, orderBy: { offsetDias: 'asc' } } },
         orderBy: { createdAt: 'asc' },
       }),
+      this.prisma.carteira.findMany({ where: { tenantId }, orderBy: { diaMinimo: 'asc' } }),
     ]);
     const usarFaixaRisco = tenant?.usarFaixaRisco !== false;
     const opcoesReguas = reguas.map((r) => ({ id: r.id, nome: r.nome, faixaRisco: r.faixaRisco }));
-    const carteiraConfig = lerCarteiraConfig(tenant?.config);
+    const alertas = lerAlertasEsteira(tenant?.config);
+    const carteiras: CarteiraFaixa[] = carteirasTenant;
 
     // Quem administra vê a esteira inteira. Operador/leitura só vê a carteira
     // (equipe) atribuída — a role vem do token (já confiável nas outras rotas);
-    // a equipe é lida do banco pois é campo novo e pode mudar sem novo login.
-    let equipeVisivel: 'EQUIPE_1' | 'EQUIPE_2' | null = null;
+    // a carteira é lida do banco pois pode mudar sem novo login.
+    let carteiraVisivel: CarteiraFaixa | null = null;
     if (viewer && !PAPEIS_VISAO_GERAL.has(viewer.role)) {
-      const u = await this.prisma.user.findUnique({ where: { id: viewer.id }, select: { equipeCobranca: true } });
-      equipeVisivel = u?.equipeCobranca ?? null;
+      const u = await this.prisma.user.findUnique({ where: { id: viewer.id }, select: { carteiraId: true } });
+      carteiraVisivel = carteiras.find((c) => c.id === u?.carteiraId) ?? null;
     }
+    const carteiraInfo = { visivel: carteiraVisivel, todas: carteiras, alertas };
 
     // Régua alvo: a escolhida; senão a padrão (modo simples); senão a 1ª ativa.
     const regua =
       (ruleId ? reguas.find((r) => r.id === ruleId) : undefined) ??
       (usarFaixaRisco ? undefined : selecionarRegua(reguas, false, null, tenant?.reguaPadraoId) ?? undefined) ??
       reguas[0];
-    if (!regua) return { regua: null, reguas: opcoesReguas, usarFaixaRisco, colunas: [], carteira: { equipeVisivel, config: carteiraConfig } };
+    if (!regua) return { regua: null, reguas: opcoesReguas, usarFaixaRisco, colunas: [], carteira: carteiraInfo };
 
     // Passos distintos por offset — cada fatura entra no offset da etapa atual.
     const offsets = [...new Set(regua.steps.map((s) => s.offsetDias))].sort((a, b) => a - b);
@@ -180,16 +186,25 @@ export class RulesService {
     const filtroCliente = { ativo: true, ...(faixa ? { faixaAtual: faixa } : {}) };
 
     const seteDias = new Date(Date.now() - 7 * 86400000);
-    // Corte de vencimento equivalente à faixa de dias da carteira (mesma lógica de
-    // diffDe, calculada aqui para poder filtrar no banco — assim totalAbertas/truncado
-    // já saem certos para o operador, igual já acontecia com a faixa de risco).
+    // Corte de vencimento equivalente à faixa de dias da carteira do operador (mesma
+    // lógica de diffDe, calculada aqui pra filtrar no banco — assim totalAbertas/
+    // truncado já saem certos, igual já acontecia com a faixa de risco). A carteira
+    // cobre [diaMinimo, próximoDiaMinimo) — sem próxima, cobre até o infinito.
     const agora = new Date();
     const hojeUtc0 = Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth(), agora.getUTCDate());
-    const corteEquipe2 = new Date(hojeUtc0 - carteiraConfig.equipe2DesdeDia * 86400000);
-    const vencimentoDaEquipe: Prisma.InvoiceWhereInput =
-      equipeVisivel === 'EQUIPE_1' ? { vencimento: { gt: corteEquipe2 } }
-      : equipeVisivel === 'EQUIPE_2' ? { vencimento: { lte: corteEquipe2 } }
-      : {};
+    const corteDoDia = (dias: number) => new Date(hojeUtc0 - dias * 86400000);
+    let vencimentoDaCarteira: Prisma.InvoiceWhereInput = {};
+    if (carteiraVisivel) {
+      const proxima = carteiras
+        .filter((c) => c.diaMinimo > carteiraVisivel!.diaMinimo)
+        .sort((a, b) => a.diaMinimo - b.diaMinimo)[0];
+      vencimentoDaCarteira = {
+        vencimento: {
+          lte: corteDoDia(carteiraVisivel.diaMinimo),
+          ...(proxima ? { gt: corteDoDia(proxima.diaMinimo) } : {}),
+        },
+      };
+    }
     // Pausada fica FORA por padrão. Ela não é cobrada por ninguém — e, como o
     // teto de cards pega os vencimentos mais antigos, o passivo histórico pausado
     // ocupava a esteira inteira e escondia justamente a cobrança do mês.
@@ -197,7 +212,7 @@ export class RulesService {
     const whereAbertas: Prisma.InvoiceWhereInput = {
       tenantId, status: { in: ['PENDENTE', 'VENCIDA'] }, contestada: false, customer: filtroCliente,
       gestaoCobranca: incluirPausadas ? { in: ['ATIVA', 'PAUSADA'] } : 'ATIVA',
-      ...vencimentoDaEquipe,
+      ...vencimentoDaCarteira,
     };
     const [abertas, encerradas, totalAbertas, pausadasOcultas] = await Promise.all([
       this.prisma.invoice.findMany({
@@ -252,8 +267,9 @@ export class RulesService {
     for (const inv of abertas) {
       const c = inv.customer;
       const diffDias = diffDe(inv.vencimento);
+      const carteiraDoCard = carteiraDaFaixa(diffDias, carteiras);
       // Carteira: operador só vê a faixa da própria equipe (admin/financeiro veem tudo).
-      if (equipeVisivel && equipeDaFaixa(diffDias, carteiraConfig) !== equipeVisivel) continue;
+      if (carteiraVisivel && carteiraDoCard?.id !== carteiraVisivel.id) continue;
       const d = ultimo.get(inv.id);
       const atual = offsets.filter((o) => o <= diffDias).pop();
       const card: AndamentoCard = {
@@ -264,8 +280,9 @@ export class RulesService {
         pausada: inv.gestaoCobranca === 'PAUSADA',
         statusContrato: c.statusContrato,
         tags: c.tags,
-        alertaRescisao: diffDias >= carteiraConfig.diasRescisao,
-        alertaSerasa: diffDias >= carteiraConfig.diasSerasa,
+        alertaRescisao: diffDias >= alertas.diasRescisao,
+        alertaSerasa: diffDias >= alertas.diasSerasa,
+        carteira: carteiraDoCard?.nome ?? null,
       };
       if (!c.telefone?.trim() && !c.email?.trim()) { col('sem-contato').cards.push(card); continue; }
       // Último disparo falhou → coluna "Falharam" (destaca o problema em vez de esconder na etapa).
@@ -292,8 +309,37 @@ export class RulesService {
       pausadasOcultas,
       incluirPausadas,
       colunas: colunas.map((c) => ({ ...c, total: c.cards.length, valor: c.cards.reduce((s, x) => s + x.valor, 0) })),
-      carteira: { equipeVisivel, config: carteiraConfig },
+      carteira: carteiraInfo,
     };
+  }
+
+  // ---------- Carteiras (equipes de cobrança configuráveis por tenant) ----------
+
+  listCarteiras(tenantId: string) {
+    return this.prisma.carteira.findMany({ where: { tenantId }, orderBy: { diaMinimo: 'asc' } });
+  }
+
+  async createCarteira(tenantId: string, dto: SaveCarteiraDto) {
+    await this.assertDiaMinimoLivre(tenantId, dto.diaMinimo);
+    return this.prisma.carteira.create({ data: { tenantId, nome: dto.nome.trim(), diaMinimo: dto.diaMinimo } });
+  }
+
+  async updateCarteira(tenantId: string, id: string, dto: SaveCarteiraDto) {
+    await this.prisma.carteira.findFirstOrThrow({ where: { id, tenantId } });
+    await this.assertDiaMinimoLivre(tenantId, dto.diaMinimo, id);
+    return this.prisma.carteira.update({ where: { id }, data: { nome: dto.nome.trim(), diaMinimo: dto.diaMinimo } });
+  }
+
+  /** Remove a carteira; operadores nela ficam sem restrição (User.carteiraId vira null, ON DELETE SET NULL). */
+  async removeCarteira(tenantId: string, id: string) {
+    await this.prisma.carteira.deleteMany({ where: { id, tenantId } });
+    return { ok: true };
+  }
+
+  /** Duas carteiras com o mesmo diaMinimo empatariam sobre a mesma fatura — não permite. */
+  private async assertDiaMinimoLivre(tenantId: string, diaMinimo: number, exceto?: string) {
+    const conflito = await this.prisma.carteira.findFirst({ where: { tenantId, diaMinimo, id: exceto ? { not: exceto } : undefined } });
+    if (conflito) throw new BadRequestException(`Já existe a carteira "${conflito.nome}" a partir do dia ${diaMinimo}.`);
   }
 
   /** Config da cobrança automática + diagnóstico (faixas de inadimplentes sem régua). */

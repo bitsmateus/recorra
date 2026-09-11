@@ -407,7 +407,8 @@ export default function ReguasPage() {
         {msg && <p className="mt-3 text-sm text-primary">{msg}</p>}
       </div>
 
-      <CarteiraConfigCard />
+      <CarteirasCard />
+      <AlertasEsteiraCard />
 
       <NichoGallery onClone={load} />
       <AbStats />
@@ -1107,59 +1108,148 @@ function NichoGallery({ onClone }: { onClone: () => void }) {
   );
 }
 
-interface CarteiraConfig { equipe2DesdeDia: number; diasRescisao: number; diasSerasa: number }
+interface Carteira { id: string; nome: string; diaMinimo: number }
 
 /**
- * Faixas de dias que definem a carteira de cada equipe na Esteira (D+equipe2DesdeDia
- * em diante vira "retenção") e os alertas de rescisão/Serasa. Puramente informativo:
- * nenhuma ação é disparada automaticamente nesses dias, só o aviso no card.
+ * Carteiras (equipes de cobrança) configuráveis por tenant: cada cliente cria
+ * quantas quiser, com o nome que quiser, e define a partir de qual dia de
+ * atraso cada uma assume o cliente. Um operador nessa carteira (ver Equipe) só
+ * vê, na Esteira, as faturas dessa faixa; quem administra sempre vê tudo.
  */
-function CarteiraConfigCard() {
-  const [cfg, setCfg] = useState<CarteiraConfig | null>(null);
+function CarteirasCard() {
+  const [carteiras, setCarteiras] = useState<Carteira[]>([]);
+  const [novo, setNovo] = useState({ nome: '', diaMinimo: '30' });
+  const [editando, setEditando] = useState<Carteira | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
 
-  useEffect(() => { api<CarteiraConfig>('/config/carteira').then(setCfg).catch(() => {}); }, []);
+  const carregar = useCallback(() => { api<Carteira[]>('/reguas/carteiras').then(setCarteiras).catch(() => {}); }, []);
+  useEffect(carregar, [carregar]);
+
+  async function salvarNova() {
+    if (!novo.nome.trim()) return setMsg('Informe o nome da carteira.');
+    setBusy(true); setMsg('');
+    try {
+      await api('/reguas/carteiras', { method: 'POST', body: { nome: novo.nome.trim(), diaMinimo: Number(novo.diaMinimo) || 0 } });
+      setNovo({ nome: '', diaMinimo: '30' });
+      carregar();
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro'); }
+    finally { setBusy(false); }
+  }
+
+  async function salvarEdicao() {
+    if (!editando) return;
+    setBusy(true); setMsg('');
+    try {
+      await api(`/reguas/carteiras/${editando.id}`, { method: 'PUT', body: { nome: editando.nome.trim(), diaMinimo: editando.diaMinimo } });
+      setEditando(null);
+      carregar();
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro'); }
+    finally { setBusy(false); }
+  }
+
+  async function excluir(c: Carteira) {
+    setBusy(true); setMsg('');
+    try {
+      await api(`/reguas/carteiras/${c.id}`, { method: 'DELETE' });
+      carregar();
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro'); }
+    finally { setBusy(false); }
+  }
+
+  const ordenadas = [...carteiras].sort((a, b) => a.diaMinimo - b.diaMinimo);
+
+  return (
+    <div className="mb-4 rounded-lg border border-line bg-surface p-4 sm:p-5">
+      <div className="text-sm font-semibold text-ink">Carteiras da esteira</div>
+      <p className="mb-3 text-xs text-muted">
+        Crie quantas equipes precisar e a partir de qual dia de atraso cada uma assume o cliente (a carteira de maior
+        dia "puxa" o cliente quando ele cruza esse limite). Quem não tem carteira atribuída em <Link href="/equipe" className="text-primary underline">Equipe</Link> vê
+        tudo; um cliente com atraso menor que o dia da 1ª carteira ainda não pertence a nenhuma.
+      </p>
+
+      {ordenadas.length > 0 && (
+        <div className="mb-3 space-y-1.5">
+          {ordenadas.map((c) => (
+            <div key={c.id} className="flex flex-wrap items-center gap-2 rounded border border-line px-3 py-2 text-sm">
+              {editando?.id === c.id ? (
+                <>
+                  <input value={editando.nome} onChange={(e) => setEditando({ ...editando, nome: e.target.value })} className="w-40 rounded border border-line px-2 py-1 text-sm outline-none focus:border-primary" />
+                  <span className="text-xs text-muted">a partir do dia</span>
+                  <input type="number" min={0} value={editando.diaMinimo} onChange={(e) => setEditando({ ...editando, diaMinimo: Number(e.target.value) || 0 })} className="w-20 rounded border border-line px-2 py-1 text-sm outline-none focus:border-primary" />
+                  <button onClick={salvarEdicao} disabled={busy} className="ml-auto rounded bg-primary px-3 py-1 text-xs font-medium text-white hover:bg-primary-hover disabled:opacity-60">Salvar</button>
+                  <button onClick={() => setEditando(null)} className="rounded border border-line px-3 py-1 text-xs hover:bg-canvas">Cancelar</button>
+                </>
+              ) : (
+                <>
+                  <span className="font-medium text-ink">{c.nome}</span>
+                  <span className="text-xs text-muted">a partir de D+{c.diaMinimo}</span>
+                  <button onClick={() => setEditando(c)} className="ml-auto rounded border border-line px-3 py-1 text-xs hover:bg-canvas">Editar</button>
+                  <button onClick={() => excluir(c)} disabled={busy} className="rounded border border-line px-3 py-1 text-xs text-danger hover:bg-danger-tint disabled:opacity-60">Excluir</button>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {ordenadas.length === 0 && <p className="mb-3 text-sm text-muted">Nenhuma carteira criada ainda — sem elas, todo mundo vê a esteira inteira.</p>}
+
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="text-sm"><span className="mb-1 block text-xs text-muted">Nome da carteira</span>
+          <input value={novo.nome} onChange={(e) => setNovo({ ...novo, nome: e.target.value })} placeholder="Ex.: Equipe 1, Retenção..." className="w-48 rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+        </label>
+        <label className="text-sm"><span className="mb-1 block text-xs text-muted">A partir do dia (D+)</span>
+          <input type="number" min={0} value={novo.diaMinimo} onChange={(e) => setNovo({ ...novo, diaMinimo: e.target.value })} className="w-24 rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+        </label>
+        <button onClick={salvarNova} disabled={busy} className="rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-60">Adicionar carteira</button>
+      </div>
+      {msg && <p className="mt-2 text-sm text-primary">{msg}</p>}
+    </div>
+  );
+}
+
+interface AlertasEsteira { diasRescisao: number; diasSerasa: number }
+
+/** Dias de atraso em que a Esteira sinaliza rescisão/Serasa pendentes — só um aviso visual, nada é acionado sozinho. */
+function AlertasEsteiraCard() {
+  const [cfg, setCfg] = useState<AlertasEsteira | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  useEffect(() => { api<AlertasEsteira>('/config/alertas-esteira').then(setCfg).catch(() => {}); }, []);
 
   async function salvar() {
     if (!cfg) return;
     setBusy(true); setMsg('');
     try {
-      const salvo = await api<CarteiraConfig>('/config/carteira', { method: 'PUT', body: cfg });
+      const salvo = await api<AlertasEsteira>('/config/alertas-esteira', { method: 'PUT', body: cfg });
       setCfg(salvo);
-      setMsg('✓ Faixas atualizadas');
+      setMsg('✓ Alertas atualizados');
     } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro'); }
     finally { setBusy(false); }
   }
 
   if (!cfg) return null;
-  const campo = (label: string, chave: keyof CarteiraConfig, ajuda: string) => (
-    <label className="text-sm">
-      <span className="mb-1 block text-xs text-muted">{label}</span>
+  const campo = (label: string, chave: keyof AlertasEsteira) => (
+    <label className="text-sm"><span className="mb-1 block text-xs text-muted">{label}</span>
       <input
         type="number" min={1} value={cfg[chave]}
         onChange={(e) => setCfg({ ...cfg, [chave]: Number(e.target.value) || 1 })}
         className="w-24 rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"
       />
-      <span className="mt-1 block max-w-[16rem] text-[11px] text-muted">{ajuda}</span>
     </label>
   );
 
   return (
     <div className="mb-4 rounded-lg border border-line bg-surface p-4 sm:p-5">
-      <div className="text-sm font-semibold text-ink">Faixas da esteira (carteira)</div>
-      <p className="mb-3 text-xs text-muted">
-        Define a partir de qual dia de atraso um cliente passa para a carteira de retenção (Equipe 2) e quando a
-        esteira avisa que rescisão/Serasa estão pendentes. Só sinaliza — nada é enviado automaticamente ao Serasa
-        nem contrato é rescindido sozinho. Quem cada operador atende fica em <Link href="/equipe" className="text-primary underline">Equipe</Link>.
-      </p>
+      <div className="text-sm font-semibold text-ink">Alertas da esteira</div>
+      <p className="mb-3 text-xs text-muted">Quando o atraso chega nesses dias, o card só destaca visualmente — nada é enviado ao Serasa nem contrato é rescindido automaticamente.</p>
       <div className="flex flex-wrap gap-4">
-        {campo('Vira Equipe 2 a partir de (dias)', 'equipe2DesdeDia', 'Antes disso o cliente fica com a Equipe 1 (cobrança inicial).')}
-        {campo('Alerta de rescisão (dias)', 'diasRescisao', 'A esteira destaca o card quando o atraso chega aqui.')}
-        {campo('Alerta de envio ao Serasa (dias)', 'diasSerasa', 'A esteira destaca o card quando o atraso chega aqui.')}
+        {campo('Alerta de rescisão (dias)', 'diasRescisao')}
+        {campo('Alerta de envio ao Serasa (dias)', 'diasSerasa')}
       </div>
       <button onClick={salvar} disabled={busy} className="mt-3 rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-60">
-        {busy ? 'Salvando...' : 'Salvar faixas'}
+        {busy ? 'Salvando...' : 'Salvar alertas'}
       </button>
       {msg && <p className="mt-2 text-sm text-primary">{msg}</p>}
     </div>

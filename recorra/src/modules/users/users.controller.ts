@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
-import { EquipeCobranca, UserRole } from '@prisma/client';
+import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '@/common/auth/jwt-auth.guard';
 import { RolesGuard } from '@/common/auth/roles.guard';
 import { Roles } from '@/common/auth/roles.decorator';
@@ -45,8 +45,8 @@ export class UsersController {
   @Patch(':id/carteira')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('OWNER', 'ADMIN')
-  carteira(@TenantId() tenantId: string, @CurrentUser() actor: AuthUser, @Param('id') id: string, @Body('equipeCobranca') equipeCobranca: EquipeCobranca | null) {
-    return this.users.updateCarteira(tenantId, actor, id, equipeCobranca ?? null);
+  carteira(@TenantId() tenantId: string, @CurrentUser() actor: AuthUser, @Param('id') id: string, @Body('carteiraId') carteiraId: string | null) {
+    return this.users.updateCarteira(tenantId, actor, id, carteiraId || null);
   }
 
   @Patch(':id/ativo')

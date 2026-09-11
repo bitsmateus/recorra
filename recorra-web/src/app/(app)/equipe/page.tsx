@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import Link from 'next/link';
 import { UserPlus, ShieldCheck, KeyRound, X, Eye, EyeOff } from 'lucide-react';
 import { api } from '@/lib/api';
 import { PageTitle } from '@/components/ui';
@@ -14,13 +15,13 @@ interface User {
   semSenha: boolean;
   emailVerify: boolean;
   twoFaEnabled: boolean;
-  equipeCobranca: 'EQUIPE_1' | 'EQUIPE_2' | null;
+  carteiraId: string | null;
 }
+interface Carteira { id: string; nome: string; diaMinimo: number }
 
 const roles = ['OWNER', 'ADMIN', 'FINANCEIRO', 'OPERADOR', 'LEITURA'];
 /** Só operador/leitura têm carteira restrita — os demais papéis já veem tudo. */
 const PAPEIS_COM_CARTEIRA = new Set(['OPERADOR', 'LEITURA']);
-const carteiraLabel: Record<string, string> = { EQUIPE_1: 'Equipe 1 (cobrança)', EQUIPE_2: 'Equipe 2 (retenção)' };
 const SENHA_MIN = 8;
 const inputCls = 'w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary';
 
@@ -34,6 +35,7 @@ function gerarSenha(): string {
 
 export default function EquipePage() {
   const [users, setUsers] = useState<User[]>([]);
+  const [carteiras, setCarteiras] = useState<Carteira[]>([]);
   const [f, setF] = useState({ nome: '', email: '', senha: '', role: 'OPERADOR' });
   const [verSenha, setVerSenha] = useState(false);
   const [senhaDe, setSenhaDe] = useState<User | null>(null);
@@ -42,6 +44,7 @@ export default function EquipePage() {
 
   const load = useCallback(() => {
     api<User[]>('/usuarios').then(setUsers).catch(() => {});
+    api<Carteira[]>('/reguas/carteiras').then(setCarteiras).catch(() => {});
   }, []);
   useEffect(load, [load]);
 
@@ -67,8 +70,8 @@ export default function EquipePage() {
     await api(`/usuarios/${u.id}/ativo`, { method: 'PATCH', body: { ativo: !u.ativo } }).catch((e) => setMsg(e.message));
     load();
   }
-  async function mudarCarteira(id: string, equipeCobranca: string) {
-    await api(`/usuarios/${id}/carteira`, { method: 'PATCH', body: { equipeCobranca: equipeCobranca || null } }).catch((e) => setMsg(e.message));
+  async function mudarCarteira(id: string, carteiraId: string) {
+    await api(`/usuarios/${id}/carteira`, { method: 'PATCH', body: { carteiraId: carteiraId || null } }).catch((e) => setMsg(e.message));
     load();
   }
 
@@ -133,10 +136,14 @@ export default function EquipePage() {
                 </td>
                 <td className="px-4 py-3">
                   {PAPEIS_COM_CARTEIRA.has(u.role) ? (
-                    <select value={u.equipeCobranca ?? ''} onChange={(e) => mudarCarteira(u.id, e.target.value)} className="rounded border border-line px-2 py-1 text-xs outline-none focus:border-primary">
-                      <option value="">Sem restrição (vê tudo)</option>
-                      {Object.entries(carteiraLabel).map(([v, label]) => <option key={v} value={v}>{label}</option>)}
-                    </select>
+                    carteiras.length > 0 ? (
+                      <select value={u.carteiraId ?? ''} onChange={(e) => mudarCarteira(u.id, e.target.value)} className="rounded border border-line px-2 py-1 text-xs outline-none focus:border-primary">
+                        <option value="">Sem restrição (vê tudo)</option>
+                        {carteiras.map((c) => <option key={c.id} value={c.id}>{c.nome} (D+{c.diaMinimo})</option>)}
+                      </select>
+                    ) : (
+                      <span className="text-xs text-muted">Nenhuma carteira criada — <Link href="/reguas" className="text-primary underline">crie em Réguas</Link></span>
+                    )
                   ) : (
                     <span className="text-xs text-muted" title="Papéis administrativos veem a esteira inteira">vê tudo</span>
                   )}

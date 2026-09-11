@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable } from '@nestjs/common';
-import { EquipeCobranca, UserRole } from '@prisma/client';
+import { UserRole } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { AuditService } from '@/common/audit/audit.service';
@@ -22,7 +22,10 @@ export class UsersService {
   async list(tenantId: string) {
     const rows = await this.prisma.user.findMany({
       where: { tenantId },
-      select: { id: true, nome: true, email: true, role: true, ativo: true, senhaHash: true, emailVerify: true, twoFaEnabled: true, createdAt: true, equipeCobranca: true },
+      select: {
+        id: true, nome: true, email: true, role: true, ativo: true, senhaHash: true, emailVerify: true, twoFaEnabled: true, createdAt: true,
+        carteiraId: true, carteira: { select: { id: true, nome: true } },
+      },
       orderBy: { createdAt: 'asc' },
     });
     // `semSenha` sai do próprio hash, não de uma flag que pode divergir: sem senha,
@@ -104,12 +107,16 @@ export class UsersService {
   }
 
   /** Carteira (equipe) do operador na esteira — define qual faixa de dias ele enxerga. */
-  async updateCarteira(tenantId: string, actor: AuthUser, userId: string, equipeCobranca: EquipeCobranca | null) {
+  async updateCarteira(tenantId: string, actor: AuthUser, userId: string, carteiraId: string | null) {
     const alvo = await this.assertTenant(tenantId, userId);
-    const upd = await this.prisma.user.update({ where: { id: userId }, data: { equipeCobranca }, select: { id: true, equipeCobranca: true } });
+    if (carteiraId) {
+      const carteira = await this.prisma.carteira.findFirst({ where: { id: carteiraId, tenantId } });
+      if (!carteira) throw new BadRequestException('Carteira não encontrada neste tenant');
+    }
+    const upd = await this.prisma.user.update({ where: { id: userId }, data: { carteiraId }, select: { id: true, carteiraId: true } });
     await this.audit.record({
       tenantId, userId: actor.id, acao: 'user.carteira.update', entidade: 'User', entidadeId: userId,
-      antes: { equipeCobranca: alvo.equipeCobranca }, depois: { equipeCobranca },
+      antes: { carteiraId: alvo.carteiraId }, depois: { carteiraId },
     });
     return upd;
   }

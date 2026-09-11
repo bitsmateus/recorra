@@ -4,7 +4,7 @@ import { RolesGuard } from '@/common/auth/roles.guard';
 import { Roles } from '@/common/auth/roles.decorator';
 import { TenantId } from '@/common/auth/current-user.decorator';
 import { SettingsService } from './settings.service';
-import { CreateIntegrationDto, UpdateIntegrationDto, CreatePaymentAccountDto, UpdatePaymentAccountDto, CreateChannelAccountDto, PagamentoRecebidoDto, CarteiraConfigDto } from './dto/settings.dto';
+import { CreateIntegrationDto, UpdateIntegrationDto, CreatePaymentAccountDto, UpdatePaymentAccountDto, CreateChannelAccountDto, PagamentoRecebidoDto, AlertasEsteiraDto } from './dto/settings.dto';
 
 @Controller('config')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -101,16 +101,16 @@ export class SettingsController {
     return this.settings.savePagamentoRecebido(tenantId, dto);
   }
 
-  // Carteira/faixas da esteira
-  @Get('carteira')
-  getCarteiraConfig(@TenantId() tenantId: string) {
-    return this.settings.getCarteiraConfig(tenantId);
+  // Alertas da esteira (rescisão/Serasa) — as carteiras (equipes) ficam em /reguas/carteiras
+  @Get('alertas-esteira')
+  getAlertasEsteira(@TenantId() tenantId: string) {
+    return this.settings.getAlertasEsteira(tenantId);
   }
 
-  @Put('carteira')
+  @Put('alertas-esteira')
   @Roles('OWNER', 'ADMIN')
-  saveCarteiraConfig(@TenantId() tenantId: string, @Body() dto: CarteiraConfigDto) {
-    return this.settings.saveCarteiraConfig(tenantId, dto);
+  saveAlertasEsteira(@TenantId() tenantId: string, @Body() dto: AlertasEsteiraDto) {
+    return this.settings.saveAlertasEsteira(tenantId, dto);
   }
 
   // Réguas

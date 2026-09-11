@@ -101,14 +101,8 @@ export class PagamentoRecebidoDto {
   conteudo?: string;
 }
 
-/** Faixas de dias da esteira/carteira (guardado em Tenant.config.carteira). */
-export class CarteiraConfigDto {
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  @Max(3650)
-  equipe2DesdeDia?: number;
-
+/** Alertas de dias da esteira (guardado em Tenant.config.alertasEsteira). */
+export class AlertasEsteiraDto {
   @IsOptional()
   @IsInt()
   @Min(1)

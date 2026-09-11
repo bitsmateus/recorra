@@ -3,12 +3,12 @@ import { Prisma } from '@prisma/client';
 import { env } from '@/config/env';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { lerPagamentoRecebido } from '@/modules/payments/pagamento-recebido';
-import { lerCarteiraConfig } from '@/modules/dunning/carteira-config';
+import { lerAlertasEsteira } from '@/modules/dunning/carteira-config';
 import { CryptoService } from '@/common/crypto/crypto.service';
 import { ConnectorFactory } from '@/modules/connectors/connector.factory';
 import { PaymentProviderFactory } from '@/modules/payments/payment-provider.factory';
 import { DIAS_HISTORICO_PADRAO } from '@/modules/connectors/sync-janela';
-import { CreateIntegrationDto, UpdateIntegrationDto, CreatePaymentAccountDto, UpdatePaymentAccountDto, CreateChannelAccountDto, PagamentoRecebidoDto, CarteiraConfigDto } from './dto/settings.dto';
+import { CreateIntegrationDto, UpdateIntegrationDto, CreatePaymentAccountDto, UpdatePaymentAccountDto, CreateChannelAccountDto, PagamentoRecebidoDto, AlertasEsteiraDto } from './dto/settings.dto';
 
 /**
  * Configuração do tenant: integrações de origem (ERP), contas de gateway e
@@ -231,24 +231,24 @@ export class SettingsService {
     return rest;
   }
 
-  // ---------- Carteira/faixas da esteira ----------
+  // ---------- Alertas da esteira (rescisão/Serasa) ----------
 
-  /** Configuração de faixas da esteira (Tenant.config.carteira). */
-  async getCarteiraConfig(tenantId: string) {
+  /** Alertas de dias da esteira (Tenant.config.alertasEsteira). */
+  async getAlertasEsteira(tenantId: string) {
     const t = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { config: true } });
-    return lerCarteiraConfig(t?.config);
+    return lerAlertasEsteira(t?.config);
   }
 
-  /** Grava a configuração de faixas preservando o resto do Tenant.config. */
-  async saveCarteiraConfig(tenantId: string, dto: CarteiraConfigDto) {
+  /** Grava os alertas preservando o resto do Tenant.config. */
+  async saveAlertasEsteira(tenantId: string, dto: AlertasEsteiraDto) {
     const t = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { config: true } });
     const atual = (t?.config ?? {}) as Prisma.JsonObject;
-    const carteira = { ...lerCarteiraConfig(atual), ...dto } as unknown as Prisma.JsonObject;
+    const alertasEsteira = { ...lerAlertasEsteira(atual), ...dto } as unknown as Prisma.JsonObject;
     await this.prisma.tenant.update({
       where: { id: tenantId },
-      data: { config: { ...atual, carteira } as Prisma.InputJsonValue },
+      data: { config: { ...atual, alertasEsteira } as Prisma.InputJsonValue },
     });
-    return this.getCarteiraConfig(tenantId);
+    return this.getAlertasEsteira(tenantId);
   }
 
   // ---------- Réguas ----------

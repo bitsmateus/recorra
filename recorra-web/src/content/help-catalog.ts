@@ -181,7 +181,7 @@ export const HELP_TOPICS: HelpTopic[] = [
   {
     id: 'reguas', section: 'Automação', title: 'Réguas de cobrança',
     summary: 'Fluxos automáticos disparados em dias específicos antes ou depois do vencimento, e as faixas de dias da carteira da Esteira.',
-    steps: ['Abra Comunicação > Réguas.', 'Crie uma régua ou clone um modelo.', 'Defina janela de horário, dias úteis e limite diário.', 'Adicione passos com deslocamento, canal, conta e mensagem.', 'Configure templates oficiais quando o canal exigir.', 'Revise variáveis e ative a régua.', 'Em "Faixas da esteira (carteira)", ajuste a partir de qual dia de atraso o cliente vira Equipe 2 (retenção) e os dias de alerta de rescisão/Serasa.'],
+    steps: ['Abra Comunicação > Réguas.', 'Crie uma régua ou clone um modelo.', 'Defina janela de horário, dias úteis e limite diário.', 'Adicione passos com deslocamento, canal, conta e mensagem.', 'Configure templates oficiais quando o canal exigir.', 'Revise variáveis e ative a régua.', 'Em "Carteiras da esteira", crie as equipes com nome próprio e o dia de atraso em que cada uma assume o cliente.', 'Em "Alertas da esteira", ajuste os dias de aviso de rescisão e envio ao Serasa.'],
     rules: [
       'Offset negativo envia antes do vencimento, zero no vencimento e positivo depois.',
       'O motor exige correspondência exata: um passo D+7 executa quando a fatura completa sete dias de atraso.',
@@ -213,7 +213,7 @@ export const HELP_TOPICS: HelpTopic[] = [
       'Disparar agora envia a etapa atual da régua para as faturas selecionadas IMEDIATAMENTE, ignorando a janela de horário da régua (é ação manual), mas respeitando canal e opt-out.',
       'Nos disparos automáticos, se a régua criar a mensagem fora da janela de horário/dias úteis, ela fica na fila agendada para a próxima janela válida — por isso um card pode mostrar "na fila" mesmo depois do horário do passo.',
       'Clientes sem telefone e sem e-mail caem em Sem contato e não recebem mensagem até completar o cadastro.',
-      'Operador com carteira definida (Configurações > Equipe) só vê a faixa de dias da própria equipe; OWNER/ADMIN/FINANCEIRO sempre veem a esteira inteira. As faixas (e os dias de alerta de rescisão/Serasa) ficam em Réguas > Faixas da esteira.',
+      'Operador com carteira definida (Configurações > Equipe) só vê a faixa de dias da própria carteira; OWNER/ADMIN/FINANCEIRO sempre veem a esteira inteira. As carteiras (equipes, com nome e dia próprios) e os alertas de rescisão/Serasa ficam em Réguas.',
       'O aviso de rescisão/Serasa no card é só um sinal visual pela idade da fatura — nenhuma ação é enviada automaticamente ao Serasa nem contrato é rescindido sozinho.',
       'Se o cliente vem de um ERP que informa a situação do contrato (ex.: Voalle), um contrato cancelado/suspenso aparece destacado no card e no perfil do cliente.',
     ],
@@ -305,13 +305,13 @@ export const HELP_TOPICS: HelpTopic[] = [
   {
     id: 'equipe', section: 'Administração', title: 'Equipe e permissões',
     summary: 'Controle de usuários, papéis e carteira (equipe da esteira) dentro da empresa.',
-    steps: ['Abra Configurações > Equipe.', 'Convide ou cadastre o usuário.', 'Escolha o papel adequado.', 'Para OPERADOR/LEITURA, escolha a carteira (Equipe 1 ou Equipe 2) — ou deixe "sem restrição" para ver a esteira inteira.', 'Ative ou desative o acesso quando necessário.'],
+    steps: ['Abra Configurações > Equipe.', 'Convide ou cadastre o usuário.', 'Escolha o papel adequado.', 'Para OPERADOR/LEITURA, escolha a carteira (equipe criada em Réguas > Carteiras da esteira) — ou deixe "sem restrição" para ver a esteira inteira.', 'Ative ou desative o acesso quando necessário.'],
     rules: [
       'OWNER possui o maior nível dentro da empresa.',
       'ADMIN administra grande parte da operação; FINANCEIRO atua em cobranças; OPERADOR possui ações operacionais limitadas.',
       'O backend valida papel e empresa em ações protegidas; esconder um botão na interface não é a única proteção.',
       'Cada plano pode limitar a quantidade de usuários.',
-      'A carteira só se aplica a OPERADOR/LEITURA e filtra a Esteira pela faixa de dias de atraso configurada em Réguas; OWNER/ADMIN/FINANCEIRO sempre veem tudo, independente da carteira marcada.',
+      'A carteira só se aplica a OPERADOR/LEITURA e filtra a Esteira pela faixa de dias de atraso da carteira escolhida (cada tenant cria as suas em Réguas); OWNER/ADMIN/FINANCEIRO sempre veem tudo, independente da carteira marcada.',
     ],
   },
   {

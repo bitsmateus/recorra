@@ -13,7 +13,7 @@ interface Card {
   vencimento: string; diffDias: number;
   ultimoDisparo: { status: string; canal: string; quando: string } | null;
   canal?: string; pausada?: boolean; status?: string; statusContrato?: string; tags?: string[];
-  alertaRescisao?: boolean; alertaSerasa?: boolean;
+  alertaRescisao?: boolean; alertaSerasa?: boolean; carteira?: string | null;
 }
 interface Coluna { key: string; label: string; cards: Card[]; total: number; valor: number }
 interface Andamento {
@@ -26,7 +26,11 @@ interface Andamento {
   teto?: number;
   pausadasOcultas?: number;
   incluirPausadas?: boolean;
-  carteira?: { equipeVisivel: 'EQUIPE_1' | 'EQUIPE_2' | null; config: { equipe2DesdeDia: number; diasRescisao: number; diasSerasa: number } };
+  carteira?: {
+    visivel: { id: string; nome: string; diaMinimo: number } | null;
+    todas: { id: string; nome: string; diaMinimo: number }[];
+    alertas: { diasRescisao: number; diasSerasa: number };
+  };
 }
 
 const CARDS_POR_LOTE = 30;
@@ -316,7 +320,7 @@ export default function AndamentoPage() {
             <p className="text-sm text-muted">
               Régua <b className="text-ink">{dados.regua.nome}</b> · <b className="text-ink">{totalAbertas}</b> fatura(s) em aberto.
               {!!dados.pausadasOcultas && <> · <b className="text-ink">{dados.pausadasOcultas}</b> pausada(s) fora da esteira.</>}
-              {dados.carteira?.equipeVisivel && <> · carteira: <b className="text-ink">{dados.carteira.equipeVisivel === 'EQUIPE_1' ? 'Equipe 1 (cobrança)' : 'Equipe 2 (retenção)'}</b></>}
+              {dados.carteira?.visivel && <> · carteira: <b className="text-ink">{dados.carteira.visivel.nome}</b></>}
             </p>
             <div className="flex shrink-0 items-center gap-2">
               <button
@@ -428,6 +432,9 @@ export default function AndamentoPage() {
                                   ? <button type="button" onClick={(e) => { e.stopPropagation(); setHistorico({ invoiceId: card.invoiceId, nome: card.nome }); }} title="Ver o que foi enviado e quando" className="flex items-center gap-1 rounded hover:underline">{disparoBadge(card.ultimoDisparo.status)}</button>
                                   : <span className="text-muted">sem toque ainda</span>}
                             </div>
+                            {!dados.carteira?.visivel && dados.carteira?.todas && dados.carteira.todas.length > 1 && card.carteira && (
+                              <div className="mt-1 text-[11px] text-muted">carteira: {card.carteira}</div>
+                            )}
                             {card.pausada && <div className="mt-1 flex items-center gap-1 text-[11px] font-medium text-[#854F0B]"><PauseIcon size={11} /> cobrança pausada</div>}
                             {contratoEncerrado(card.statusContrato) && <div className="mt-1 flex items-center gap-1 text-[11px] font-medium text-[#A32D2D]"><AlertTriangle size={11} /> contrato {card.statusContrato!.toLowerCase()}</div>}
                             {card.alertaSerasa ? (

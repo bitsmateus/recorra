@@ -6,6 +6,7 @@ import { CurrentUser, TenantId } from '@/common/auth/current-user.decorator';
 import { AuthUser } from '@/common/auth/jwt.types';
 import { RulesService } from './rules.service';
 import { SaveRuleDto, SetDefaultRuleDto, SetRiskModeDto } from './dto/rule.dto';
+import { SaveCarteiraDto } from './dto/carteira.dto';
 
 @Controller('reguas')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -45,6 +46,30 @@ export class RulesController {
   @Roles('OWNER', 'ADMIN', 'FINANCEIRO', 'OPERADOR')
   disparar(@TenantId() tenantId: string, @Body('invoiceIds') invoiceIds?: string[]) {
     return this.rules.dispararLote(tenantId, invoiceIds ?? []);
+  }
+
+  // Carteiras (equipes de cobrança) — configuráveis por tenant. Antes de :id.
+  @Get('carteiras')
+  listCarteiras(@TenantId() tenantId: string) {
+    return this.rules.listCarteiras(tenantId);
+  }
+
+  @Post('carteiras')
+  @Roles('OWNER', 'ADMIN')
+  createCarteira(@TenantId() tenantId: string, @Body() dto: SaveCarteiraDto) {
+    return this.rules.createCarteira(tenantId, dto);
+  }
+
+  @Put('carteiras/:id')
+  @Roles('OWNER', 'ADMIN')
+  updateCarteira(@TenantId() tenantId: string, @Param('id') id: string, @Body() dto: SaveCarteiraDto) {
+    return this.rules.updateCarteira(tenantId, id, dto);
+  }
+
+  @Delete('carteiras/:id')
+  @Roles('OWNER', 'ADMIN')
+  removeCarteira(@TenantId() tenantId: string, @Param('id') id: string) {
+    return this.rules.removeCarteira(tenantId, id);
   }
 
   @Get('ab/stats')

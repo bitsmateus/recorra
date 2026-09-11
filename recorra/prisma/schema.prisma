@@ -22,14 +22,6 @@ enum UserRole {
   LEITURA
 }
 
-// Equipe de cobrança dona da carteira do operador — a esteira mostra só os
-// clientes da faixa de dias correspondente (ver Tenant.config.carteira).
-// OWNER/ADMIN/FINANCEIRO enxergam tudo, independente deste campo.
-enum EquipeCobranca {
-  EQUIPE_1 // cobrança inicial (faixa mais nova de atraso)
-  EQUIPE_2 // retenção (faixa mais antiga de atraso)
-}
-
 enum PlanTier {
   TRIAL
   NOTIFICADOR
@@ -197,6 +189,7 @@ model Tenant {
   whatsappTemplates  WhatsAppTemplate[]
   conversations      Conversation[]
   customerNotes      CustomerNote[]
+  carteiras          Carteira[]
 
   @@index([reguaPadraoId])
   @@map("tenants")
@@ -255,7 +248,7 @@ model User {
   ativo     Boolean  @default(true)
   // Carteira do operador na esteira (só relevante para OPERADOR/LEITURA — quem
   // administra vê tudo). Null = sem restrição de faixa (vê a esteira inteira).
-  equipeCobranca EquipeCobranca?
+  carteiraId String?
 
   emailVerify    Boolean   @default(false)
   verifyToken    String?
@@ -279,7 +272,9 @@ model User {
   tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   refreshTokens RefreshToken[]
   customerNotes CustomerNote[]
+  carteira      Carteira?      @relation(fields: [carteiraId], references: [id], onDelete: SetNull)
 
+  @@index([carteiraId])
   @@unique([tenantId, email])
   @@index([tenantId])
   @@map("users")
@@ -348,6 +343,28 @@ model Customer {
   @@index([nome(ops: raw("gin_trgm_ops"))], type: Gin)
   @@index([telefone(ops: raw("gin_trgm_ops"))], type: Gin)
   @@map("customers")
+}
+
+// Carteira/equipe de cobrança configurável por tenant — cada cliente pode ter
+// quantas quiser, com o nome que quiser. Um operador nela só vê, na esteira,
+// as faturas cujo atraso (em dias) é >= diaMinimo desta carteira e < diaMinimo
+// da PRÓXIMA carteira (pela ordem de diaMinimo); a última carteira pega tudo
+// dali pra frente. Fatura mais nova que a menor diaMinimo cadastrada não cai
+// em nenhuma carteira — só quem não tem restrição (OWNER/ADMIN/FINANCEIRO) a vê.
+model Carteira {
+  id        String   @id @default(cuid())
+  tenantId  String
+  nome      String
+  diaMinimo Int // a partir deste dia de atraso (inclusive) a carteira assume o cliente
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  users  User[]
+
+  @@unique([tenantId, nome])
+  @@index([tenantId])
+  @@map("carteiras")
 }
 
 // Anotação manual de interação com o cliente (ligação telefônica, acordo verbal,
