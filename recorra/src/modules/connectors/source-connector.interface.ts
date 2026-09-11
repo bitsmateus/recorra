@@ -32,6 +32,13 @@ export interface SourceCustomer {
   email?: string;
   telefone?: string;
   contrato?: string;
+  /**
+   * Situação cadastral do contrato no ERP (ex.: "ativo", "cancelado", "suspenso").
+   * Opcional: nem todo conector expõe esse dado. Texto do próprio ERP, sem
+   * normalização de vocabulário entre sistemas — quem consome decide o que
+   * conta como "cancelado" (ex.: comparar case-insensitive).
+   */
+  statusContrato?: string;
 }
 
 /** Dados de pagamento de um título vindos do ERP. */

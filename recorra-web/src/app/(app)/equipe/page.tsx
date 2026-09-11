@@ -14,9 +14,13 @@ interface User {
   semSenha: boolean;
   emailVerify: boolean;
   twoFaEnabled: boolean;
+  equipeCobranca: 'EQUIPE_1' | 'EQUIPE_2' | null;
 }
 
 const roles = ['OWNER', 'ADMIN', 'FINANCEIRO', 'OPERADOR', 'LEITURA'];
+/** Só operador/leitura têm carteira restrita — os demais papéis já veem tudo. */
+const PAPEIS_COM_CARTEIRA = new Set(['OPERADOR', 'LEITURA']);
+const carteiraLabel: Record<string, string> = { EQUIPE_1: 'Equipe 1 (cobrança)', EQUIPE_2: 'Equipe 2 (retenção)' };
 const SENHA_MIN = 8;
 const inputCls = 'w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary';
 
@@ -63,6 +67,10 @@ export default function EquipePage() {
     await api(`/usuarios/${u.id}/ativo`, { method: 'PATCH', body: { ativo: !u.ativo } }).catch((e) => setMsg(e.message));
     load();
   }
+  async function mudarCarteira(id: string, equipeCobranca: string) {
+    await api(`/usuarios/${id}/carteira`, { method: 'PATCH', body: { equipeCobranca: equipeCobranca || null } }).catch((e) => setMsg(e.message));
+    load();
+  }
 
   return (
     <div>
@@ -105,6 +113,7 @@ export default function EquipePage() {
             <tr>
               <th className="px-4 py-3 font-medium">Usuário</th>
               <th className="px-4 py-3 font-medium">Papel</th>
+              <th className="px-4 py-3 font-medium">Carteira</th>
               <th className="px-4 py-3 font-medium">Situação</th>
               <th className="px-4 py-3 font-medium">Status</th>
               <th className="px-4 py-3 font-medium text-right">Ações</th>
@@ -121,6 +130,16 @@ export default function EquipePage() {
                   <select value={u.role} onChange={(e) => mudarPapel(u.id, e.target.value)} disabled={u.role === 'OWNER'} className="rounded border border-line px-2 py-1 text-xs outline-none focus:border-primary disabled:opacity-60">
                     {roles.map((r) => <option key={r} value={r}>{r}</option>)}
                   </select>
+                </td>
+                <td className="px-4 py-3">
+                  {PAPEIS_COM_CARTEIRA.has(u.role) ? (
+                    <select value={u.equipeCobranca ?? ''} onChange={(e) => mudarCarteira(u.id, e.target.value)} className="rounded border border-line px-2 py-1 text-xs outline-none focus:border-primary">
+                      <option value="">Sem restrição (vê tudo)</option>
+                      {Object.entries(carteiraLabel).map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+                    </select>
+                  ) : (
+                    <span className="text-xs text-muted" title="Papéis administrativos veem a esteira inteira">vê tudo</span>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-xs">
                   {u.semSenha ? (

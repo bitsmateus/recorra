@@ -10,6 +10,25 @@ import {
 import { onlyDigits, normalizePhoneBR } from '@/common/util/normalize';
 
 /**
+ * Situação cadastral do contrato a partir do registro de `/api/v1/persons`.
+ *
+ * ATENÇÃO: a Voalle não documenta publicamente um campo único e estável para
+ * isso no payload de pessoas — nomes de campo variam por versão/plano
+ * contratado. Esta função tenta os candidatos mais prováveis (contrato
+ * embutido na pessoa, ou um campo de status/situação solto) como melhor
+ * esforço. **Precisa ser validada com uma resposta real da API do tenant**
+ * (rode uma sincronização e confira `statusContrato` no cliente); se vier
+ * sempre vazio, o campo certo é outro e este mapeamento deve ser ajustado.
+ */
+export function statusContratoDoPerson(r: any): string | undefined {
+  const bruto =
+    r.contractStatus ?? r.contract?.status ?? r.situacaoContrato ??
+    r.situacao ?? r.status ?? undefined;
+  if (bruto === undefined || bruto === null) return undefined;
+  return String(bruto).trim() || undefined;
+}
+
+/**
  * Conector Voalle (ERP Grupo Voalle).
  * API REST com OAuth2 (client_credentials). `extra` deve conter
  * client_id, client_secret e syndata (subdomínio/tenant do Voalle).
@@ -63,6 +82,7 @@ export class VoalleConnector implements SourceConnector {
       email: r.email || undefined,
       telefone: normalizePhoneBR(r.cellphone ?? r.phone ?? ''),
       contrato: r.contractId ? String(r.contractId) : undefined,
+      statusContrato: statusContratoDoPerson(r),
     }));
   }
 

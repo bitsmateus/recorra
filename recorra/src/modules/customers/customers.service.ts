@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, RiskBand } from '@prisma/client';
 import { PrismaService } from '@/common/prisma/prisma.service';
+import { AuditService } from '@/common/audit/audit.service';
 import { onlyDigits } from '@/common/util/normalize';
 import { isValidCpfCnpj, isValidEmail, toE164BR } from '@/common/util/validators';
 import { UpsertCustomerDto } from './dto/customer.dto';
@@ -41,7 +42,10 @@ export function condicaoFalta(falta?: string): Prisma.CustomerWhereInput {
 
 @Injectable()
 export class CustomersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   /** Valida e normaliza os campos do cliente. */
   private sanitize(dto: UpsertCustomerDto) {
@@ -227,6 +231,25 @@ export class CustomersService {
     return this.prisma.customer.update({ where: { id }, data: { tags: norm } });
   }
 
+  /**
+   * Liga/desliga UMA tag do cliente (ex.: botão rápido "Retido" na esteira, sem
+   * abrir o cadastro). Registra em auditoria quem marcou/desmarcou — é o que
+   * permite depois medir quanto cada operador(a) reteve/recuperou por tag.
+   */
+  async toggleTag(tenantId: string, id: string, tagBruta: string, actorId?: string) {
+    const tag = tagBruta.trim().toLowerCase();
+    if (!tag) throw new BadRequestException('Informe a tag');
+    const c = await this.getOrThrow(tenantId, id);
+    const ligada = !c.tags.includes(tag);
+    const tags = ligada ? [...c.tags, tag] : c.tags.filter((t) => t !== tag);
+    const atualizado = await this.prisma.customer.update({ where: { id }, data: { tags } });
+    await this.audit.record({
+      tenantId, userId: actorId, acao: 'customer.tag.toggle', entidade: 'Customer', entidadeId: id,
+      depois: { tag, ligada },
+    });
+    return atualizado;
+  }
+
   /** Lista todas as tags distintas do tenant (para filtros na UI). */
   async listTags(tenantId: string): Promise<string[]> {
     const rows = await this.prisma.customer.findMany({ where: { tenantId }, select: { tags: true } });
@@ -263,20 +286,46 @@ export class CustomersService {
     return { ok: true };
   }
 
-  /** Detalhe completo do cliente: dados + risco + faturas + disparos + acordos + assinaturas. */
+  /** Detalhe completo do cliente: dados + risco + faturas + disparos + acordos + assinaturas + notas. */
   async getDetalhe(tenantId: string, id: string) {
     const customer = await this.getOrThrow(tenantId, id);
-    const [risco, features, faturas, disparos, acordos, assinaturas] = await Promise.all([
+    const [risco, features, faturas, disparos, acordos, assinaturas, notas] = await Promise.all([
       this.prisma.riskScore.findFirst({ where: { tenantId, customerId: id }, orderBy: { calculadoEm: "desc" } }),
       this.prisma.paymentHistoryFeature.findUnique({ where: { customerId: id } }),
       this.prisma.invoice.findMany({ where: { tenantId, customerId: id }, orderBy: { vencimento: "desc" }, take: 100 }),
       this.prisma.messageDispatch.findMany({ where: { tenantId, customerId: id }, orderBy: { createdAt: "desc" }, take: 100 }),
       this.prisma.agreement.findMany({ where: { tenantId, customerId: id }, include: { installments: { orderBy: { numero: "asc" } } }, orderBy: { createdAt: "desc" } }),
       this.prisma.subscription.findMany({ where: { tenantId, customerId: id }, orderBy: { createdAt: "desc" } }),
+      this.listNotas(tenantId, id),
     ]);
     const emAberto = faturas.filter((f) => (f.status === "PENDENTE" || f.status === "VENCIDA") && f.gestaoCobranca === 'ATIVA').reduce((s, f) => s + Number(f.valor), 0);
     const pago = faturas.filter((f) => f.status === "PAGA").reduce((s, f) => s + Number(f.valor), 0);
     const vencidas = faturas.filter((f) => f.status === "VENCIDA" && f.gestaoCobranca === 'ATIVA').length;
-    return { customer, risco, features, faturas, disparos, acordos, assinaturas, totais: { emAberto, pago, vencidas } };
+    return { customer, risco, features, faturas, disparos, acordos, assinaturas, notas, totais: { emAberto, pago, vencidas } };
+  }
+
+  /**
+   * Anotação manual de interação (ligação, combinado, acordo verbal etc.), sem
+   * alterar fatura/cadastro. Acessível tanto do perfil do cliente quanto — sem
+   * abrir o cadastro — direto do card da esteira.
+   */
+  async listNotas(tenantId: string, customerId: string) {
+    return this.prisma.customerNote.findMany({
+      where: { tenantId, customerId },
+      include: { user: { select: { nome: true } } },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+  }
+
+  async addNota(tenantId: string, customerId: string, texto: string, actorId?: string) {
+    const limpo = texto.trim();
+    if (!limpo) throw new BadRequestException('Nota vazia');
+    if (limpo.length > 2000) throw new BadRequestException('Nota muito longa (máx. 2000 caracteres)');
+    await this.getOrThrow(tenantId, customerId);
+    return this.prisma.customerNote.create({
+      data: { tenantId, customerId, userId: actorId, texto: limpo },
+      include: { user: { select: { nome: true } } },
+    });
   }
 }

@@ -16,8 +16,8 @@ export interface HelpTopic {
  * vigente do produto. Mudanças funcionais precisam atualizar este arquivo ou o
  * changelog da Central de Ajuda; o CI valida essa obrigação por commit.
  */
-export const HELP_CATALOG_VERSION = '2026.07.28';
-export const HELP_CATALOG_UPDATED_AT = '28/07/2026';
+export const HELP_CATALOG_VERSION = '2026.08.11';
+export const HELP_CATALOG_UPDATED_AT = '11/08/2026';
 
 export const HELP_TOPICS: HelpTopic[] = [
   {
@@ -51,13 +51,15 @@ export const HELP_TOPICS: HelpTopic[] = [
   },
   {
     id: 'clientes', section: 'Clientes', title: 'Cadastro e gestão de clientes',
-    summary: 'Cadastro individual, pesquisa, etiquetas e visão consolidada de cada cliente.',
-    steps: ['Abra Cobrança > Clientes.', 'Cadastre manualmente ou use uma importação/integração.', 'Pesquise por nome ou CPF/CNPJ.', 'Use etiquetas para segmentar campanhas.', 'Abra o cliente para consultar cobranças, pagamentos, risco, disparos, acordos e assinaturas.'],
+    summary: 'Cadastro individual, pesquisa, etiquetas, notas e visão consolidada de cada cliente.',
+    steps: ['Abra Cobrança > Clientes.', 'Cadastre manualmente ou use uma importação/integração.', 'Pesquise por nome ou CPF/CNPJ.', 'Use etiquetas para segmentar campanhas.', 'Abra o cliente para consultar cobranças, pagamentos, risco, disparos, acordos, assinaturas e notas.', 'Use a aba Notas para registrar uma interação (ligação, combinado, promessa de pagamento) — o mesmo registro também pode ser feito direto do card na Esteira.'],
     rules: [
       'CPF/CNPJ identifica o cliente dentro da empresa e evita duplicidade.',
       'Na sincronização, um cliente existente com o mesmo documento é atualizado em vez de duplicado.',
       'Dados de contato incompletos podem impedir o envio pelo canal correspondente.',
       'A exclusão do cliente pode remover dados relacionados; revise o histórico antes de confirmar.',
+      'Quando o ERP de origem informa a situação do contrato (ex.: Voalle), ela aparece ao lado do número do contrato — não é editável no Recorrai, vem da sincronização.',
+      'Notas são um registro livre da equipe (não alteram fatura/cadastro) e mostram quem escreveu e quando.',
     ],
   },
   {
@@ -178,8 +180,8 @@ export const HELP_TOPICS: HelpTopic[] = [
   },
   {
     id: 'reguas', section: 'Automação', title: 'Réguas de cobrança',
-    summary: 'Fluxos automáticos disparados em dias específicos antes ou depois do vencimento.',
-    steps: ['Abra Comunicação > Réguas.', 'Crie uma régua ou clone um modelo.', 'Defina janela de horário, dias úteis e limite diário.', 'Adicione passos com deslocamento, canal, conta e mensagem.', 'Configure templates oficiais quando o canal exigir.', 'Revise variáveis e ative a régua.'],
+    summary: 'Fluxos automáticos disparados em dias específicos antes ou depois do vencimento, e as faixas de dias da carteira da Esteira.',
+    steps: ['Abra Comunicação > Réguas.', 'Crie uma régua ou clone um modelo.', 'Defina janela de horário, dias úteis e limite diário.', 'Adicione passos com deslocamento, canal, conta e mensagem.', 'Configure templates oficiais quando o canal exigir.', 'Revise variáveis e ative a régua.', 'Em "Faixas da esteira (carteira)", ajuste a partir de qual dia de atraso o cliente vira Equipe 2 (retenção) e os dias de alerta de rescisão/Serasa.'],
     rules: [
       'Offset negativo envia antes do vencimento, zero no vencimento e positivo depois.',
       'O motor exige correspondência exata: um passo D+7 executa quando a fatura completa sete dias de atraso.',
@@ -201,6 +203,7 @@ export const HELP_TOPICS: HelpTopic[] = [
       'Selecione cards (ou a coluna inteira pelo checkbox do cabeçalho) para Disparar agora, Pausar ou Retomar em lote.',
       'Na coluna Falharam, use Reenviar todos para tentar novamente as que não saíram.',
       'Clique no selo de envio do card (enviado, na fila, falhou) para ver o histórico do que foi disparado naquela fatura: canal, data/hora, origem, o texto da mensagem e o erro, se houver.',
+      'Use os botões "Retido" e "Rescisão enviada" no card para marcar sem abrir o cliente; clique no ícone de nota para ver/registrar uma anotação de interação (ligação, combinado) direto do card.',
     ],
     rules: [
       'A etapa é calculada na hora a partir de vencimento × hoje × passos da régua; nada é gravado e o card "anda" sozinho conforme o tempo passa.',
@@ -210,8 +213,11 @@ export const HELP_TOPICS: HelpTopic[] = [
       'Disparar agora envia a etapa atual da régua para as faturas selecionadas IMEDIATAMENTE, ignorando a janela de horário da régua (é ação manual), mas respeitando canal e opt-out.',
       'Nos disparos automáticos, se a régua criar a mensagem fora da janela de horário/dias úteis, ela fica na fila agendada para a próxima janela válida — por isso um card pode mostrar "na fila" mesmo depois do horário do passo.',
       'Clientes sem telefone e sem e-mail caem em Sem contato e não recebem mensagem até completar o cadastro.',
+      'Operador com carteira definida (Configurações > Equipe) só vê a faixa de dias da própria equipe; OWNER/ADMIN/FINANCEIRO sempre veem a esteira inteira. As faixas (e os dias de alerta de rescisão/Serasa) ficam em Réguas > Faixas da esteira.',
+      'O aviso de rescisão/Serasa no card é só um sinal visual pela idade da fatura — nenhuma ação é enviada automaticamente ao Serasa nem contrato é rescindido sozinho.',
+      'Se o cliente vem de um ERP que informa a situação do contrato (ex.: Voalle), um contrato cancelado/suspenso aparece destacado no card e no perfil do cliente.',
     ],
-    keywords: ['esteira', 'andamento', 'kanban', 'etapa', 'quadro', 'lote', 'reenviar'],
+    keywords: ['esteira', 'andamento', 'kanban', 'etapa', 'quadro', 'lote', 'reenviar', 'retido', 'rescisão', 'serasa', 'carteira', 'nota'],
   },
   {
     id: 'campanhas', section: 'Automação', title: 'Campanhas',
@@ -298,13 +304,14 @@ export const HELP_TOPICS: HelpTopic[] = [
   },
   {
     id: 'equipe', section: 'Administração', title: 'Equipe e permissões',
-    summary: 'Controle de usuários e papéis dentro da empresa.',
-    steps: ['Abra Configurações > Equipe.', 'Convide ou cadastre o usuário.', 'Escolha o papel adequado.', 'Ative ou desative o acesso quando necessário.'],
+    summary: 'Controle de usuários, papéis e carteira (equipe da esteira) dentro da empresa.',
+    steps: ['Abra Configurações > Equipe.', 'Convide ou cadastre o usuário.', 'Escolha o papel adequado.', 'Para OPERADOR/LEITURA, escolha a carteira (Equipe 1 ou Equipe 2) — ou deixe "sem restrição" para ver a esteira inteira.', 'Ative ou desative o acesso quando necessário.'],
     rules: [
       'OWNER possui o maior nível dentro da empresa.',
       'ADMIN administra grande parte da operação; FINANCEIRO atua em cobranças; OPERADOR possui ações operacionais limitadas.',
       'O backend valida papel e empresa em ações protegidas; esconder um botão na interface não é a única proteção.',
       'Cada plano pode limitar a quantidade de usuários.',
+      'A carteira só se aplica a OPERADOR/LEITURA e filtra a Esteira pela faixa de dias de atraso configurada em Réguas; OWNER/ADMIN/FINANCEIRO sempre veem tudo, independente da carteira marcada.',
     ],
   },
   {

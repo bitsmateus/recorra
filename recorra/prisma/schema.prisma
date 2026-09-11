@@ -22,6 +22,14 @@ enum UserRole {
   LEITURA
 }
 
+// Equipe de cobrança dona da carteira do operador — a esteira mostra só os
+// clientes da faixa de dias correspondente (ver Tenant.config.carteira).
+// OWNER/ADMIN/FINANCEIRO enxergam tudo, independente deste campo.
+enum EquipeCobranca {
+  EQUIPE_1 // cobrança inicial (faixa mais nova de atraso)
+  EQUIPE_2 // retenção (faixa mais antiga de atraso)
+}
+
 enum PlanTier {
   TRIAL
   NOTIFICADOR
@@ -188,6 +196,7 @@ model Tenant {
   emailTemplates     EmailTemplate[]
   whatsappTemplates  WhatsAppTemplate[]
   conversations      Conversation[]
+  customerNotes      CustomerNote[]
 
   @@index([reguaPadraoId])
   @@map("tenants")
@@ -244,6 +253,9 @@ model User {
   senhaHash String?
   role      UserRole @default(OPERADOR)
   ativo     Boolean  @default(true)
+  // Carteira do operador na esteira (só relevante para OPERADOR/LEITURA — quem
+  // administra vê tudo). Null = sem restrição de faixa (vê a esteira inteira).
+  equipeCobranca EquipeCobranca?
 
   emailVerify    Boolean   @default(false)
   verifyToken    String?
@@ -266,6 +278,7 @@ model User {
 
   tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   refreshTokens RefreshToken[]
+  customerNotes CustomerNote[]
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -294,6 +307,10 @@ model Customer {
   email    String?
   telefone String?
   contrato String?
+  // Situação cadastral do contrato no ERP de origem (ex.: "ativo", "cancelado",
+  // "suspenso"). Texto livre normalizado pelo conector — cada ERP usa termos
+  // próprios; não é enum porque nem todo conector preenche/conhece os mesmos valores.
+  statusContrato String?
   tags     String[] @default([])
 
   plano      String?
@@ -320,6 +337,7 @@ model Customer {
   paymentFeature PaymentHistoryFeature?
   agreements     Agreement[]
   conversations  Conversation[]
+  notas          CustomerNote[]
 
   @@unique([tenantId, doc])
   @@index([tenantId])
@@ -330,6 +348,26 @@ model Customer {
   @@index([nome(ops: raw("gin_trgm_ops"))], type: Gin)
   @@index([telefone(ops: raw("gin_trgm_ops"))], type: Gin)
   @@map("customers")
+}
+
+// Anotação manual de interação com o cliente (ligação telefônica, acordo verbal,
+// combinado etc.) — registro livre da equipe, sem alterar fatura/cadastro.
+// Editável de qualquer tela que tenha o cliente à mão (perfil do cliente ou o
+// card da esteira), sem precisar abrir o cadastro completo.
+model CustomerNote {
+  id         String   @id @default(cuid())
+  tenantId   String
+  customerId String
+  userId     String? // autor — null se o usuário foi removido depois
+  texto      String
+  createdAt  DateTime @default(now())
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  user     User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, customerId, createdAt])
+  @@map("customer_notes")
 }
 
 model PaymentProviderAccount {

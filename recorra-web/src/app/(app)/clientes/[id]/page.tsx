@@ -6,9 +6,10 @@ import Link from 'next/link';
 import { ArrowLeft, Phone, Mail, MapPin, Plus, X, RefreshCw } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Metric, RiskBadge, brl } from '@/components/ui';
+import { NotasCliente } from '@/components/NotasCliente';
 
 interface Detalhe {
-  customer: { id: string; nome: string; doc: string; email?: string; telefone?: string; plano?: string; valorPlano?: number; cidade?: string; uf?: string; tags?: string[]; contrato?: string };
+  customer: { id: string; nome: string; doc: string; email?: string; telefone?: string; plano?: string; valorPlano?: number; cidade?: string; uf?: string; tags?: string[]; contrato?: string; statusContrato?: string };
   risco?: { faixa: string; score: number; fatores?: { fator: string; pontos: number; detalhe: string }[] };
   features?: { atrasosQtd: number; atrasoMedioDias: number; faturasPagas: number; faturasVencidas: number; taxaResposta: number };
   faturas: { id: string; valor: number; vencimento: string; status: string; metodo: string; origem?: string; pixCopiaCola?: string; linkPagamento?: string }[];
@@ -25,6 +26,8 @@ const statusColor: Record<string, string> = {
   FALHA: 'bg-danger-tint text-[#A32D2D]', FILA: 'bg-warning-tint text-[#854F0B]', IGNORADO: 'bg-canvas text-muted', LIDO: 'bg-primary-tint text-primary',
 };
 const canalLabel: Record<string, string> = { WHATSAPP_CLOUD: 'WhatsApp', WHATSAPP_EVOLUTION: 'WhatsApp', WHATSAPP_UAZAPI: 'WhatsApp', EMAIL: 'E-mail', SMS: 'SMS' };
+/** Situação do contrato vem em texto livre do ERP — heurística p/ destacar contrato encerrado. */
+const contratoEncerrado = (s?: string) => !!s && /cancel|encerr|inativ|suspens/i.test(s);
 
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -57,7 +60,14 @@ export default function ClienteDetalhePage() {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold text-ink">{c.nome}</h1>
-            <div className="mt-1 tabular text-sm text-muted">{c.doc}{c.contrato ? ` · contrato ${c.contrato}` : ''}</div>
+            <div className="mt-1 flex flex-wrap items-center gap-2 tabular text-sm text-muted">
+              <span>{c.doc}{c.contrato ? ` · contrato ${c.contrato}` : ''}</span>
+              {c.statusContrato && (
+                <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${contratoEncerrado(c.statusContrato) ? 'bg-danger-tint text-[#A32D2D]' : 'bg-success-tint text-[#0F6E56]'}`}>
+                  contrato {c.statusContrato.toLowerCase()}
+                </span>
+              )}
+            </div>
             <div className="mt-2 flex flex-wrap gap-4 text-sm text-muted">
               {c.telefone && <span className="flex items-center gap-1"><Phone size={14} /> {c.telefone}</span>}
               {c.email && <span className="flex items-center gap-1"><Mail size={14} /> {c.email}</span>}
@@ -131,6 +141,10 @@ export default function ClienteDetalhePage() {
             </div>
           ))}
           {d.assinaturas.length === 0 && <p className="px-2 py-4 text-center text-sm text-muted">Nenhuma assinatura.</p>}
+        </Card>
+
+        <Card title="Notas">
+          <NotasCliente customerId={c.id} />
         </Card>
       </div>
 

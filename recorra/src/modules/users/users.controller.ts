@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
-import { UserRole } from '@prisma/client';
+import { EquipeCobranca, UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '@/common/auth/jwt-auth.guard';
 import { RolesGuard } from '@/common/auth/roles.guard';
 import { Roles } from '@/common/auth/roles.decorator';
@@ -39,6 +39,14 @@ export class UsersController {
   @Roles('OWNER', 'ADMIN')
   role(@TenantId() tenantId: string, @CurrentUser() actor: AuthUser, @Param('id') id: string, @Body('role') role: UserRole) {
     return this.users.updateRole(tenantId, actor, id, role);
+  }
+
+  /** Carteira (equipe) do operador na esteira — null remove a restrição de faixa. */
+  @Patch(':id/carteira')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('OWNER', 'ADMIN')
+  carteira(@TenantId() tenantId: string, @CurrentUser() actor: AuthUser, @Param('id') id: string, @Body('equipeCobranca') equipeCobranca: EquipeCobranca | null) {
+    return this.users.updateCarteira(tenantId, actor, id, equipeCobranca ?? null);
   }
 
   @Patch(':id/ativo')

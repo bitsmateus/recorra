@@ -3,11 +3,12 @@ import { Prisma } from '@prisma/client';
 import { env } from '@/config/env';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { lerPagamentoRecebido } from '@/modules/payments/pagamento-recebido';
+import { lerCarteiraConfig } from '@/modules/dunning/carteira-config';
 import { CryptoService } from '@/common/crypto/crypto.service';
 import { ConnectorFactory } from '@/modules/connectors/connector.factory';
 import { PaymentProviderFactory } from '@/modules/payments/payment-provider.factory';
 import { DIAS_HISTORICO_PADRAO } from '@/modules/connectors/sync-janela';
-import { CreateIntegrationDto, UpdateIntegrationDto, CreatePaymentAccountDto, UpdatePaymentAccountDto, CreateChannelAccountDto, PagamentoRecebidoDto } from './dto/settings.dto';
+import { CreateIntegrationDto, UpdateIntegrationDto, CreatePaymentAccountDto, UpdatePaymentAccountDto, CreateChannelAccountDto, PagamentoRecebidoDto, CarteiraConfigDto } from './dto/settings.dto';
 
 /**
  * Configuração do tenant: integrações de origem (ERP), contas de gateway e
@@ -228,6 +229,26 @@ export class SettingsService {
     const { credentials, ...rest } = created;
     void credentials;
     return rest;
+  }
+
+  // ---------- Carteira/faixas da esteira ----------
+
+  /** Configuração de faixas da esteira (Tenant.config.carteira). */
+  async getCarteiraConfig(tenantId: string) {
+    const t = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { config: true } });
+    return lerCarteiraConfig(t?.config);
+  }
+
+  /** Grava a configuração de faixas preservando o resto do Tenant.config. */
+  async saveCarteiraConfig(tenantId: string, dto: CarteiraConfigDto) {
+    const t = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { config: true } });
+    const atual = (t?.config ?? {}) as Prisma.JsonObject;
+    const carteira = { ...lerCarteiraConfig(atual), ...dto } as unknown as Prisma.JsonObject;
+    await this.prisma.tenant.update({
+      where: { id: tenantId },
+      data: { config: { ...atual, carteira } as Prisma.InputJsonValue },
+    });
+    return this.getCarteiraConfig(tenantId);
   }
 
   // ---------- Réguas ----------

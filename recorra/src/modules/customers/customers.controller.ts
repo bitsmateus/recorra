@@ -3,7 +3,8 @@ import { RiskBand } from '@prisma/client';
 import { JwtAuthGuard } from '@/common/auth/jwt-auth.guard';
 import { RolesGuard } from '@/common/auth/roles.guard';
 import { Roles } from '@/common/auth/roles.decorator';
-import { TenantId } from '@/common/auth/current-user.decorator';
+import { CurrentUser, TenantId } from '@/common/auth/current-user.decorator';
+import { AuthUser } from '@/common/auth/jwt.types';
 import { RiskScoringService } from '@/modules/risk/risk-scoring.service';
 import { CustomersService } from './customers.service';
 import { UpsertCustomerDto } from './dto/customer.dto';
@@ -142,9 +143,30 @@ export class CustomersController {
     return this.customers.setTags(tenantId, id, tags ?? []);
   }
 
+  /** Liga/desliga uma tag isolada (ex.: botão rápido "Retido" na esteira). */
+  @Patch(':id/tags/toggle')
+  @UseGuards(RolesGuard)
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO', 'OPERADOR')
+  toggleTag(@TenantId() tenantId: string, @Param('id') id: string, @Body('tag') tag: string, @CurrentUser() user: AuthUser) {
+    return this.customers.toggleTag(tenantId, id, tag ?? '', user.id);
+  }
+
   @Get(":id/detalhe")
   detalhe(@TenantId() tenantId: string, @Param("id") id: string) {
     return this.customers.getDetalhe(tenantId, id);
+  }
+
+  /** Notas manuais do cliente — usado no perfil e no card da esteira (sem abrir o cadastro). */
+  @Get(':id/notas')
+  listNotas(@TenantId() tenantId: string, @Param('id') id: string) {
+    return this.customers.listNotas(tenantId, id);
+  }
+
+  @Post(':id/notas')
+  @UseGuards(RolesGuard)
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO', 'OPERADOR')
+  addNota(@TenantId() tenantId: string, @Param('id') id: string, @Body('texto') texto: string, @CurrentUser() user: AuthUser) {
+    return this.customers.addNota(tenantId, id, texto ?? '', user.id);
   }
 
   @Get(':id/risco')

@@ -2,7 +2,8 @@ import { Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards } fro
 import { JwtAuthGuard } from '@/common/auth/jwt-auth.guard';
 import { RolesGuard } from '@/common/auth/roles.guard';
 import { Roles } from '@/common/auth/roles.decorator';
-import { TenantId } from '@/common/auth/current-user.decorator';
+import { CurrentUser, TenantId } from '@/common/auth/current-user.decorator';
+import { AuthUser } from '@/common/auth/jwt.types';
 import { RulesService } from './rules.service';
 import { SaveRuleDto, SetDefaultRuleDto, SetRiskModeDto } from './dto/rule.dto';
 
@@ -25,10 +26,11 @@ export class RulesController {
   @Get('andamento')
   andamento(
     @TenantId() tenantId: string,
+    @CurrentUser() user: AuthUser,
     @Query('ruleId') ruleId?: string,
     @Query('pausadas') pausadas?: string,
   ) {
-    return this.rules.andamento(tenantId, ruleId, pausadas === '1');
+    return this.rules.andamento(tenantId, ruleId, pausadas === '1', user);
   }
 
   /** Pausa/retoma a cobrança de faturas selecionadas na Esteira. */

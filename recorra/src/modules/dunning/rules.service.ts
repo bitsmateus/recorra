@@ -6,6 +6,11 @@ import { NICHO_TEMPLATES, findNicho } from './nicho-templates';
 import { evaluateAb, Variante } from './abtest';
 import { selecionarRegua, DunningService } from './dunning.service';
 import { erroMapeamentoBotoes } from '@/modules/channels/meta-graph';
+import { lerCarteiraConfig, equipeDaFaixa, CarteiraConfig } from './carteira-config';
+import { AuthUser } from '@/common/auth/jwt.types';
+
+/** Papéis que administram a cobrança e por isso veem a esteira inteira, sem filtro de carteira. */
+const PAPEIS_VISAO_GERAL = new Set(['OWNER', 'ADMIN', 'FINANCEIRO']);
 
 /** Card do kanban de andamento (uma fatura em aberto posicionada na sua etapa). */
 export interface AndamentoCard {
@@ -19,6 +24,10 @@ export interface AndamentoCard {
   canal?: string; // canal do toque atual (último disparo, ou o do passo em que está) — p/ filtro
   pausada?: boolean; // cobrança deste cliente pausada (gestaoCobranca = PAUSADA)
   status?: string;
+  statusContrato?: string | null; // situação cadastral do contrato no ERP (ex.: cancelado)
+  tags?: string[]; // tags do cliente (manuais, ex.: "retido", "rescisão enviada")
+  alertaRescisao?: boolean; // atraso já passou do dia configurado para rescisão (só sinaliza — nada é acionado)
+  alertaSerasa?: boolean; // atraso já passou do dia configurado para envio ao Serasa (só sinaliza — nada é acionado)
 }
 
 /** Teto de cards lidos pela esteira — acima disso a tela avisa que está truncada. */
@@ -135,9 +144,9 @@ export class RulesService {
    * sozinha conforme o tempo passa e os disparos saem. Colunas = passos da régua +
    * Aguardando início + Pagas/Encerradas + Sem contato.
    */
-  async andamento(tenantId: string, ruleId?: string, incluirPausadas = false) {
+  async andamento(tenantId: string, ruleId?: string, incluirPausadas = false, viewer?: AuthUser) {
     const [tenant, reguas] = await Promise.all([
-      this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { usarFaixaRisco: true, reguaPadraoId: true } }),
+      this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { usarFaixaRisco: true, reguaPadraoId: true, config: true } }),
       this.prisma.dunningRule.findMany({
         where: { tenantId, ativo: true },
         include: { steps: { where: { ativo: true }, orderBy: { offsetDias: 'asc' } } },
@@ -146,13 +155,23 @@ export class RulesService {
     ]);
     const usarFaixaRisco = tenant?.usarFaixaRisco !== false;
     const opcoesReguas = reguas.map((r) => ({ id: r.id, nome: r.nome, faixaRisco: r.faixaRisco }));
+    const carteiraConfig = lerCarteiraConfig(tenant?.config);
+
+    // Quem administra vê a esteira inteira. Operador/leitura só vê a carteira
+    // (equipe) atribuída — a role vem do token (já confiável nas outras rotas);
+    // a equipe é lida do banco pois é campo novo e pode mudar sem novo login.
+    let equipeVisivel: 'EQUIPE_1' | 'EQUIPE_2' | null = null;
+    if (viewer && !PAPEIS_VISAO_GERAL.has(viewer.role)) {
+      const u = await this.prisma.user.findUnique({ where: { id: viewer.id }, select: { equipeCobranca: true } });
+      equipeVisivel = u?.equipeCobranca ?? null;
+    }
 
     // Régua alvo: a escolhida; senão a padrão (modo simples); senão a 1ª ativa.
     const regua =
       (ruleId ? reguas.find((r) => r.id === ruleId) : undefined) ??
       (usarFaixaRisco ? undefined : selecionarRegua(reguas, false, null, tenant?.reguaPadraoId) ?? undefined) ??
       reguas[0];
-    if (!regua) return { regua: null, reguas: opcoesReguas, usarFaixaRisco, colunas: [] };
+    if (!regua) return { regua: null, reguas: opcoesReguas, usarFaixaRisco, colunas: [], carteira: { equipeVisivel, config: carteiraConfig } };
 
     // Passos distintos por offset — cada fatura entra no offset da etapa atual.
     const offsets = [...new Set(regua.steps.map((s) => s.offsetDias))].sort((a, b) => a - b);
@@ -161,6 +180,16 @@ export class RulesService {
     const filtroCliente = { ativo: true, ...(faixa ? { faixaAtual: faixa } : {}) };
 
     const seteDias = new Date(Date.now() - 7 * 86400000);
+    // Corte de vencimento equivalente à faixa de dias da carteira (mesma lógica de
+    // diffDe, calculada aqui para poder filtrar no banco — assim totalAbertas/truncado
+    // já saem certos para o operador, igual já acontecia com a faixa de risco).
+    const agora = new Date();
+    const hojeUtc0 = Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth(), agora.getUTCDate());
+    const corteEquipe2 = new Date(hojeUtc0 - carteiraConfig.equipe2DesdeDia * 86400000);
+    const vencimentoDaEquipe: Prisma.InvoiceWhereInput =
+      equipeVisivel === 'EQUIPE_1' ? { vencimento: { gt: corteEquipe2 } }
+      : equipeVisivel === 'EQUIPE_2' ? { vencimento: { lte: corteEquipe2 } }
+      : {};
     // Pausada fica FORA por padrão. Ela não é cobrada por ninguém — e, como o
     // teto de cards pega os vencimentos mais antigos, o passivo histórico pausado
     // ocupava a esteira inteira e escondia justamente a cobrança do mês.
@@ -168,11 +197,12 @@ export class RulesService {
     const whereAbertas: Prisma.InvoiceWhereInput = {
       tenantId, status: { in: ['PENDENTE', 'VENCIDA'] }, contestada: false, customer: filtroCliente,
       gestaoCobranca: incluirPausadas ? { in: ['ATIVA', 'PAUSADA'] } : 'ATIVA',
+      ...vencimentoDaEquipe,
     };
     const [abertas, encerradas, totalAbertas, pausadasOcultas] = await Promise.all([
       this.prisma.invoice.findMany({
         where: whereAbertas,
-        include: { customer: { select: { id: true, nome: true, telefone: true, email: true } } },
+        include: { customer: { select: { id: true, nome: true, telefone: true, email: true, statusContrato: true, tags: true } } },
         orderBy: { vencimento: 'asc' },
         take: TETO_CARDS,
       }),
@@ -221,14 +251,21 @@ export class RulesService {
 
     for (const inv of abertas) {
       const c = inv.customer;
+      const diffDias = diffDe(inv.vencimento);
+      // Carteira: operador só vê a faixa da própria equipe (admin/financeiro veem tudo).
+      if (equipeVisivel && equipeDaFaixa(diffDias, carteiraConfig) !== equipeVisivel) continue;
       const d = ultimo.get(inv.id);
-      const atual = offsets.filter((o) => o <= diffDe(inv.vencimento)).pop();
+      const atual = offsets.filter((o) => o <= diffDias).pop();
       const card: AndamentoCard = {
         invoiceId: inv.id, customerId: c.id, nome: c.nome, valor: Number(inv.valor),
-        vencimento: inv.vencimento, diffDias: diffDe(inv.vencimento),
+        vencimento: inv.vencimento, diffDias,
         ultimoDisparo: d ? { status: d.status, canal: d.canal, quando: d.enviadoEm ?? d.agendadoPara ?? d.createdAt } : null,
         canal: d?.canal ?? (atual !== undefined ? canalDoOffset.get(atual) : undefined),
         pausada: inv.gestaoCobranca === 'PAUSADA',
+        statusContrato: c.statusContrato,
+        tags: c.tags,
+        alertaRescisao: diffDias >= carteiraConfig.diasRescisao,
+        alertaSerasa: diffDias >= carteiraConfig.diasSerasa,
       };
       if (!c.telefone?.trim() && !c.email?.trim()) { col('sem-contato').cards.push(card); continue; }
       // Último disparo falhou → coluna "Falharam" (destaca o problema em vez de esconder na etapa).
@@ -255,6 +292,7 @@ export class RulesService {
       pausadasOcultas,
       incluirPausadas,
       colunas: colunas.map((c) => ({ ...c, total: c.cards.length, valor: c.cards.reduce((s, x) => s + x.valor, 0) })),
+      carteira: { equipeVisivel, config: carteiraConfig },
     };
   }
 

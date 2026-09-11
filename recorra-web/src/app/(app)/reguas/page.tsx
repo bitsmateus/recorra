@@ -407,6 +407,8 @@ export default function ReguasPage() {
         {msg && <p className="mt-3 text-sm text-primary">{msg}</p>}
       </div>
 
+      <CarteiraConfigCard />
+
       <NichoGallery onClone={load} />
       <AbStats />
 
@@ -1100,6 +1102,65 @@ function NichoGallery({ onClone }: { onClone: () => void }) {
           ))}
         </div>
       )}
+      {msg && <p className="mt-2 text-sm text-primary">{msg}</p>}
+    </div>
+  );
+}
+
+interface CarteiraConfig { equipe2DesdeDia: number; diasRescisao: number; diasSerasa: number }
+
+/**
+ * Faixas de dias que definem a carteira de cada equipe na Esteira (D+equipe2DesdeDia
+ * em diante vira "retenção") e os alertas de rescisão/Serasa. Puramente informativo:
+ * nenhuma ação é disparada automaticamente nesses dias, só o aviso no card.
+ */
+function CarteiraConfigCard() {
+  const [cfg, setCfg] = useState<CarteiraConfig | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  useEffect(() => { api<CarteiraConfig>('/config/carteira').then(setCfg).catch(() => {}); }, []);
+
+  async function salvar() {
+    if (!cfg) return;
+    setBusy(true); setMsg('');
+    try {
+      const salvo = await api<CarteiraConfig>('/config/carteira', { method: 'PUT', body: cfg });
+      setCfg(salvo);
+      setMsg('✓ Faixas atualizadas');
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro'); }
+    finally { setBusy(false); }
+  }
+
+  if (!cfg) return null;
+  const campo = (label: string, chave: keyof CarteiraConfig, ajuda: string) => (
+    <label className="text-sm">
+      <span className="mb-1 block text-xs text-muted">{label}</span>
+      <input
+        type="number" min={1} value={cfg[chave]}
+        onChange={(e) => setCfg({ ...cfg, [chave]: Number(e.target.value) || 1 })}
+        className="w-24 rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"
+      />
+      <span className="mt-1 block max-w-[16rem] text-[11px] text-muted">{ajuda}</span>
+    </label>
+  );
+
+  return (
+    <div className="mb-4 rounded-lg border border-line bg-surface p-4 sm:p-5">
+      <div className="text-sm font-semibold text-ink">Faixas da esteira (carteira)</div>
+      <p className="mb-3 text-xs text-muted">
+        Define a partir de qual dia de atraso um cliente passa para a carteira de retenção (Equipe 2) e quando a
+        esteira avisa que rescisão/Serasa estão pendentes. Só sinaliza — nada é enviado automaticamente ao Serasa
+        nem contrato é rescindido sozinho. Quem cada operador atende fica em <Link href="/equipe" className="text-primary underline">Equipe</Link>.
+      </p>
+      <div className="flex flex-wrap gap-4">
+        {campo('Vira Equipe 2 a partir de (dias)', 'equipe2DesdeDia', 'Antes disso o cliente fica com a Equipe 1 (cobrança inicial).')}
+        {campo('Alerta de rescisão (dias)', 'diasRescisao', 'A esteira destaca o card quando o atraso chega aqui.')}
+        {campo('Alerta de envio ao Serasa (dias)', 'diasSerasa', 'A esteira destaca o card quando o atraso chega aqui.')}
+      </div>
+      <button onClick={salvar} disabled={busy} className="mt-3 rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-60">
+        {busy ? 'Salvando...' : 'Salvar faixas'}
+      </button>
       {msg && <p className="mt-2 text-sm text-primary">{msg}</p>}
     </div>
   );

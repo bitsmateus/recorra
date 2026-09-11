@@ -4,7 +4,7 @@ import { RolesGuard } from '@/common/auth/roles.guard';
 import { Roles } from '@/common/auth/roles.decorator';
 import { TenantId } from '@/common/auth/current-user.decorator';
 import { SettingsService } from './settings.service';
-import { CreateIntegrationDto, UpdateIntegrationDto, CreatePaymentAccountDto, UpdatePaymentAccountDto, CreateChannelAccountDto, PagamentoRecebidoDto } from './dto/settings.dto';
+import { CreateIntegrationDto, UpdateIntegrationDto, CreatePaymentAccountDto, UpdatePaymentAccountDto, CreateChannelAccountDto, PagamentoRecebidoDto, CarteiraConfigDto } from './dto/settings.dto';
 
 @Controller('config')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -99,6 +99,18 @@ export class SettingsController {
   @Roles('OWNER', 'ADMIN')
   savePagamentoRecebido(@TenantId() tenantId: string, @Body() dto: PagamentoRecebidoDto) {
     return this.settings.savePagamentoRecebido(tenantId, dto);
+  }
+
+  // Carteira/faixas da esteira
+  @Get('carteira')
+  getCarteiraConfig(@TenantId() tenantId: string) {
+    return this.settings.getCarteiraConfig(tenantId);
+  }
+
+  @Put('carteira')
+  @Roles('OWNER', 'ADMIN')
+  saveCarteiraConfig(@TenantId() tenantId: string, @Body() dto: CarteiraConfigDto) {
+    return this.settings.saveCarteiraConfig(tenantId, dto);
   }
 
   // Réguas

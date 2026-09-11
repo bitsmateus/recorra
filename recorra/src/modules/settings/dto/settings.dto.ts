@@ -101,6 +101,27 @@ export class PagamentoRecebidoDto {
   conteudo?: string;
 }
 
+/** Faixas de dias da esteira/carteira (guardado em Tenant.config.carteira). */
+export class CarteiraConfigDto {
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(3650)
+  equipe2DesdeDia?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(3650)
+  diasRescisao?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(3650)
+  diasSerasa?: number;
+}
+
 export class CreateChannelAccountDto {
   @IsIn(['WHATSAPP_CLOUD', 'WHATSAPP_EVOLUTION', 'WHATSAPP_UAZAPI', 'EMAIL', 'SMS', 'HTTP_GENERIC', 'NX_SYSTEMS'])
   canal!: ChannelType;
