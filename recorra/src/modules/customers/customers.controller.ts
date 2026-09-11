@@ -152,6 +152,14 @@ export class CustomersController {
     return this.customers.toggleTag(tenantId, id, tag ?? '', user.id);
   }
 
+  /** Operador responsável pelo cliente (filtro "por pessoa" na esteira) — null remove a atribuição. */
+  @Patch(':id/responsavel')
+  @UseGuards(RolesGuard)
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO', 'OPERADOR')
+  setResponsavel(@TenantId() tenantId: string, @Param('id') id: string, @Body('responsavelId') responsavelId: string | null, @CurrentUser() user: AuthUser) {
+    return this.customers.setResponsavel(tenantId, id, responsavelId || null, user.id);
+  }
+
   @Get(":id/detalhe")
   detalhe(@TenantId() tenantId: string, @Param("id") id: string) {
     return this.customers.getDetalhe(tenantId, id);

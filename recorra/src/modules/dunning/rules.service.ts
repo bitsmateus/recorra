@@ -31,6 +31,7 @@ export interface AndamentoCard {
   alertaRescisao?: boolean; // atraso já passou do dia configurado para rescisão (só sinaliza — nada é acionado)
   alertaSerasa?: boolean; // atraso já passou do dia configurado para envio ao Serasa (só sinaliza — nada é acionado)
   carteira?: string | null; // nome da carteira dona desta faixa de atraso (null = nenhuma carteira assumiu ainda)
+  responsavel?: string | null; // operador atribuído manualmente ao cliente (independente da carteira)
 }
 
 /** Teto de cards lidos pela esteira — acima disso a tela avisa que está truncada. */
@@ -242,7 +243,7 @@ export class RulesService {
     const [abertas, encerradas, totalAbertas, pausadasOcultas] = await Promise.all([
       this.prisma.invoice.findMany({
         where: whereAbertas,
-        include: { customer: { select: { id: true, nome: true, telefone: true, email: true, statusContrato: true, tags: true } } },
+        include: { customer: { select: { id: true, nome: true, telefone: true, email: true, statusContrato: true, tags: true, responsavel: { select: { nome: true } } } } },
         orderBy: { vencimento: 'asc' },
         take: TETO_CARDS,
       }),
@@ -308,6 +309,7 @@ export class RulesService {
         alertaRescisao: diffDias >= alertas.diasRescisao,
         alertaSerasa: diffDias >= alertas.diasSerasa,
         carteira: carteiraDoCard?.nome ?? null,
+        responsavel: c.responsavel?.nome ?? null,
       };
       if (!c.telefone?.trim() && !c.email?.trim()) { col('sem-contato').cards.push(card); continue; }
       // Último disparo falhou → coluna "Falharam" (destaca o problema em vez de esconder na etapa).

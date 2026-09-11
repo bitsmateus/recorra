@@ -269,10 +269,11 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  refreshTokens RefreshToken[]
-  customerNotes CustomerNote[]
-  carteira      Carteira?      @relation(fields: [carteiraId], references: [id], onDelete: SetNull)
+  tenant             Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  refreshTokens      RefreshToken[]
+  customerNotes      CustomerNote[]
+  carteira           Carteira?      @relation(fields: [carteiraId], references: [id], onDelete: SetNull)
+  clientesResponsavel Customer[]    @relation("ClienteResponsavel")
 
   @@index([carteiraId])
   @@unique([tenantId, email])
@@ -307,6 +308,10 @@ model Customer {
   // próprios; não é enum porque nem todo conector preenche/conhece os mesmos valores.
   statusContrato String?
   tags     String[] @default([])
+  // Operador responsável por este cliente — atribuição manual, independente da
+  // carteira (que é automática pela faixa de dias de atraso). Usado como filtro
+  // na esteira ("por pessoa"); não restringe quem pode ver o cliente.
+  responsavelId String?
 
   plano      String?
   valorPlano Decimal? @db.Decimal(12, 2)
@@ -324,6 +329,7 @@ model Customer {
   updatedAt    DateTime      @updatedAt
 
   tenant         Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  responsavel    User?                  @relation("ClienteResponsavel", fields: [responsavelId], references: [id], onDelete: SetNull)
   invoices       Invoice[]
   subscriptions  Subscription[]
   dispatches     MessageDispatch[]
@@ -337,6 +343,7 @@ model Customer {
   @@unique([tenantId, doc])
   @@index([tenantId])
   @@index([tenantId, externalId])
+  @@index([responsavelId])
   // Busca por nome/telefone usa ILIKE '%termo%', que nenhum btree atende — sem
   // estes o filtro de cliente em Disparos varre a tabela inteira. Dependem da
   // extensão pg_trgm, criada na migration 20260727190000_disparos_indices.

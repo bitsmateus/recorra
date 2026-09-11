@@ -255,6 +255,29 @@ export class CustomersService {
     return atualizado;
   }
 
+  /**
+   * Operador responsável pelo cliente — atribuição manual, independente da
+   * carteira (que é automática pela faixa de dias de atraso). Usado só como
+   * filtro "por pessoa" na esteira; não restringe quem pode ver o cliente.
+   */
+  async setResponsavel(tenantId: string, id: string, responsavelId: string | null, actorId?: string) {
+    const alvo = await this.getOrThrow(tenantId, id);
+    if (responsavelId) {
+      const user = await this.prisma.user.findFirst({ where: { id: responsavelId, tenantId } });
+      if (!user) throw new BadRequestException('Usuário não encontrado neste tenant');
+    }
+    const atualizado = await this.prisma.customer.update({
+      where: { id },
+      data: { responsavelId },
+      include: { responsavel: { select: { id: true, nome: true } } },
+    });
+    await this.audit.record({
+      tenantId, userId: actorId, acao: 'customer.responsavel.update', entidade: 'Customer', entidadeId: id,
+      antes: { responsavelId: alvo.responsavelId }, depois: { responsavelId },
+    });
+    return atualizado;
+  }
+
   /** Lista todas as tags distintas do tenant (para filtros na UI). */
   async listTags(tenantId: string): Promise<string[]> {
     const rows = await this.prisma.customer.findMany({ where: { tenantId }, select: { tags: true } });

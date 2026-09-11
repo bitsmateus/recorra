@@ -13,7 +13,7 @@ interface Card {
   vencimento: string; diffDias: number;
   ultimoDisparo: { status: string; canal: string; quando: string } | null;
   canal?: string; pausada?: boolean; status?: string; statusContrato?: string; tags?: string[];
-  alertaRescisao?: boolean; alertaSerasa?: boolean; carteira?: string | null;
+  alertaRescisao?: boolean; alertaSerasa?: boolean; carteira?: string | null; responsavel?: string | null;
 }
 interface Coluna { key: string; label: string; cards: Card[]; total: number; valor: number }
 interface Andamento {
@@ -67,11 +67,6 @@ function prazoLabel(diff: number): { txt: string; cls: string } {
 }
 /** Situação do contrato vem em texto livre do ERP — heurística p/ destacar contrato encerrado. */
 const contratoEncerrado = (s?: string) => !!s && /cancel|encerr|inativ|suspens/i.test(s);
-/** Etiquetas rápidas do card (sem abrir o cliente): medir retenção/rescisão por operador. */
-const TAGS_RAPIDAS: { tag: string; label: string }[] = [
-  { tag: 'retido', label: 'Retido' },
-  { tag: 'rescisão enviada', label: 'Rescisão enviada' },
-];
 function disparoBadge(status: string) {
   if (['ENVIADO', 'ENTREGUE', 'LIDO'].includes(status)) return <span className="flex items-center gap-1 text-[#0F6E56]"><CheckCircle2 size={12} /> enviado</span>;
   if (status === 'FILA') return <span className="flex items-center gap-1 text-[#854F0B]"><Clock size={12} /> na fila</span>;
@@ -84,6 +79,8 @@ export default function AndamentoPage() {
   const [ruleId, setRuleId] = useState('');
   const [busca, setBusca] = useState('');
   const [canalFiltro, setCanalFiltro] = useState('');
+  const [carteiraFiltro, setCarteiraFiltro] = useState('');
+  const [responsavelFiltro, setResponsavelFiltro] = useState('');
   // Padrão: o mês atual (vencimentos deste mês). "Todo o período" fica a um clique.
   const [periodo, setPeriodo] = useState<{ de: string; ate: string }>(() => {
     const h = new Date();
@@ -120,7 +117,7 @@ export default function AndamentoPage() {
 
   useEffect(() => {
     setVisiveisPorColuna({});
-  }, [situacao, canalFiltro, periodo.de, periodo.ate, ruleId, busca]);
+  }, [situacao, canalFiltro, carteiraFiltro, responsavelFiltro, periodo.de, periodo.ate, ruleId, busca]);
 
   const carregar = useCallback(async (silencioso = false) => {
     if (!silencioso) setLoading(true);
@@ -139,6 +136,11 @@ export default function AndamentoPage() {
     const s = new Set<string>();
     dados?.colunas.forEach((c) => c.cards.forEach((x) => x.canal && s.add(x.canal)));
     return [...s];
+  }, [dados]);
+  const responsaveisDisponiveis = useMemo(() => {
+    const s = new Set<string>();
+    dados?.colunas.forEach((c) => c.cards.forEach((x) => x.responsavel && s.add(x.responsavel)));
+    return [...s].sort();
   }, [dados]);
 
   // Presets de período → intervalo [de, ate] aplicado sobre o vencimento do card.
@@ -171,6 +173,8 @@ export default function AndamentoPage() {
   const passaFiltro = (card: Card) => {
     if (buscaNorm && !semAcento(card.nome).includes(buscaNorm)) return false;
     if (canalFiltro && card.canal !== canalFiltro) return false;
+    if (carteiraFiltro && card.carteira !== carteiraFiltro) return false;
+    if (responsavelFiltro && card.responsavel !== responsavelFiltro) return false;
     const v = vencKey(card.vencimento);
     if (periodo.de && v < periodo.de) return false;
     if (periodo.ate && v > periodo.ate) return false;
@@ -201,14 +205,6 @@ export default function AndamentoPage() {
       limpar(); carregar(true);
     } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro na ação'); }
     setBusy(false);
-  }
-
-  /** Liga/desliga uma tag do cliente direto no card, sem abrir o cadastro. */
-  async function toggleTag(customerId: string, tag: string) {
-    try {
-      await api(`/clientes/${customerId}/tags/toggle`, { method: 'PATCH', body: { tag } });
-      carregar(true);
-    } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro ao marcar tag'); }
   }
 
   const totalAbertas = dados?.colunas
@@ -266,6 +262,18 @@ export default function AndamentoPage() {
             <select value={canalFiltro} onChange={(e) => setCanalFiltro(e.target.value)} className="rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-primary">
               <option value="">Todos os canais</option>
               {canaisDisponiveis.map((c) => <option key={c} value={c}>{canalLabel[c] || c}</option>)}
+            </select>
+          )}
+          {dados?.carteira && !dados.carteira.visivel && dados.carteira.todas.length > 1 && (
+            <select value={carteiraFiltro} onChange={(e) => setCarteiraFiltro(e.target.value)} className="rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-primary">
+              <option value="">Todas as carteiras</option>
+              {dados.carteira.todas.map((c) => <option key={c.id} value={c.nome}>{c.nome}</option>)}
+            </select>
+          )}
+          {responsaveisDisponiveis.length > 1 && (
+            <select value={responsavelFiltro} onChange={(e) => setResponsavelFiltro(e.target.value)} className="rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-primary">
+              <option value="">Todos os responsáveis</option>
+              {responsaveisDisponiveis.map((r) => <option key={r} value={r}>{r}</option>)}
             </select>
           )}
           {dados && dados.reguas.length > 1 && (
@@ -443,31 +451,11 @@ export default function AndamentoPage() {
                             ) : card.alertaRescisao ? (
                               <div className="mt-1 flex items-center gap-1 text-[11px] font-medium text-[#854F0B]"><AlertTriangle size={11} /> rescisão pendente</div>
                             ) : null}
-                            {(() => {
-                              const rapidas = new Set(TAGS_RAPIDAS.map((r) => r.tag));
-                              const outras = card.tags?.filter((t) => !rapidas.has(t)) ?? [];
-                              return outras.length > 0 ? (
-                                <div className="mt-1 flex flex-wrap gap-1">
-                                  {outras.map((t) => <span key={t} className="rounded-full bg-primary-tint px-1.5 py-0.5 text-[10px] font-medium text-primary">{t}</span>)}
-                                </div>
-                              ) : null;
-                            })()}
-                            <div className="mt-1.5 flex flex-wrap gap-1">
-                              {TAGS_RAPIDAS.map(({ tag, label }) => {
-                                const ligada = card.tags?.includes(tag);
-                                return (
-                                  <button
-                                    key={tag}
-                                    type="button"
-                                    onClick={(e) => { e.stopPropagation(); toggleTag(card.customerId, tag); }}
-                                    title={ligada ? `Remover "${label}"` : `Marcar "${label}"`}
-                                    className={`rounded-full border px-1.5 py-0.5 text-[10px] font-medium transition ${ligada ? 'border-primary bg-primary text-white' : 'border-line text-muted hover:border-primary/40 hover:text-primary'}`}
-                                  >
-                                    {label}
-                                  </button>
-                                );
-                              })}
-                            </div>
+                            {!!card.tags?.length && (
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {card.tags.map((t) => <span key={t} className="rounded-full bg-primary-tint px-1.5 py-0.5 text-[10px] font-medium text-primary">{t}</span>)}
+                              </div>
+                            )}
                           </div>
                         );
                       })}
@@ -663,7 +651,7 @@ function HistoricoModal({ invoiceId, nome, onClose }: { invoiceId: string; nome:
 function TimelineModal({ customerId, nome, onClose }: { customerId: string; nome: string; onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-lg bg-surface shadow-lg">
+      <div className="flex h-[85vh] w-full max-w-3xl flex-col rounded-lg bg-surface shadow-lg">
         <div className="flex items-center justify-between border-b border-line px-5 py-4">
           <h2 className="flex items-center gap-2 text-base font-semibold text-ink"><StickyNote size={17} className="text-primary" /> Linha do tempo — {nome}</h2>
           <button onClick={onClose} className="rounded p-1 text-muted hover:bg-canvas hover:text-ink"><X size={18} /></button>

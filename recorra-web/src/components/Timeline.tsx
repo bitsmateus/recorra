@@ -34,6 +34,9 @@ const dataCurta = (s: string) => new Date(s).toLocaleDateString('pt-BR', { timeZ
  * concluídos, em ordem cronológica. Usado tanto no perfil do cliente quanto num
  * modal direto no card da esteira — mesma leitura e mesmo lugar pra registrar.
  */
+interface Etiqueta { nome: string; cor: string | null }
+interface UsuarioTenant { id: string; nome: string; ativo: boolean }
+
 export function Timeline({ customerId }: { customerId: string }) {
   const [itens, setItens] = useState<TimelineItem[] | null>(null);
   const [erro, setErro] = useState('');
@@ -42,11 +45,42 @@ export function Timeline({ customerId }: { customerId: string }) {
   const [dataPromessa, setDataPromessa] = useState('');
   const [valor, setValor] = useState('');
   const [busy, setBusy] = useState(false);
+  const [catalogo, setCatalogo] = useState<Etiqueta[]>([]);
+  const [tagsCliente, setTagsCliente] = useState<string[] | null>(null);
+  const [tagBusy, setTagBusy] = useState<string | null>(null);
+  const [usuarios, setUsuarios] = useState<UsuarioTenant[]>([]);
+  const [responsavelId, setResponsavelId] = useState<string | null>(null);
+  const [salvandoResp, setSalvandoResp] = useState(false);
 
   const carregar = useCallback(() => {
     api<TimelineItem[]>(`/clientes/${customerId}/timeline`).then(setItens).catch((e) => setErro(e instanceof Error ? e.message : 'Erro ao carregar'));
   }, [customerId]);
   useEffect(() => { carregar(); }, [carregar]);
+
+  const carregarTags = useCallback(() => {
+    api<Etiqueta[]>('/clientes/etiquetas').then(setCatalogo).catch(() => {});
+    api<{ tags: string[]; responsavelId: string | null }>(`/clientes/${customerId}`).then((c) => { setTagsCliente(c.tags); setResponsavelId(c.responsavelId ?? null); }).catch(() => {});
+  }, [customerId]);
+  useEffect(() => { carregarTags(); }, [carregarTags]);
+  useEffect(() => { api<UsuarioTenant[]>('/usuarios').then((us) => setUsuarios(us.filter((u) => u.ativo))).catch(() => {}); }, []);
+
+  async function toggleTag(tag: string) {
+    setTagBusy(tag);
+    try {
+      await api(`/clientes/${customerId}/tags/toggle`, { method: 'PATCH', body: { tag } });
+      carregarTags();
+    } catch (e) { setErro(e instanceof Error ? e.message : 'Erro ao marcar etiqueta'); }
+    finally { setTagBusy(null); }
+  }
+
+  async function mudarResponsavel(id: string) {
+    setSalvandoResp(true);
+    try {
+      await api(`/clientes/${customerId}/responsavel`, { method: 'PATCH', body: { responsavelId: id || null } });
+      setResponsavelId(id || null);
+    } catch (e) { setErro(e instanceof Error ? e.message : 'Erro ao definir responsável'); }
+    finally { setSalvandoResp(false); }
+  }
 
   async function enviarNota() {
     const limpo = texto.trim();
@@ -76,6 +110,33 @@ export function Timeline({ customerId }: { customerId: string }) {
 
   return (
     <div>
+      <div className="border-b border-line p-2">
+        <div className="mb-1 text-xs font-medium text-muted">Etiquetas</div>
+        <div className="mb-2 flex flex-wrap gap-1.5">
+          {catalogo.length === 0 && <span className="text-xs text-muted">Nenhuma etiqueta cadastrada — crie em Clientes &gt; Etiquetas.</span>}
+          {catalogo.map((et) => {
+            const ativa = !!tagsCliente?.includes(et.nome);
+            return (
+              <button
+                key={et.nome} type="button" disabled={tagBusy === et.nome} onClick={() => toggleTag(et.nome)}
+                className={`rounded-full border px-2.5 py-1 text-xs font-medium transition disabled:opacity-60 ${ativa ? 'border-primary bg-primary text-white' : 'border-line text-muted hover:border-primary/40 hover:text-primary'}`}
+              >{et.nome}</button>
+            );
+          })}
+        </div>
+
+        <label className="text-xs"><span className="mb-1 block text-[11px] text-muted">Responsável (filtro "por pessoa" na esteira)</span>
+          <select
+            value={responsavelId ?? ''} disabled={salvandoResp}
+            onChange={(e) => mudarResponsavel(e.target.value)}
+            className="w-full max-w-xs rounded border border-line px-2 py-1.5 text-sm outline-none focus:border-primary disabled:opacity-60"
+          >
+            <option value="">Sem responsável</option>
+            {usuarios.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
+          </select>
+        </label>
+      </div>
+
       <div className="border-b border-line p-2">
         <div className="mb-2 flex gap-1">
           <button
