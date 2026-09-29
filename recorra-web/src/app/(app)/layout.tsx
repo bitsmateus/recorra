@@ -7,6 +7,7 @@ import { LayoutDashboard, Users, Plug, LogOut, CreditCard, GitBranch, UserCog, S
 import type { LucideIcon } from 'lucide-react';
 import { Logo, LogoMark } from '@/components/Logo';
 import { getToken, logout } from '@/lib/api';
+import { APP_VERSION } from '@/lib/version';
 
 type Item = { href: string; label: string; icon: LucideIcon };
 type Grupo = { label: string; icon: LucideIcon; items: Item[] };
@@ -178,7 +179,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       {/* Sidebar fixa (desktop) */}
       <aside className={`hidden h-screen shrink-0 flex-col overflow-hidden border-r border-line bg-surface transition-[width] duration-200 md:flex print:hidden ${menuMinimizado ? 'w-16' : 'w-60'}`}>
         <div className={`flex items-center border-b border-line ${menuMinimizado ? 'flex-col justify-center gap-2 px-2 py-3' : 'justify-between px-5 py-4'}`}>
-          {menuMinimizado ? <LogoMark size={28} /> : <Logo size={30} />}
+          {menuMinimizado ? (
+            <LogoMark size={28} />
+          ) : (
+            <div className="flex items-baseline gap-1.5">
+              <Logo size={30} />
+              <span className="text-[10px] font-medium text-muted">v{APP_VERSION}</span>
+            </div>
+          )}
           {!menuMinimizado && <button onClick={alternarMenu} title="Minimizar menu" className="rounded p-1.5 text-muted hover:bg-canvas hover:text-primary"><PanelLeftClose size={18} /></button>}
           {menuMinimizado && <button onClick={alternarMenu} title="Expandir menu" aria-label="Expandir menu lateral" className="flex h-8 w-8 items-center justify-center rounded text-muted hover:bg-canvas hover:text-primary"><PanelLeftOpen size={18} /></button>}
         </div>
@@ -191,7 +199,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       )}
       <aside className={`fixed inset-y-0 left-0 z-50 flex w-64 max-w-[85vw] flex-col border-r border-line bg-surface transition-transform duration-200 md:hidden print:hidden ${menuAberto ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="flex items-center justify-between border-b border-line px-4 py-4">
-          <Logo size={28} />
+          <div className="flex items-baseline gap-1.5">
+            <Logo size={28} />
+            <span className="text-[10px] font-medium text-muted">v{APP_VERSION}</span>
+          </div>
           <button onClick={() => setMenuAberto(false)} className="rounded p-1.5 text-muted hover:bg-canvas" aria-label="Fechar menu">
             <X size={20} />
           </button>
@@ -205,7 +216,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <button onClick={() => setMenuAberto(true)} className="rounded p-1.5 text-ink hover:bg-canvas" aria-label="Abrir menu">
             <Menu size={22} />
           </button>
-          <Logo size={24} />
+          <div className="flex items-baseline gap-1.5">
+            <Logo size={24} />
+            <span className="text-[10px] font-medium text-muted">v{APP_VERSION}</span>
+          </div>
         </header>
         <main className="min-h-0 min-w-0 flex-1 overflow-auto p-4 sm:p-6 md:p-8 print:overflow-visible">{children}</main>
       </div>
