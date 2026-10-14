@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { LayoutDashboard, Users, Plug, LogOut, CreditCard, GitBranch, UserCog, Send, BarChart3, Gauge, HelpCircle, ChevronDown, Megaphone, Wallet, SlidersHorizontal, Radio, Menu, X, Mail, MessageSquare, PanelLeftClose, PanelLeftOpen, Eraser, Moon, Sun, Columns3, KeyRound } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { Logo, LogoMark } from '@/components/Logo';
+import { Logo } from '@/components/Logo';
 import { getToken, logout } from '@/lib/api';
 import { APP_VERSION } from '@/lib/version';
 
@@ -56,7 +56,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!getToken()) router.replace('/login');
     else {
-      setMenuMinimizado(localStorage.getItem('recorra_sidebar_minimizada') === '1');
+      setMenuMinimizado(localStorage.getItem('recorra_sidebar_escondida') === '1');
       // O tema já foi aplicado pelo script inline do layout raiz; aqui só espelhamos
       // o estado atual para o ícone/rótulo do botão ficarem certos.
       setEscuro(document.documentElement.classList.contains('dark'));
@@ -91,7 +91,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   function alternarMenu() {
     setMenuMinimizado((atual) => {
       const proximo = !atual;
-      localStorage.setItem('recorra_sidebar_minimizada', proximo ? '1' : '0');
+      localStorage.setItem('recorra_sidebar_escondida', proximo ? '1' : '0');
       return proximo;
     });
   }
@@ -177,21 +177,23 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     // No print, solta a trava para o conteúdo inteiro sair no PDF.
     <div className="flex h-screen overflow-hidden bg-canvas print:h-auto print:overflow-visible">
       {/* Sidebar fixa (desktop) */}
-      <aside className={`hidden h-screen shrink-0 flex-col overflow-hidden border-r border-line bg-surface transition-[width] duration-200 md:flex print:hidden ${menuMinimizado ? 'w-16' : 'w-60'}`}>
-        <div className={`flex items-center border-b border-line ${menuMinimizado ? 'flex-col justify-center gap-2 px-2 py-3' : 'justify-between px-5 py-4'}`}>
-          {menuMinimizado ? (
-            <LogoMark size={28} />
-          ) : (
+      {menuMinimizado ? (
+        // Menu escondido: sobra só uma faixa estreita com o botão para trazê-lo de volta.
+        <div className="hidden h-screen w-12 shrink-0 flex-col items-center border-r border-line bg-surface py-3 md:flex print:hidden">
+          <button onClick={alternarMenu} title="Mostrar menu" aria-label="Mostrar menu lateral" className="flex h-9 w-9 items-center justify-center rounded text-muted hover:bg-canvas hover:text-primary"><PanelLeftOpen size={20} /></button>
+        </div>
+      ) : (
+        <aside className="hidden h-screen w-60 shrink-0 flex-col overflow-hidden border-r border-line bg-surface md:flex print:hidden">
+          <div className="flex items-center justify-between border-b border-line px-5 py-4">
             <div className="flex items-baseline gap-1.5">
               <Logo size={30} />
               <span className="text-[10px] font-medium text-muted">v{APP_VERSION}</span>
             </div>
-          )}
-          {!menuMinimizado && <button onClick={alternarMenu} title="Minimizar menu" className="rounded p-1.5 text-muted hover:bg-canvas hover:text-primary"><PanelLeftClose size={18} /></button>}
-          {menuMinimizado && <button onClick={alternarMenu} title="Expandir menu" aria-label="Expandir menu lateral" className="flex h-8 w-8 items-center justify-center rounded text-muted hover:bg-canvas hover:text-primary"><PanelLeftOpen size={18} /></button>}
-        </div>
-        {navContent(menuMinimizado)}
-      </aside>
+            <button onClick={alternarMenu} title="Esconder menu" aria-label="Esconder menu lateral" className="rounded p-1.5 text-muted hover:bg-canvas hover:text-primary"><PanelLeftClose size={18} /></button>
+          </div>
+          {navContent(false)}
+        </aside>
+      )}
 
       {/* Drawer + overlay (mobile) */}
       {menuAberto && (
