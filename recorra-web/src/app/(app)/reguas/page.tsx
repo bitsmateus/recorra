@@ -25,6 +25,7 @@ interface Step {
   templateParams?: string[]; // variáveis Recorrai que preenchem {{1}}, {{2}}...
   templateBotoes?: BotaoMapeado[]; // mapeamento dos botões dinâmicos (link/pix)
   webhookUrl?: string; // canal WEBHOOK: endpoint que recebe o JSON de `template`
+  ativo?: boolean; // passo desligado não dispara (a régua segue com os demais)
 }
 
 interface BotaoTpl { tipo: string; texto: string; url?: string; index: number; dinamico: boolean }
@@ -324,6 +325,7 @@ export default function ReguasPage() {
         templateParams: s.templateParams,
         templateBotoes: s.templateBotoes && s.templateBotoes.length ? s.templateBotoes : undefined,
         webhookUrl: s.canal === 'WEBHOOK' ? s.webhookUrl : undefined,
+        ativo: s.ativo !== false,
         abTest: s.abTest,
       })),
     };
@@ -875,6 +877,10 @@ function StepCard({
         <div className="flex items-center gap-2">
           <input type="checkbox" checked={selecionado} onChange={onToggleSelect} title="Selecionar este passo" className="h-4 w-4 cursor-pointer accent-primary" />
           <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-medium text-white">{index + 1}</span>
+          <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted" title="Desligado, este passo não dispara">
+            <input type="checkbox" checked={step.ativo !== false} onChange={(e) => onChange({ ativo: e.target.checked })} className="h-3.5 w-3.5 accent-primary" /> Ativo
+          </label>
+          {step.ativo === false && <span className="rounded-full bg-warning-tint px-2 py-0.5 text-[10px] font-medium text-[#854F0B]">desligado</span>}
         </div>
         <div className="flex gap-1">
           <button onClick={() => onMove(-1)} disabled={isFirst} className="rounded p-1 text-muted hover:bg-surface disabled:opacity-30"><ArrowUp size={15} /></button>
