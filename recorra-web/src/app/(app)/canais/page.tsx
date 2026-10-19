@@ -1,14 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Plus, X, RefreshCw, Trash2, Wifi, WifiOff, Loader2, MessageCircle, Mail, Smartphone, Plug, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Plus, X, RefreshCw, Trash2, KeyRound, Wifi, WifiOff, Loader2, MessageCircle, Mail, Smartphone, Plug, CheckCircle2, AlertCircle } from 'lucide-react';
 import { api } from '@/lib/api';
 import { PageTitle } from '@/components/ui';
 import PlataformasEnvio from '@/components/PlataformasEnvio';
 import ConfirmacaoPagamento from '@/components/ConfirmacaoPagamento';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 
-interface Conexao { id: string; canal: string; apelido: string; ativo: boolean; status: string; instance?: string | null; origem?: string; oficial?: boolean; nxType?: string }
+interface Conexao { id: string; canal: string; apelido: string; ativo: boolean; status: string; instance?: string | null; origem?: string; oficial?: boolean; nxType?: string; wabaId?: string; temTokenWaba?: boolean }
 
 // Opções para criar um novo canal. A Recorrai envia só por API oficial: WhatsApp
 // não oficial (Evolution/uazapi) foi removido — sem QR code, sem texto livre no WhatsApp.
@@ -39,6 +39,7 @@ export default function CanaisPage() {
   const [loading, setLoading] = useState(true);
   const [novo, setNovo] = useState(false);
   const [qr, setQr] = useState<Conexao | null>(null);
+  const [tokenWaba, setTokenWaba] = useState<Conexao | null>(null);
   const [sincronizando, setSincronizando] = useState(false);
   const [syncMsg, setSyncMsg] = useState('');
   const [confirmarExclusao, setConfirmarExclusao] = useState<Conexao | null>(null);
@@ -115,14 +116,14 @@ export default function CanaisPage() {
         <div className="mb-6">
           <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-ink">Canais do NX <span className="rounded-full bg-primary-tint px-2 py-0.5 text-xs font-normal text-primary">{importadosNx.length}</span></h2>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-            {importadosNx.map((c) => <CanalCard key={c.id} c={c} onExcluir={setConfirmarExclusao} onQr={setQr} />)}
+            {importadosNx.map((c) => <CanalCard key={c.id} c={c} onExcluir={setConfirmarExclusao} onQr={setQr} onToken={setTokenWaba} />)}
           </div>
         </div>
       )}
 
       {importadosNx.length > 0 && outros.length > 0 && <h2 className="mb-2 text-sm font-semibold text-ink">Outros canais</h2>}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-        {outros.map((c) => <CanalCard key={c.id} c={c} onExcluir={setConfirmarExclusao} onQr={setQr} />)}
+        {outros.map((c) => <CanalCard key={c.id} c={c} onExcluir={setConfirmarExclusao} onQr={setQr} onToken={setTokenWaba} />)}
         {!loading && lista.length === 0 && <div className="col-span-full rounded-lg border border-dashed border-line py-10 text-center text-sm text-muted">Nenhum canal conectado. Use "Sincronizar canais (NX)" ou "Adicionar canal".</div>}
       </div>
       {loading && <p className="mt-3 text-sm text-muted">Carregando...</p>}
@@ -134,6 +135,7 @@ export default function CanaisPage() {
       <ConfirmacaoPagamento />
 
       {novo && <NovoCanalModal onClose={() => setNovo(false)} onCreated={(conn) => { setNovo(false); carregar(); const t = TIPOS.find((x) => x.canal === conn.canal); if (t?.qr) setQr(conn); }} />}
+      {tokenWaba && <TokenWabaModal conn={tokenWaba} onClose={() => setTokenWaba(null)} onSaved={() => { setTokenWaba(null); carregar(); }} />}
       {qr && <QrModal conn={qr} onClose={() => { setQr(null); carregar(); }} />}
       {confirmarExclusao && (
         <ConfirmDialog
@@ -149,7 +151,7 @@ export default function CanaisPage() {
   );
 }
 
-function CanalCard({ c, onExcluir, onQr }: { c: Conexao; onExcluir: (c: Conexao) => void; onQr: (c: Conexao) => void }) {
+function CanalCard({ c, onExcluir, onQr, onToken }: { c: Conexao; onExcluir: (c: Conexao) => void; onQr: (c: Conexao) => void; onToken?: (c: Conexao) => void }) {
   const tipo = TIPOS_LABEL.find((t) => t.canal === c.canal);
   const si = statusInfo[c.status] || statusInfo.CONFIGURADO;
   const SIcon = si.icon;
@@ -168,6 +170,11 @@ function CanalCard({ c, onExcluir, onQr }: { c: Conexao; onExcluir: (c: Conexao)
       </div>
       <div className="flex items-center justify-between">
         <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${si.cls}`}><SIcon size={12} className={c.status === 'CONECTANDO' ? 'animate-spin' : ''} /> {si.label}</span>
+        {onToken && c.origem === 'nx' && c.oficial === true && (
+          <button onClick={() => onToken(c)} title="Token da WABA, usado para gerenciar templates" className={`flex items-center gap-1 text-xs font-medium hover:underline ${c.temTokenWaba ? 'text-[#0F6E56]' : 'text-primary'}`}>
+            <KeyRound size={12} /> {c.temTokenWaba ? 'Token da WABA ✓' : 'Token da WABA'}
+          </button>
+        )}
         {tipo?.qr && c.status !== 'CONECTADO' && <button onClick={() => onQr(c)} className="text-xs font-medium text-primary hover:underline">Conectar (QR)</button>}
       </div>
     </div>
@@ -332,6 +339,51 @@ function NovoCanalModal({ onClose, onCreated }: { onClose: () => void; onCreated
         <div className="flex justify-end gap-2">
           <button onClick={onClose} className="rounded border border-line px-4 py-2 text-sm hover:bg-canvas">Cancelar</button>
           <button onClick={criar} disabled={busy} className="rounded bg-primary px-5 py-2 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-60">{busy ? 'Criando...' : 'Criar'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Token da WABA informado à mão: o NX nem sempre o devolve, e sem ele não dá para gerenciar templates. */
+function TokenWabaModal({ conn, onClose, onSaved }: { conn: Conexao; onClose: () => void; onSaved: () => void }) {
+  const [token, setToken] = useState('');
+  const [wabaId, setWabaId] = useState(conn.wabaId || '');
+  const [salvando, setSalvando] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  async function salvar(limpar = false) {
+    setSalvando(true); setMsg(limpar ? '' : 'Validando na Meta...');
+    try {
+      await api(`/canais/${conn.id}/token-waba`, { method: 'PUT', body: { token: limpar ? '' : token, wabaId } });
+      onSaved();
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro ao salvar'); }
+    finally { setSalvando(false); }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-ink">Token da WABA — {conn.apelido}</h2>
+          <button onClick={onClose} className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>
+        </div>
+        <p className="mb-3 rounded bg-canvas px-3 py-2 text-xs text-muted">Usado só para criar, editar e sincronizar templates na Meta. O envio de mensagens continua pelo NX. Use um token de acesso do Business Manager (usuário do sistema) com permissão <b>whatsapp_business_management</b>.</p>
+        <label className="mb-3 block text-sm"><span className="mb-1 block text-xs text-muted">WABA ID</span>
+          <input value={wabaId} onChange={(e) => setWabaId(e.target.value)} placeholder="Ex.: 1880182643347196" className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary" />
+        </label>
+        <label className="mb-3 block text-sm"><span className="mb-1 block text-xs text-muted">Token de acesso {conn.temTokenWaba && '(já salvo — preencha para trocar)'}</span>
+          <input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder="EAAG..." autoComplete="off" className="w-full rounded border border-line px-3 py-2 outline-none focus:border-primary" />
+        </label>
+        {msg && <p className="mb-3 text-sm text-danger">{msg}</p>}
+        <div className="flex items-center justify-between gap-2">
+          {conn.temTokenWaba ? <button onClick={() => salvar(true)} disabled={salvando} className="text-sm text-danger hover:underline disabled:opacity-60">Remover token</button> : <span />}
+          <div className="flex gap-2">
+            <button onClick={onClose} className="rounded border border-line px-3 py-2 text-sm hover:bg-canvas">Cancelar</button>
+            <button onClick={() => salvar()} disabled={salvando || !token.trim()} className="flex items-center gap-2 rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-60">
+              {salvando && <Loader2 size={14} className="animate-spin" />} Salvar
+            </button>
+          </div>
         </div>
       </div>
     </div>

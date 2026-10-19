@@ -6,7 +6,7 @@ import { CryptoService } from '@/common/crypto/crypto.service';
 import { env } from '@/config/env';
 import { EmailChannel } from './providers/email.channel';
 import { ChannelCredentials } from './message-channel.interface';
-import { wabaDoPhoneId } from './meta-graph';
+import { erroMeta, listarTemplates, wabaDoPhoneId } from './meta-graph';
 
 type Creds = {
   apiUrl?: string; apiKey?: string; instance?: string; token?: string; phoneId?: string; from?: string; provider?: string;
@@ -23,6 +23,8 @@ type Creds = {
   // WABA ID — vem do NX na sincronização, ou do usuário no canal WhatsApp Cloud.
   // Só é usado para gerenciar templates no Graph; o envio não precisa dele.
   wabaId?: string | null;
+  // Token do Business Manager informado à mão no canal NX (o NX nem sempre o devolve).
+  bmToken?: string | null;
 };
 
 // Canal retornado pelo endpoint /listChannels do NX.
@@ -65,6 +67,9 @@ export class ConnectionsService {
         origem: c.nxChannelId ? 'nx' : undefined,
         oficial: r.canal === 'NX_SYSTEMS' ? !!c.nxOficial : undefined,
         nxType: c.nxType ?? undefined,
+        // Canal NX oficial: se já tem o token da WABA (para gerenciar templates) e qual WABA.
+        wabaId: c.nxChannelId ? c.wabaId ?? undefined : undefined,
+        temTokenWaba: c.nxChannelId ? !!c.bmToken : undefined,
       };
     }));
   }
@@ -117,6 +122,8 @@ export class ConnectionsService {
           nxStatus: canal.status ?? null,
           tokenAPI: canal.tokenAPI ?? null,
           wabaId: canal.wabaId ?? null,
+          // O token informado à mão sobrevive às sincronizações.
+          bmToken: decifradas.find((c) => c.creds.nxChannelId === nxChannelId)?.creds.bmToken ?? null,
         };
         const apelido = canal.name?.trim() || `Canal NX #${canal.id}`;
         const existente = decifradas.find((c) => c.creds.nxChannelId === nxChannelId);
@@ -140,6 +147,31 @@ export class ConnectionsService {
     }
 
     return { importados, atualizados, ignorados, removidos, erros };
+  }
+
+  /**
+   * Guarda (ou remove, se vazio) o token da WABA de um canal NX importado. Valida na Meta
+   * antes de salvar, para não gravar um token que não enxerga os templates.
+   */
+  async definirTokenWaba(tenantId: string, id: string, dto: { token?: string; wabaId?: string }) {
+    const acc = await this.getOrThrow(tenantId, id);
+    const c = this.creds(id, acc.credentials);
+    if (acc.canal !== 'NX_SYSTEMS' || !c.nxChannelId) {
+      throw new BadRequestException('O token da WABA se informa em um canal importado do NX.');
+    }
+    const token = (dto.token ?? '').trim();
+    const wabaId = (dto.wabaId ?? '').trim() || c.wabaId || '';
+    if (token) {
+      if (!wabaId) throw new BadRequestException('Informe também o WABA ID: o NX não informou o dele.');
+      try {
+        await listarTemplates({ wabaId, token, versao: '21.0', origem: acc.apelido ?? 'NX' });
+      } catch (e) {
+        throw new BadRequestException(`A Meta recusou este token para a WABA ${wabaId}: ${erroMeta(e)}`);
+      }
+    }
+    const novo: Creds = { ...c, wabaId: wabaId || null, bmToken: token || null };
+    await this.prisma.channelAccount.update({ where: { id }, data: { credentials: this.crypto.encryptJson(novo) } });
+    return { ok: true, temTokenWaba: !!token };
   }
 
   private axErr(e: unknown): string {

@@ -87,16 +87,26 @@ export class TemplatesService {
     });
     const out: AcessoGraph[] = [];
     const vistos = new Set<string>();
+    type CredsConta = { nxBaseUrl?: string; nxToken?: string; nxChannelId?: string; token?: string; wabaId?: string; bmToken?: string };
+    const lidas: { conta: (typeof contas)[number]; creds: CredsConta }[] = [];
 
     for (const conta of contas) {
-      let creds: { nxBaseUrl?: string; nxToken?: string; nxChannelId?: string; token?: string; wabaId?: string };
       try {
-        creds = this.crypto.decryptJson(conta.credentials);
+        lidas.push({ conta, creds: this.crypto.decryptJson(conta.credentials) });
       } catch {
         motivos.push(`${conta.apelido ?? conta.canal}: não consegui ler as credenciais salvas.`);
-        continue;
       }
+    }
 
+    // Token da WABA informado à mão em um canal NX tem prioridade: o NX nem sempre o devolve.
+    for (const { conta, creds } of lidas) {
+      if (conta.canal === 'NX_SYSTEMS' && creds.nxChannelId && creds.bmToken && creds.wabaId && !vistos.has(creds.wabaId)) {
+        vistos.add(creds.wabaId);
+        out.push({ wabaId: creds.wabaId, token: creds.bmToken, versao: '21.0', origem: conta.apelido ?? 'NX' });
+      }
+    }
+
+    for (const { conta, creds } of lidas) {
       if (conta.canal === 'WHATSAPP_CLOUD') {
         // Sem wabaId não dá para gerenciar templates — o canal segue enviando normalmente.
         if (creds.token && creds.wabaId && !vistos.has(creds.wabaId)) {
@@ -108,7 +118,7 @@ export class TemplatesService {
 
       // NX: só a conexão-base (sem nxChannelId) tem URL+token para consultar os canais.
       if (creds.nxChannelId || !creds.nxBaseUrl || !creds.nxToken) continue;
-      for (const a of await this.acessosDoNx(creds.nxBaseUrl, creds.nxToken, conta.apelido ?? 'NX', motivos)) {
+      for (const a of await this.acessosDoNx(creds.nxBaseUrl, creds.nxToken, conta.apelido ?? 'NX', motivos, vistos)) {
         if (vistos.has(a.wabaId)) continue;
         vistos.add(a.wabaId);
         out.push(a);
@@ -118,7 +128,7 @@ export class TemplatesService {
   }
 
   /** Descobre WABAs pelo NX: listChannels → showChannelById (bmToken + wabaVersion). */
-  private async acessosDoNx(base: string, nxToken: string, apelido: string, motivos: string[]): Promise<AcessoGraph[]> {
+  private async acessosDoNx(base: string, nxToken: string, apelido: string, motivos: string[], jaCobertos: Set<string>): Promise<AcessoGraph[]> {
     const nx = axios.create({
       baseURL: base.replace(/\/$/, ''),
       headers: { Authorization: `Bearer ${nxToken}`, 'Content-Type': 'application/json' },
@@ -139,6 +149,7 @@ export class TemplatesService {
 
     const out: AcessoGraph[] = [];
     for (const canal of wabas) {
+      if (canal.wabaId && jaCobertos.has(canal.wabaId)) continue; // token informado à mão
       let detalhe: NxChannelDetail | null = null;
       try {
         const { data } = await nx.post('/showChannelById', { id: canal.id });
@@ -151,7 +162,7 @@ export class TemplatesService {
       const wabaId = detalhe?.wabaId || canal.wabaId || '';
       if (!wabaId) { motivos.push(`${canal.name ?? canal.id}: o NX não informou o WABA ID.`); continue; }
       if (!bmToken) {
-        motivos.push(`${canal.name ?? canal.id}: o NX não devolveu o token do Business Manager (bmToken). Campos recebidos: ${Object.keys(detalhe ?? {}).join(', ') || 'nenhum'}.`);
+        motivos.push(`${canal.name ?? canal.id}: o NX não devolveu o token do Business Manager (bmToken) — informe-o à mão em Canais. Campos recebidos: ${Object.keys(detalhe ?? {}).join(', ') || 'nenhum'}.`);
         continue;
       }
       out.push({

@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, UseGuards } from '@nestjs/common';
 import { ChannelType } from '@prisma/client';
 import { JwtAuthGuard } from '@/common/auth/jwt-auth.guard';
 import { RolesGuard } from '@/common/auth/roles.guard';
@@ -47,6 +47,13 @@ export class ConnectionsController {
   @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
   sincronizarNx(@TenantId() tenantId: string) {
     return this.connections.sincronizarNx(tenantId);
+  }
+
+  /** Define (ou limpa) o token da WABA de um canal NX, usado para gerenciar templates na Meta. */
+  @Put(':id/token-waba')
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
+  tokenWaba(@TenantId() tenantId: string, @Param('id') id: string, @Body() dto: { token?: string; wabaId?: string }) {
+    return this.connections.definirTokenWaba(tenantId, id, dto);
   }
 
   @Get(':id/qrcode')
