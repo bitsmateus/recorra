@@ -38,6 +38,12 @@ export class TemplatesController {
     return this.templates.contas(tenantId);
   }
 
+  /** Motivos pelos quais nenhuma conta WABA foi encontrada (diagnóstico do aviso no painel). */
+  @Get('contas/diagnostico')
+  diagnostico(@TenantId() tenantId: string) {
+    return this.templates.diagnostico(tenantId);
+  }
+
   /** Sincroniza os templates aprovados direto do Graph da Meta (via canal NX). */
   @Post('sincronizar')
   @Roles('OWNER', 'ADMIN', 'FINANCEIRO')

@@ -91,6 +91,7 @@ export default function TemplatesPage() {
   const [filtro, setFiltro] = useState('');
   const [sync, setSync] = useState(false);
   const [msg, setMsg] = useState('');
+  const [motivos, setMotivos] = useState<string[]>([]);
 
   const carregar = useCallback(async () => {
     setLoading(true);
@@ -99,6 +100,7 @@ export default function TemplatesPage() {
       api<Conta[]>('/config/templates/contas').catch(() => []),
     ]);
     setLista(t); setContas(c);
+    setMotivos(c.length ? [] : (await api<{ motivos: string[] }>('/config/templates/contas/diagnostico').catch(() => ({ motivos: [] as string[] }))).motivos);
     setLoading(false);
   }, []);
   useEffect(() => { carregar(); }, [carregar]);
@@ -152,6 +154,9 @@ export default function TemplatesPage() {
           <div>
             Nenhuma conta do WhatsApp oficial conectada — sem ela não dá para gerenciar templates.
             Conecte o <b>NX Systems</b> ou informe o <b>WABA ID</b> no canal WhatsApp API oficial em <Link href="/canais" className="underline">Canais</Link>.
+            {motivos.length > 0 && (
+              <ul className="mt-2 list-disc pl-5 text-xs">{motivos.map((m) => <li key={m}>{m}</li>)}</ul>
+            )}
           </div>
         </div>
       )}

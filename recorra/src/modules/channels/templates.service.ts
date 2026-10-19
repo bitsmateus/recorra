@@ -76,6 +76,12 @@ export class TemplatesService {
    * direto (token do próprio tenant + wabaId informado no canal).
    */
   async acessos(tenantId: string): Promise<AcessoGraph[]> {
+    return (await this.descobrir(tenantId)).acessos;
+  }
+
+  /** Igual a acessos(), mas devolve também o motivo de cada conta que ficou de fora. */
+  private async descobrir(tenantId: string): Promise<{ acessos: AcessoGraph[]; motivos: string[] }> {
+    const motivos: string[] = [];
     const contas = await this.prisma.channelAccount.findMany({
       where: { tenantId, ativo: true, canal: { in: ['NX_SYSTEMS', 'WHATSAPP_CLOUD'] } },
     });
@@ -87,6 +93,7 @@ export class TemplatesService {
       try {
         creds = this.crypto.decryptJson(conta.credentials);
       } catch {
+        motivos.push(`${conta.apelido ?? conta.canal}: não consegui ler as credenciais salvas.`);
         continue;
       }
 
@@ -101,17 +108,17 @@ export class TemplatesService {
 
       // NX: só a conexão-base (sem nxChannelId) tem URL+token para consultar os canais.
       if (creds.nxChannelId || !creds.nxBaseUrl || !creds.nxToken) continue;
-      for (const a of await this.acessosDoNx(creds.nxBaseUrl, creds.nxToken, conta.apelido ?? 'NX')) {
+      for (const a of await this.acessosDoNx(creds.nxBaseUrl, creds.nxToken, conta.apelido ?? 'NX', motivos)) {
         if (vistos.has(a.wabaId)) continue;
         vistos.add(a.wabaId);
         out.push(a);
       }
     }
-    return out;
+    return { acessos: out, motivos };
   }
 
   /** Descobre WABAs pelo NX: listChannels → showChannelById (bmToken + wabaVersion). */
-  private async acessosDoNx(base: string, nxToken: string, apelido: string): Promise<AcessoGraph[]> {
+  private async acessosDoNx(base: string, nxToken: string, apelido: string, motivos: string[]): Promise<AcessoGraph[]> {
     const nx = axios.create({
       baseURL: base.replace(/\/$/, ''),
       headers: { Authorization: `Bearer ${nxToken}`, 'Content-Type': 'application/json' },
@@ -122,22 +129,31 @@ export class TemplatesService {
     try {
       const { data } = await nx.get('/listChannels');
       lista = (data?.data ?? []) as NxChannel[];
-    } catch {
+    } catch (e) {
+      motivos.push(`${apelido}: falha ao listar os canais no NX (${this.erroHttp(e)}).`);
       return [];
     }
 
+    const wabas = lista.filter((c) => (c.type || '').toLowerCase() === 'waba');
+    if (wabas.length === 0) motivos.push(`${apelido}: o NX não devolveu nenhum canal oficial (type "waba").`);
+
     const out: AcessoGraph[] = [];
-    for (const canal of lista.filter((c) => (c.type || '').toLowerCase() === 'waba' && c.wabaId)) {
+    for (const canal of wabas) {
       let detalhe: NxChannelDetail | null = null;
       try {
         const { data } = await nx.post('/showChannelById', { id: canal.id });
-        detalhe = (data?.data ?? null) as NxChannelDetail | null;
-      } catch {
+        detalhe = (data?.data ?? data ?? null) as NxChannelDetail | null;
+      } catch (e) {
+        motivos.push(`${canal.name ?? canal.id}: falha ao ler o detalhe no NX (${this.erroHttp(e)}).`);
         continue;
       }
       const bmToken = detalhe?.bmToken || '';
       const wabaId = detalhe?.wabaId || canal.wabaId || '';
-      if (!bmToken || !wabaId) continue;
+      if (!wabaId) { motivos.push(`${canal.name ?? canal.id}: o NX não informou o WABA ID.`); continue; }
+      if (!bmToken) {
+        motivos.push(`${canal.name ?? canal.id}: o NX não devolveu o token do Business Manager (bmToken). Campos recebidos: ${Object.keys(detalhe ?? {}).join(', ') || 'nenhum'}.`);
+        continue;
+      }
       out.push({
         wabaId,
         token: bmToken,
@@ -148,6 +164,16 @@ export class TemplatesService {
     return out;
   }
 
+  private erroHttp(e: unknown): string {
+    return axios.isAxiosError(e) ? `${e.response?.status ?? ''} ${JSON.stringify(e.response?.data ?? e.message)}`.trim() : String(e);
+  }
+
+  /** Por que nenhuma conta apareceu (vazio quando há contas). Alimenta o aviso do painel. */
+  async diagnostico(tenantId: string) {
+    const { acessos, motivos } = await this.descobrir(tenantId);
+    return { contas: acessos.length, motivos };
+  }
+
   /** Contas disponíveis para o painel escolher onde criar. */
   async contas(tenantId: string) {
     const acessos = await this.acessos(tenantId);
@@ -155,10 +181,10 @@ export class TemplatesService {
   }
 
   private async acessoPara(tenantId: string, wabaId?: string): Promise<AcessoGraph> {
-    const acessos = await this.acessos(tenantId);
+    const { acessos, motivos } = await this.descobrir(tenantId);
     if (acessos.length === 0) {
       throw new BadRequestException(
-        'Nenhuma conta do WhatsApp oficial disponível. Conecte o NX Systems ou informe o WABA ID no canal WhatsApp API oficial, em Canais.',
+        `Nenhuma conta do WhatsApp oficial disponível. Conecte o NX Systems ou informe o WABA ID no canal WhatsApp API oficial, em Canais.${motivos.length ? ` Detalhe: ${motivos.join(' | ')}` : ''}`,
       );
     }
     if (!wabaId) return acessos[0];
@@ -270,10 +296,10 @@ export class TemplatesService {
 
   /** Espelha os templates da Meta na tabela local (fonte da verdade é a Meta). */
   async sincronizar(tenantId: string) {
-    const acessos = await this.acessos(tenantId);
+    const { acessos, motivos } = await this.descobrir(tenantId);
     if (acessos.length === 0) {
       throw new BadRequestException(
-        'Nenhuma conta do WhatsApp oficial encontrada. Conecte o NX Systems ou informe o WABA ID no canal WhatsApp API oficial, em Canais.',
+        `Nenhuma conta do WhatsApp oficial encontrada. Conecte o NX Systems ou informe o WABA ID no canal WhatsApp API oficial, em Canais.${motivos.length ? ` Detalhe: ${motivos.join(' | ')}` : ''}`,
       );
     }
 
