@@ -21,7 +21,7 @@ export class StepDto {
   @Max(90)
   offsetDias!: number;
 
-  @IsIn(['WHATSAPP_CLOUD', 'WHATSAPP_EVOLUTION', 'WHATSAPP_UAZAPI', 'EMAIL', 'SMS', 'HTTP_GENERIC', 'NX_SYSTEMS'])
+  @IsIn(['WHATSAPP_CLOUD', 'WHATSAPP_EVOLUTION', 'WHATSAPP_UAZAPI', 'EMAIL', 'SMS', 'HTTP_GENERIC', 'NX_SYSTEMS', 'WEBHOOK'])
   canal!: ChannelType;
 
   @IsOptional()
@@ -33,8 +33,14 @@ export class StepDto {
   @IsIn(['WHATSAPP_CLOUD', 'WHATSAPP_EVOLUTION', 'WHATSAPP_UAZAPI', 'EMAIL', 'SMS', 'HTTP_GENERIC', 'NX_SYSTEMS'], { each: true })
   canaisFallback?: ChannelType[];
 
+  /** No canal WEBHOOK, o corpo JSON com variáveis ({{nomeCompleto}}, {{placa}}...). */
   @IsString()
   template!: string;
+
+  /** Canal WEBHOOK: endpoint que recebe o POST. */
+  @IsOptional()
+  @IsString()
+  webhookUrl?: string;
 
   /** Assunto do e-mail deste passo (ignorado nos demais canais). */
   @IsOptional()

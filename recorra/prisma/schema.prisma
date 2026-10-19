@@ -50,6 +50,7 @@ enum ChannelType {
   SMS
   HTTP_GENERIC
   NX_SYSTEMS
+  WEBHOOK // passo de régua que avisa um sistema externo (sem contato com o cliente)
 }
 
 enum SourceSystem {
@@ -501,6 +502,7 @@ model Invoice {
   sourceSystem      SourceSystem?
   sourceExternalId  String?
   descricao         String?
+  placa             String? // placa da moto (locadoras) — vem do sistema de origem
   valor             Decimal                 @db.Decimal(12, 2)
   vencimento        DateTime
   status            InvoiceStatus           @default(PENDENTE)
@@ -647,6 +649,7 @@ model DunningStep {
   // Mapeamento dos botões dinâmicos do template: [{index, subType:'url'|'copy_code', token}].
   // token é a variável Recorra (ex.: "{{link}}", "{{pix}}") resolvida por cliente no envio.
   templateBotoes   Json?
+  webhookUrl       String? // canal WEBHOOK: endpoint que recebe o JSON de `template`
   condicoes        Json?
   ativo            Boolean       @default(true)
 
@@ -674,6 +677,11 @@ model MessageDispatch {
   templateParams    String[]       @default([]) // parâmetros já resolvidos p/ este cliente
   // Botões dinâmicos já resolvidos p/ este cliente: [{index, subType, text}].
   templateBotoes    Json?
+  // Canal WEBHOOK: chave estável do passo (régua:dia:endpoint) + endpoint. (invoiceId, stepId)
+  // é único: um aviso por cobrança e passo, mesmo que a rodada rode de novo ou a régua seja
+  // re-salva (salvar recria os passos com ids novos, por isso não é o id do passo).
+  stepId            String?
+  webhookUrl        String?
   variante          String?
   tentativaFallback Int            @default(0)
   status            DispatchStatus @default(FILA)
@@ -694,6 +702,7 @@ model MessageDispatch {
   // `createdAt` fecha cada índice: sem ele o Postgres acha as linhas do filtro e
   // ordena tudo depois (sort de milhões de linhas para exibir 20). O `id` no
   // primeiro índice completa a chave da paginação por cursor (createdAt, id).
+  @@unique([invoiceId, stepId])
   @@index([tenantId, createdAt, id])
   @@index([tenantId, status, createdAt])
   @@index([tenantId, campaignId, createdAt])

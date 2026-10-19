@@ -10,6 +10,7 @@ import { lerAlertasEsteira } from './carteira-config';
 import { carteiraDaFaixa, CarteiraFaixa } from './carteiras';
 import { SaveCarteiraDto } from './dto/carteira.dto';
 import { AuthUser } from '@/common/auth/jwt.types';
+import { erroPassoWebhook } from './webhook-step';
 
 /** Papéis que administram a cobrança e por isso veem a esteira inteira, sem filtro de carteira. */
 const PAPEIS_VISAO_GERAL = new Set(['OWNER', 'ADMIN', 'FINANCEIRO']);
@@ -99,7 +100,7 @@ export class RulesService {
       orderBy: { createdAt: 'asc' },
     });
     return reguas.flatMap((r) =>
-      r.steps.map((s) => ({
+      r.steps.filter((s) => s.canal !== 'WEBHOOK').map((s) => ({
         id: s.id,
         reguaNome: r.nome,
         canal: s.canal,
@@ -444,15 +445,27 @@ export class RulesService {
    * Botão de URL apontando para a URL do ERP: a Meta recusaria no envio (só aceita o
    * sufixo do domínio fixo do template). Barra ao salvar, enquanto dá para corrigir.
    */
-  private validarBotoes(dto: SaveRuleDto) {
+  private async validarBotoes(tenantId: string, dto: SaveRuleDto) {
     for (const s of dto.steps ?? []) {
+      if (s.canal === 'WEBHOOK') {
+        if (!(await this.webhookLiberado(tenantId))) throw new BadRequestException(`Passo ${s.ordem}: o passo Webhook não está liberado para esta conta.`);
+        const erroWh = erroPassoWebhook(s.webhookUrl, s.template);
+        if (erroWh) throw new BadRequestException(`Passo ${s.ordem}: ${erroWh}`);
+        continue;
+      }
       const erro = erroMapeamentoBotoes(s.templateBotoes);
       if (erro) throw new BadRequestException(`Passo ${s.ordem}: ${erro}`);
     }
   }
 
-  create(tenantId: string, dto: SaveRuleDto) {
-    this.validarBotoes(dto);
+  /** O passo Webhook é liberado por tenant (featureFlags.webhookStep), pelo superadmin. */
+  async webhookLiberado(tenantId: string): Promise<boolean> {
+    const t = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { featureFlags: true } });
+    return (t?.featureFlags as { webhookStep?: boolean } | null)?.webhookStep === true;
+  }
+
+  async create(tenantId: string, dto: SaveRuleDto) {
+    await this.validarBotoes(tenantId, dto);
     return this.prisma.dunningRule.create({
       data: {
         tenantId,
@@ -480,6 +493,7 @@ export class RulesService {
             templateName: s.templateName ?? null,
             templateParams: s.templateParams ?? [],
             templateBotoes: s.templateBotoes ? (s.templateBotoes as unknown as object) : undefined,
+            webhookUrl: s.canal === 'WEBHOOK' ? s.webhookUrl?.trim() || null : null,
             abTest: s.abTest ?? false,
             ativo: s.ativo ?? true,
           })),
@@ -490,7 +504,7 @@ export class RulesService {
   }
 
   async update(tenantId: string, id: string, dto: SaveRuleDto) {
-    this.validarBotoes(dto);
+    await this.validarBotoes(tenantId, dto);
     await this.get(tenantId, id);
     await this.prisma.dunningStep.deleteMany({ where: { ruleId: id } });
     return this.prisma.dunningRule.update({
@@ -520,6 +534,7 @@ export class RulesService {
             templateName: s.templateName ?? null,
             templateParams: s.templateParams ?? [],
             templateBotoes: s.templateBotoes ? (s.templateBotoes as unknown as object) : undefined,
+            webhookUrl: s.canal === 'WEBHOOK' ? s.webhookUrl?.trim() || null : null,
             abTest: s.abTest ?? false,
             ativo: s.ativo ?? true,
           })),

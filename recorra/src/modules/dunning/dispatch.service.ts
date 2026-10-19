@@ -4,6 +4,8 @@ import { PrismaService } from '@/common/prisma/prisma.service';
 import { ChannelFactory } from '@/modules/channels/channel.factory';
 import type { MessageChannel } from '@/modules/channels/message-channel.interface';
 import { nextChannel } from './fallback';
+import { safeHttpAgents } from '@/common/net/safe-http';
+import axios from 'axios';
 
 /**
  * Canais de WhatsApp: só enviam por template aprovado. Texto livre não é entregue
@@ -24,6 +26,9 @@ export class DispatchService {
   async processOne(dispatchId: string): Promise<'ENVIADO' | 'FALHA' | 'IGNORADO' | 'PULADO'> {
     const d = await this.prisma.messageDispatch.findUnique({ where: { id: dispatchId }, include: { customer: true } });
     if (!d || d.status !== 'FILA') return 'PULADO';
+
+    // Passo Webhook: alerta a um sistema externo, sem destinatário nem opt-out.
+    if (d.canal === 'WEBHOOK') return this.processarWebhook(d);
 
     // Campanha pausada: segura o disparo (fica na FILA e sai quando religar).
     if (d.campaignId) {
@@ -136,6 +141,38 @@ export class DispatchService {
       return 'FALHA';
     } catch (e) {
       throw e instanceof Error ? e : new Error(String(e));
+    }
+  }
+
+  /** Tentativas do webhook antes de virar FALHA (reaproveita `tentativaFallback`, que o canal não usa). */
+  private static readonly TENTATIVAS_WEBHOOK = 3;
+  private static readonly INTERVALO_WEBHOOK_MS = 5 * 60 * 1000;
+
+  private async processarWebhook(d: { id: string; webhookUrl: string | null; conteudo: string | null; tentativaFallback: number }) {
+    if (!d.webhookUrl || !d.conteudo) {
+      await this.marcar(d.id, 'FALHA', 'Webhook sem URL ou corpo');
+      return 'FALHA' as const;
+    }
+    try {
+      const http = axios.create({ ...safeHttpAgents(), timeout: 15000 });
+      const res = await http.post(d.webhookUrl, JSON.parse(d.conteudo), { headers: { 'Content-Type': 'application/json' } });
+      await this.prisma.messageDispatch.update({
+        where: { id: d.id },
+        data: { status: 'ENVIADO', enviadoEm: new Date(), erro: null, providerMsgId: typeof res.data?.id === 'string' ? res.data.id : undefined },
+      });
+      return 'ENVIADO' as const;
+    } catch (e) {
+      const erro = axios.isAxiosError(e) ? `${e.response?.status ?? ''} ${JSON.stringify(e.response?.data ?? e.message)}`.trim() : String(e);
+      const tentativa = d.tentativaFallback + 1;
+      if (tentativa < DispatchService.TENTATIVAS_WEBHOOK) {
+        await this.prisma.messageDispatch.update({
+          where: { id: d.id },
+          data: { tentativaFallback: tentativa, erro: `tentativa ${tentativa}: ${erro}`, agendadoPara: new Date(Date.now() + DispatchService.INTERVALO_WEBHOOK_MS) },
+        });
+        return 'PULADO' as const;
+      }
+      await this.marcar(d.id, 'FALHA', `Webhook falhou após ${tentativa} tentativas: ${erro}`);
+      return 'FALHA' as const;
     }
   }
 

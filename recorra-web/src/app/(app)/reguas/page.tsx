@@ -8,7 +8,7 @@ import { erroMapeamentoBotoes, varsDoBotao } from '@/lib/botoes-template';
 import { PageTitle } from '@/components/ui';
 import { PreviewButton } from '@/components/MessagePreview';
 
-type Canal = 'WHATSAPP_CLOUD' | 'WHATSAPP_EVOLUTION' | 'WHATSAPP_UAZAPI' | 'EMAIL' | 'SMS' | 'HTTP_GENERIC' | 'NX_SYSTEMS';
+type Canal = 'WHATSAPP_CLOUD' | 'WHATSAPP_EVOLUTION' | 'WHATSAPP_UAZAPI' | 'EMAIL' | 'SMS' | 'HTTP_GENERIC' | 'NX_SYSTEMS' | 'WEBHOOK';
 type Faixa = 'BOM' | 'ATENCAO' | 'RISCO' | '';
 
 interface Step {
@@ -24,6 +24,7 @@ interface Step {
   templateName?: string; // nome do template aprovado (canal oficial)
   templateParams?: string[]; // variáveis Recorrai que preenchem {{1}}, {{2}}...
   templateBotoes?: BotaoMapeado[]; // mapeamento dos botões dinâmicos (link/pix)
+  webhookUrl?: string; // canal WEBHOOK: endpoint que recebe o JSON de `template`
 }
 
 interface BotaoTpl { tipo: string; texto: string; url?: string; index: number; dinamico: boolean }
@@ -60,6 +61,7 @@ const canalLabel: Record<Canal, { label: string; icon: typeof MessageCircle }> =
   SMS: { label: 'SMS', icon: Smartphone },
   HTTP_GENERIC: { label: 'API genérica (HTTP)', icon: Webhook },
   NX_SYSTEMS: { label: 'NX Systems', icon: MessageSquare },
+  WEBHOOK: { label: 'Webhook (alerta interno)', icon: Webhook },
   // Legados: não é mais possível criar, mas ainda podem existir no banco.
   WHATSAPP_EVOLUTION: { label: 'WhatsApp (Evolution)', icon: MessageCircle },
   WHATSAPP_UAZAPI: { label: 'WhatsApp (uazapi)', icon: MessageCircle },
@@ -67,6 +69,7 @@ const canalLabel: Record<Canal, { label: string; icon: typeof MessageCircle }> =
 
 /** WhatsApp só envia por template aprovado; texto livre sobra para SMS e e-mail. */
 const CANAIS_WHATSAPP: string[] = ['WHATSAPP_CLOUD', 'NX_SYSTEMS', 'WHATSAPP_EVOLUTION', 'WHATSAPP_UAZAPI'];
+const CORPO_WEBHOOK = '{\n  "nome": "{{nomeCompleto}}",\n  "placa": "{{placa}}",\n  "valor": "{{valorNumero}}",\n  "vencimento": "{{vencimento}}",\n  "cobrancaId": "{{idExterno}}",\n  "documento": "{{cpf}}"\n}';
 const ehWhatsApp = (canal?: string) => !!canal && CANAIS_WHATSAPP.includes(canal);
 
 const faixaLabel: Record<string, string> = { '': 'Todas as faixas', BOM: 'Bom pagador', ATENCAO: 'Atenção', RISCO: 'Risco' };
@@ -320,6 +323,7 @@ export default function ReguasPage() {
         templateName: s.templateName || undefined,
         templateParams: s.templateParams,
         templateBotoes: s.templateBotoes && s.templateBotoes.length ? s.templateBotoes : undefined,
+        webhookUrl: s.canal === 'WEBHOOK' ? s.webhookUrl : undefined,
         abTest: s.abTest,
       })),
     };
@@ -536,6 +540,8 @@ function FlowEditor({
 }) {
   const [diarioAte, setDiarioAte] = useState(30);
   const [selSteps, setSelSteps] = useState<Set<number>>(new Set());
+  const [webhookLiberado, setWebhookLiberado] = useState(false);
+  useEffect(() => { api<{ webhookStep?: boolean }>('/reguas/recursos').then((r) => setWebhookLiberado(!!r.webhookStep)).catch(() => setWebhookLiberado(false)); }, []);
   function update(patch: Partial<Rule>) {
     setRule({ ...rule, ...patch });
   }
@@ -678,6 +684,7 @@ function FlowEditor({
             onMove={(d) => move(i, d)}
             isFirst={i === 0}
             isLast={i === rule.steps.length - 1}
+            webhookLiberado={webhookLiberado}
           />
         ))}
       </div>
@@ -760,6 +767,7 @@ function StepCard({
   onMove,
   isFirst,
   isLast,
+  webhookLiberado,
 }: {
   index: number;
   step: Step;
@@ -770,6 +778,7 @@ function StepCard({
   onMove: (d: -1 | 1) => void;
   isFirst: boolean;
   isLast: boolean;
+  webhookLiberado: boolean;
 }) {
   // modo do offset (antes / no dia / depois) e dias como estado local independente,
   // para digitar 0 não trocar automaticamente a direção.
@@ -797,7 +806,8 @@ function StepCard({
   useEffect(() => { api<{ id: string; canal: string; apelido: string; status: string; oficial?: boolean; origem?: string }[]>('/canais').then(setCanais).catch(() => setCanais([])); }, []);
   // Exclui a conexão-base do NX (URL+token) — não é canal de envio; usa-se os canais importados.
   const conectados = canais.filter((c) => c.status !== 'DESCONECTADO' && !(c.canal === 'NX_SYSTEMS' && c.origem !== 'nx'));
-  const canalSelId = step.channelAccountId || conectados.find((c) => c.canal === step.canal)?.id || '';
+  const ehWebhook = step.canal === 'WEBHOOK';
+  const canalSelId = ehWebhook ? 'WEBHOOK' : step.channelAccountId || conectados.find((c) => c.canal === step.canal)?.id || '';
   const conn = conectados.find((c) => c.id === canalSelId);
 
   // Templates aprovados (API oficial do WhatsApp)
@@ -898,16 +908,35 @@ function StepCard({
           <span className="mb-1 block text-xs text-muted">Enviar por (canal conectado)</span>
           <select
             value={canalSelId}
-            onChange={(e) => { const c = conectados.find((x) => x.id === e.target.value); if (c) onChange({ channelAccountId: c.id, canal: c.canal as Canal }); }}
+            onChange={(e) => {
+              if (e.target.value === 'WEBHOOK') { onChange({ canal: 'WEBHOOK', channelAccountId: undefined, canaisFallback: [], templateName: undefined, templateParams: [], templateBotoes: [], abTest: false, template: CORPO_WEBHOOK, webhookUrl: '' }); return; }
+              const c = conectados.find((x) => x.id === e.target.value);
+              if (c) onChange({ channelAccountId: c.id, canal: c.canal as Canal, webhookUrl: undefined, ...(ehWebhook ? { template: '' } : {}) });
+            }}
             className="w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"
           >
             {conectados.length === 0 && <option value="">Nenhum canal conectado</option>}
             {conectados.map((c) => <option key={c.id} value={c.id}>{c.apelido} · {canalLabel[c.canal as Canal]?.label || c.canal}</option>)}
+            {(webhookLiberado || ehWebhook) && <option value="WEBHOOK">Webhook (alerta interno)</option>}
           </select>
-          {conectados.length === 0 && <Link href="/canais" className="mt-1 block text-xs text-primary underline">Conectar um canal</Link>}
+          {conectados.length === 0 && !webhookLiberado && !ehWebhook && <Link href="/canais" className="mt-1 block text-xs text-primary underline">Conectar um canal</Link>}
         </label>
       </div>
 
+      {ehWebhook ? (
+        <div className="mt-3 rounded-lg border border-primary/30 bg-primary-tint/40 p-3">
+          <p className="mb-2 text-xs text-muted">Avisa um sistema externo (ex.: n8n) com um POST JSON quando a cobrança chegar neste dia sem pagamento. <b>Não envia nada ao cliente.</b> Sai uma única vez por cobrança.</p>
+          <label className="block">
+            <span className="mb-1 block text-xs text-muted">URL do webhook</span>
+            <input value={step.webhookUrl ?? ''} onChange={(e) => onChange({ webhookUrl: e.target.value })} placeholder="https://..." className="w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+          </label>
+          <label className="mt-2 block">
+            <span className="mb-1 block text-xs text-muted">Corpo (JSON)</span>
+            <textarea value={step.template} onChange={(e) => onChange({ template: e.target.value })} rows={8} spellCheck={false} className="w-full rounded border border-line p-3 font-mono text-xs outline-none focus:border-primary" />
+          </label>
+          <p className="mt-1 text-xs text-muted">Variáveis: {['nomeCompleto', 'nome', 'placa', 'valorNumero', 'valor', 'vencimento', 'idExterno', 'cpf', 'contrato'].map((v) => `{{${v}}}`).join(' ')}</p>
+        </div>
+      ) : (<>
       <div className="mt-3 flex items-center gap-4 text-xs text-muted">
         <label className="flex items-center gap-1.5">
           <span>Fallback:</span>
@@ -1068,6 +1097,7 @@ function StepCard({
           )}
         </>
       )}
+      </>)}
     </div>
   );
 }

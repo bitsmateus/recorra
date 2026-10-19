@@ -23,6 +23,7 @@ interface IngestInvoice {
   pixCopiaCola?: string;
   boletoLinha?: string;
   boletoUrl?: string;
+  placa?: string; // placa da moto (locadoras), p/ avisos e relatórios
 }
 
 /**
@@ -140,6 +141,7 @@ export class IngestController {
         pixCopiaCola: f.pixCopiaCola,
         boletoLinha: f.boletoLinha,
         boletoUrl: f.boletoUrl,
+        placa: f.placa?.trim().toUpperCase() || undefined,
       };
       if (existing) await this.prisma.invoice.update({ where: { id: existing.id }, data });
       else await this.prisma.invoice.create({ data });

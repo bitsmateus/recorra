@@ -11,6 +11,7 @@ import { pickVariant } from './abtest';
 import { resolverBotoesParaEnvio, BotaoMapeado } from '@/modules/channels/meta-graph';
 import { PaymentProviderFactory } from '@/modules/payments/payment-provider.factory';
 import { assinarPagamento } from '@/modules/payments/pay-token';
+import { renderWebhookBody, valorNumero } from './webhook-step';
 
 type RuleWithSteps = DunningRule & { steps: DunningStep[] };
 
@@ -134,6 +135,12 @@ export class DunningService {
 
       const steps = rule.steps.filter((s) => s.offsetDias === diffDias);
       for (const step of steps) {
+        if (step.canal === 'WEBHOOK') {
+          // Alerta a sistema externo: não é contato com o cliente, então não passa por opt-out,
+          // limite diário nem janela de horário. A trava (invoiceId, stepId) garante um só aviso.
+          if (await this.enqueueWebhook(tenantId, invoice, step, rule)) enfileirados++;
+          continue;
+        }
         if (await this.jaDisparadoHoje(tenantId, invoice.id, step.canal, ref)) continue;
         if (await this.optOut(invoice.customerId, step.canal)) continue;
         if (!(await this.dentroLimiteDiario(tenantId, invoice.customerId, rule.maxMsgsDia, ref))) continue;
@@ -144,6 +151,65 @@ export class DunningService {
       }
     }
     return { enfileirados, faturas: invoices.length };
+  }
+
+  /** Enfileira o aviso do passo Webhook. Retorna false se esta cobrança já teve este passo. */
+  private async enqueueWebhook(
+    tenantId: string,
+    invoice: { id: string; customerId: string; valor: unknown; vencimento: Date; placa?: string | null; externalId?: string | null; sourceExternalId?: string | null; customer: { nome: string; doc: string; contrato: string | null } },
+    step: DunningStep,
+    rule: RuleWithSteps,
+  ): Promise<boolean> {
+    if (!step.webhookUrl) return false;
+    // Chave estável do passo: salvar a régua recria os passos com ids novos, e a trava
+    // não pode reabrir por causa disso. Régua + dia + endpoint identificam o aviso.
+    const chave = `${rule.id}:${step.offsetDias}:${step.webhookUrl}`;
+    const jaTem = await this.prisma.messageDispatch.findFirst({ where: { invoiceId: invoice.id, stepId: chave }, select: { id: true } });
+    if (jaTem) return false;
+
+    const vars = {
+      nomeCompleto: invoice.customer.nome,
+      nome: invoice.customer.nome.split(' ')[0],
+      placa: invoice.placa ?? '',
+      valorNumero: valorNumero(Number(invoice.valor)),
+      valor: money(Number(invoice.valor)),
+      vencimento: dateBR(invoice.vencimento),
+      // Id da cobrança no gateway (ex.: pay_abc123 do Asaas); sem gateway, o id no ERP de origem.
+      idExterno: invoice.externalId ?? invoice.sourceExternalId ?? '',
+      cpf: invoice.customer.doc,
+      contrato: invoice.customer.contrato ?? '',
+    };
+    let conteudo: string;
+    try {
+      conteudo = renderWebhookBody(step.template, vars);
+    } catch {
+      this.logger.warn(`Passo webhook ${step.id}: corpo não é um JSON válido, ignorado`);
+      return false;
+    }
+    try {
+      await this.prisma.messageDispatch.create({
+        data: {
+          tenantId,
+          customerId: invoice.customerId,
+          invoiceId: invoice.id,
+          ruleId: rule.id,
+          ruleNome: rule.nome,
+          canal: 'WEBHOOK',
+          cadeiaCanais: ['WEBHOOK'],
+          template: step.template,
+          conteudo,
+          stepId: chave,
+          webhookUrl: step.webhookUrl,
+          status: 'FILA',
+          agendadoPara: new Date(),
+        },
+      });
+    } catch (e) {
+      // Corrida entre duas rodadas: a trava única já garantiu que só um aviso nasce.
+      if ((e as { code?: string })?.code === 'P2002') return false;
+      throw e;
+    }
+    return true;
   }
 
   private async enqueueDispatch(
@@ -350,7 +416,9 @@ export class DunningService {
       include: { steps: { where: { ativo: true }, orderBy: { ordem: 'asc' } } },
       orderBy: { createdAt: 'asc' },
     });
-    const rule = selecionarRegua(regras as RuleWithSteps[], tenant.usarFaixaRisco !== false, invoice.customer.faixaAtual, tenant.reguaPadraoId);
+    const escolhida = selecionarRegua(regras as RuleWithSteps[], tenant.usarFaixaRisco !== false, invoice.customer.faixaAtual, tenant.reguaPadraoId);
+    // Passo Webhook é alerta interno, nunca "o toque ao cliente": fora do disparo manual.
+    const rule = escolhida && { ...escolhida, steps: escolhida.steps.filter((s) => s.canal !== 'WEBHOOK') };
     if (!rule || !rule.steps.length) throw new BadRequestException('Nenhuma régua ativa com passos para este cliente.');
     const diff = Math.round((this.midnight(new Date()).getTime() - this.midnight(invoice.vencimento).getTime()) / 86400000);
     const step = [...rule.steps].filter((s) => s.offsetDias <= diff).pop() ?? rule.steps[0];
@@ -401,7 +469,7 @@ export class DunningService {
       this.prisma.channelAccount.findFirst({ where: { id: channelAccountId, tenantId, ativo: true } }),
       this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } }),
     ]);
-    if (!step) throw new BadRequestException('Template não encontrado');
+    if (!step || step.canal === 'WEBHOOK') throw new BadRequestException('Template não encontrado');
     if (!conta) throw new BadRequestException('Conta de canal não encontrada ou inativa');
     const rule: RuleWithSteps = { ...step.rule, steps: [] };
     const stepComConta: DunningStep = { ...step, channelAccountId: conta.id };

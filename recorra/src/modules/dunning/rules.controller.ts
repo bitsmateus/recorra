@@ -96,6 +96,12 @@ export class RulesController {
     return this.rules.abStats(tenantId);
   }
 
+  /** Recursos liberados para o tenant (hoje: passo Webhook). Antes de :id. */
+  @Get('recursos')
+  async recursos(@TenantId() tenantId: string) {
+    return { webhookStep: await this.rules.webhookLiberado(tenantId) };
+  }
+
   // Config da cobrança automática (modo faixa on/off + diagnóstico). Antes de :id.
   @Get('config')
   config(@TenantId() tenantId: string) {
