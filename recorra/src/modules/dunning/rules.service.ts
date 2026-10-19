@@ -10,7 +10,9 @@ import { lerAlertasEsteira } from './carteira-config';
 import { carteiraDaFaixa, CarteiraFaixa } from './carteiras';
 import { SaveCarteiraDto } from './dto/carteira.dto';
 import { AuthUser } from '@/common/auth/jwt.types';
-import { erroPassoWebhook } from './webhook-step';
+import axios from 'axios';
+import { safeHttpAgents } from '@/common/net/safe-http';
+import { erroPassoWebhook, FaturaWebhook, renderWebhookBody, varsDoWebhook } from './webhook-step';
 
 /** Papéis que administram a cobrança e por isso veem a esteira inteira, sem filtro de carteira. */
 const PAPEIS_VISAO_GERAL = new Set(['OWNER', 'ADMIN', 'FINANCEIRO']);
@@ -455,6 +457,40 @@ export class RulesService {
       }
       const erro = erroMapeamentoBotoes(s.templateBotoes);
       if (erro) throw new BadRequestException(`Passo ${s.ordem}: ${erro}`);
+    }
+  }
+
+  /**
+   * Teste manual de um passo Webhook: monta o corpo e envia AGORA, sem passar pela fila
+   * nem pela trava de um-aviso-por-cobrança (não grava disparo). Com `invoiceId` usa os
+   * dados reais da cobrança; sem ele, um exemplo. O destino recebe o header
+   * `X-Recorra-Teste: true` para poder distinguir.
+   */
+  async testarWebhook(tenantId: string, dto: { webhookUrl?: string; template?: string; invoiceId?: string }) {
+    if (!(await this.webhookLiberado(tenantId))) throw new BadRequestException('O passo Webhook não está liberado para esta conta.');
+    const template = dto.template ?? '';
+    const erro = erroPassoWebhook(dto.webhookUrl, template);
+    if (erro) throw new BadRequestException(erro);
+
+    let fatura: FaturaWebhook;
+    if (dto.invoiceId) {
+      const inv = await this.prisma.invoice.findFirst({ where: { id: dto.invoiceId, tenantId }, include: { customer: true } });
+      if (!inv) throw new NotFoundException('Cobrança não encontrada');
+      fatura = inv;
+    } else {
+      fatura = {
+        valor: 391.3, vencimento: new Date(Date.now() - 3 * 86400000), placa: null,
+        externalId: 'pay_exemplo123', customer: { nome: 'Cliente Exemplo da Silva', doc: '00000000000', contrato: null },
+      };
+    }
+    const corpo = renderWebhookBody(template, varsDoWebhook(fatura));
+    try {
+      const http = axios.create({ ...safeHttpAgents(), timeout: 15000 });
+      const res = await http.post(dto.webhookUrl!.trim(), JSON.parse(corpo), { headers: { 'Content-Type': 'application/json', 'X-Recorra-Teste': 'true' } });
+      return { ok: true, status: res.status, corpo: JSON.parse(corpo) };
+    } catch (e) {
+      const detalhe = axios.isAxiosError(e) ? `${e.response?.status ?? ''} ${JSON.stringify(e.response?.data ?? e.message)}`.trim() : String(e);
+      return { ok: false, erro: detalhe, corpo: JSON.parse(corpo) };
     }
   }
 

@@ -29,3 +29,14 @@ describe('passo webhook', () => {
     expect(erroPassoWebhook('https://x.com', '[]')).toMatch(/objeto/);
   });
 });
+
+describe('varsDoWebhook', () => {
+  it('usa o id do gateway; sem ele, o do ERP; placa ausente vira vazio', async () => {
+    const { varsDoWebhook } = await import('../src/modules/dunning/webhook-step');
+    const base = { valor: 391.3, vencimento: new Date('2026-10-16T00:00:00Z'), customer: { nome: 'Maria Souza', doc: '123', contrato: null } };
+    expect(varsDoWebhook({ ...base, externalId: 'pay_1', sourceExternalId: 'erp9' }).idExterno).toBe('pay_1');
+    expect(varsDoWebhook({ ...base, externalId: null, sourceExternalId: 'erp9' }).idExterno).toBe('erp9');
+    const v = varsDoWebhook(base);
+    expect(v).toMatchObject({ placa: '', valorNumero: '391,30', vencimento: '16/10/2026', nomeCompleto: 'Maria Souza' });
+  });
+});

@@ -11,7 +11,7 @@ import { pickVariant } from './abtest';
 import { resolverBotoesParaEnvio, BotaoMapeado } from '@/modules/channels/meta-graph';
 import { PaymentProviderFactory } from '@/modules/payments/payment-provider.factory';
 import { assinarPagamento } from '@/modules/payments/pay-token';
-import { renderWebhookBody, valorNumero } from './webhook-step';
+import { renderWebhookBody, varsDoWebhook } from './webhook-step';
 
 type RuleWithSteps = DunningRule & { steps: DunningStep[] };
 
@@ -167,18 +167,7 @@ export class DunningService {
     const jaTem = await this.prisma.messageDispatch.findFirst({ where: { invoiceId: invoice.id, stepId: chave }, select: { id: true } });
     if (jaTem) return false;
 
-    const vars = {
-      nomeCompleto: invoice.customer.nome,
-      nome: invoice.customer.nome.split(' ')[0],
-      placa: invoice.placa ?? '',
-      valorNumero: valorNumero(Number(invoice.valor)),
-      valor: money(Number(invoice.valor)),
-      vencimento: dateBR(invoice.vencimento),
-      // Id da cobrança no gateway (ex.: pay_abc123 do Asaas); sem gateway, o id no ERP de origem.
-      idExterno: invoice.externalId ?? invoice.sourceExternalId ?? '',
-      cpf: invoice.customer.doc,
-      contrato: invoice.customer.contrato ?? '',
-    };
+    const vars = varsDoWebhook(invoice);
     let conteudo: string;
     try {
       conteudo = renderWebhookBody(step.template, vars);

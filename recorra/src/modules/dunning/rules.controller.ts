@@ -96,6 +96,13 @@ export class RulesController {
     return this.rules.abStats(tenantId);
   }
 
+  /** Envia um teste do passo Webhook (dados reais de uma cobrança, ou um exemplo). */
+  @Post('webhook/teste')
+  @Roles('OWNER', 'ADMIN')
+  testarWebhook(@TenantId() tenantId: string, @Body() dto: { webhookUrl?: string; template?: string; invoiceId?: string }) {
+    return this.rules.testarWebhook(tenantId, dto);
+  }
+
   /** Recursos liberados para o tenant (hoje: passo Webhook). Antes de :id. */
   @Get('recursos')
   async recursos(@TenantId() tenantId: string) {

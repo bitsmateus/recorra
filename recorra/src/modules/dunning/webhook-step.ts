@@ -1,4 +1,4 @@
-import { renderTemplate } from './template.util';
+import { renderTemplate, money, dateBR } from './template.util';
 
 /** Variáveis que o corpo JSON de um passo Webhook pode usar. */
 export const VARIAVEIS_WEBHOOK = ['nomeCompleto', 'nome', 'placa', 'valorNumero', 'valor', 'vencimento', 'idExterno', 'cpf', 'contrato'] as const;
@@ -40,4 +40,29 @@ export function erroPassoWebhook(webhookUrl: string | undefined | null, template
     return 'Webhook: o corpo não é um JSON válido.';
   }
   return null;
+}
+
+export interface FaturaWebhook {
+  valor: unknown;
+  vencimento: Date;
+  placa?: string | null;
+  externalId?: string | null;
+  sourceExternalId?: string | null;
+  customer: { nome: string; doc: string; contrato: string | null };
+}
+
+/** Variáveis do corpo do webhook para uma cobrança. */
+export function varsDoWebhook(f: FaturaWebhook): Record<string, string> {
+  return {
+    nomeCompleto: f.customer.nome,
+    nome: f.customer.nome.split(' ')[0],
+    placa: f.placa ?? '',
+    valorNumero: valorNumero(Number(f.valor)),
+    valor: money(Number(f.valor)),
+    vencimento: dateBR(f.vencimento),
+    // Id da cobrança no gateway (ex.: pay_abc123 do Asaas); sem gateway, o id no ERP de origem.
+    idExterno: f.externalId ?? f.sourceExternalId ?? '',
+    cpf: f.customer.doc,
+    contrato: f.customer.contrato ?? '',
+  };
 }

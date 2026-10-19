@@ -809,6 +809,19 @@ function StepCard({
   // Exclui a conexão-base do NX (URL+token) — não é canal de envio; usa-se os canais importados.
   const conectados = canais.filter((c) => c.status !== 'DESCONECTADO' && !(c.canal === 'NX_SYSTEMS' && c.origem !== 'nx'));
   const ehWebhook = step.canal === 'WEBHOOK';
+  const [testeInv, setTesteInv] = useState('');
+  const [testando, setTestando] = useState(false);
+  const [testeMsg, setTesteMsg] = useState<{ ok: boolean; texto: string } | null>(null);
+  async function testarWebhook() {
+    const real = testeInv.trim();
+    if (!window.confirm(`Enviar AGORA um teste para ${step.webhookUrl}?\n\nO sistema de destino recebe o aviso de verdade (${real ? 'com os dados da cobrança informada' : 'com dados de exemplo'}).`)) return;
+    setTestando(true); setTesteMsg(null);
+    try {
+      const r = await api<{ ok: boolean; status?: number; erro?: string; corpo: unknown }>('/reguas/webhook/teste', { method: 'POST', body: { webhookUrl: step.webhookUrl, template: step.template, invoiceId: real || undefined } });
+      setTesteMsg({ ok: r.ok, texto: r.ok ? `✓ Enviado (HTTP ${r.status}). Corpo: ${JSON.stringify(r.corpo)}` : `Falhou: ${r.erro}` });
+    } catch (e) { setTesteMsg({ ok: false, texto: e instanceof Error ? e.message : 'Erro ao testar' }); }
+    finally { setTestando(false); }
+  }
   const canalSelId = ehWebhook ? 'WEBHOOK' : step.channelAccountId || conectados.find((c) => c.canal === step.canal)?.id || '';
   const conn = conectados.find((c) => c.id === canalSelId);
 
@@ -940,6 +953,14 @@ function StepCard({
             <span className="mb-1 block text-xs text-muted">Corpo (JSON)</span>
             <textarea value={step.template} onChange={(e) => onChange({ template: e.target.value })} rows={8} spellCheck={false} className="w-full rounded border border-line p-3 font-mono text-xs outline-none focus:border-primary" />
           </label>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <input value={testeInv} onChange={(e) => setTesteInv(e.target.value)} placeholder="ID da cobrança no Recorra (opcional)" className="min-w-[220px] flex-1 rounded border border-line px-3 py-1.5 text-xs outline-none focus:border-primary" />
+            <button type="button" onClick={testarWebhook} disabled={testando || !step.webhookUrl?.trim()} className="rounded border border-primary/40 bg-surface px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary hover:text-white disabled:opacity-50">
+              {testando ? 'Enviando...' : 'Enviar teste'}
+            </button>
+          </div>
+          {testeMsg && <p className={`mt-1 break-all text-xs ${testeMsg.ok ? 'text-success' : 'text-danger'}`}>{testeMsg.texto}</p>}
+          <p className="mt-1 text-xs text-muted">O teste usa o corpo e a URL como estão na tela (mesmo sem salvar) e não conta como o aviso da cobrança. Sem o ID, vai um exemplo.</p>
           <p className="mt-1 text-xs text-muted">Variáveis: {['nomeCompleto', 'nome', 'placa', 'valorNumero', 'valor', 'vencimento', 'idExterno', 'cpf', 'contrato'].map((v) => `{{${v}}}`).join(' ')}</p>
         </div>
       ) : (<>
