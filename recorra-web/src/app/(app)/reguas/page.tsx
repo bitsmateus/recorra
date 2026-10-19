@@ -602,6 +602,17 @@ function FlowEditor({
 
   return (
     <div className="min-w-0 max-w-full rounded-lg border border-line bg-surface p-5">
+      <div className={`mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border px-4 py-3 text-sm ${rule.ativo === false ? 'border-warning/40 bg-warning-tint text-[#854F0B]' : 'border-line bg-canvas text-muted'}`}>
+        <label className="flex cursor-pointer items-center gap-2 font-medium text-ink">
+          <input type="checkbox" checked={rule.ativo !== false} onChange={(e) => update({ ativo: e.target.checked })} className="h-4 w-4 accent-primary" /> Régua ativa
+        </label>
+        <span className="text-xs">
+          {rule.ativo === false
+            ? 'Desligada: nenhum passo desta régua dispara (nem para clientes, nem webhook). Clique em Salvar para valer.'
+            : 'Ligada: os passos ativos disparam conforme os dias de cada um.'}
+        </span>
+      </div>
+
       {/* Cabeçalho da régua */}
       <div className="mb-5 grid grid-cols-1 gap-3 md:grid-cols-3">
         <label className="block md:col-span-1">
