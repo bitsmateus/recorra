@@ -17,10 +17,26 @@ export class PublicCobrancasController {
 
   @Get()
   @Scopes('cobrancas:read')
-  async list(@ApiTenant() tenantId: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string, @Query('status') status?: string) {
+  async list(
+    @ApiTenant() tenantId: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('status') status?: string,
+    @Query('doc') doc?: string,
+    @Query('customerId') customerId?: string,
+  ) {
     const take = Math.min(200, Math.max(1, Number(pageSize) || 50));
     const skip = (Math.max(1, Number(page) || 1) - 1) * take;
-    const where = { tenantId, ...(status ? { status: status as never } : {}) };
+    // status aceita lista separada por virgula (ex.: PENDENTE,VENCIDA); doc = CPF/CNPJ do cliente (com ou sem mascara)
+    const statusLista = (status || '').split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
+    const docLimpo = (doc || '').replace(/\D/g, '');
+    const where = {
+      tenantId,
+      ...(statusLista.length === 1 ? { status: statusLista[0] as never } : {}),
+      ...(statusLista.length > 1 ? { status: { in: statusLista as never[] } } : {}),
+      ...(customerId ? { customerId } : {}),
+      ...(docLimpo ? { customer: { doc: docLimpo } } : {}),
+    };
     const [items, total] = await Promise.all([
       this.prisma.invoice.findMany({
         where, orderBy: { vencimento: 'desc' }, take, skip,
