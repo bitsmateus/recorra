@@ -6,6 +6,14 @@ import { PublicApiGuard } from './public-api.guard';
 import { ApiTenant } from './api-tenant.decorator';
 import { Scopes } from '@/common/auth/scopes.decorator';
 
+/** CPF/CNPJ pode estar gravado so com digitos ou com mascara: aceita as duas formas. */
+function variantesDoc(d: string): string[] {
+  const v = [d];
+  if (d.length === 11) v.push(d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4'));
+  if (d.length === 14) v.push(d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5'));
+  return v;
+}
+
 /** API pública de Cobranças (token de tenant). Base: /api/v1/cobrancas */
 @Controller('v1/cobrancas')
 @UseGuards(PublicApiGuard)
@@ -35,7 +43,7 @@ export class PublicCobrancasController {
       ...(statusLista.length === 1 ? { status: statusLista[0] as never } : {}),
       ...(statusLista.length > 1 ? { status: { in: statusLista as never[] } } : {}),
       ...(customerId ? { customerId } : {}),
-      ...(docLimpo ? { customer: { doc: docLimpo } } : {}),
+      ...(docLimpo ? { customer: { doc: { in: variantesDoc(docLimpo) } } } : {}),
     };
     const [items, total] = await Promise.all([
       this.prisma.invoice.findMany({
