@@ -264,10 +264,11 @@ function GraficoDiario({ serie }: { serie: Relatorio['serie'] }) {
   const usadas = series.filter((s) => serie.some((d) => d[s] > 0));
   const w = 760, h = 230, padL = 56, padR = 8, padTop = 12, padBottom = 26;
   const totalDia = (d: Relatorio['serie'][number]) => usadas.reduce((s, k) => s + d[k], 0);
-  const max = Math.max(1, ...serie.map(totalDia));
+  const passoEixo = passoBonito(Math.max(1, ...serie.map(totalDia)) / 3);
+  const max = passoEixo * Math.max(1, Math.ceil(Math.max(1, ...serie.map(totalDia)) / passoEixo));
   const bw = serie.length ? (w - padL - padR) / serie.length : 0;
   const y = (v: number) => (v / max) * (h - padTop - padBottom);
-  const ticks = [0, 0.5, 1].map((f) => f * max);
+  const ticks = Array.from({ length: Math.round(max / passoEixo) + 1 }, (_, k) => k * passoEixo);
   const passoRotulo = Math.max(1, Math.ceil(serie.length / 10));
   const atual = foco !== null ? serie[foco] : null;
 
@@ -289,7 +290,7 @@ function GraficoDiario({ serie }: { serie: Relatorio['serie'] }) {
             {ticks.map((v, i) => (
               <g key={i}>
                 <line x1={padL} x2={w - padR} y1={h - padBottom - y(v)} y2={h - padBottom - y(v)} stroke="var(--line)" strokeWidth={1} />
-                <text x={padL - 6} y={h - padBottom - y(v) + 3} textAnchor="end" className="fill-muted text-[10px]">{v >= 1000 ? `${Math.round(v / 1000)} mil` : Math.round(v)}</text>
+                <text x={padL - 6} y={h - padBottom - y(v) + 3} textAnchor="end" className="fill-muted text-[10px]">{v >= 1000 ? `${(v / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} mil` : Math.round(v)}</text>
               </g>
             ))}
             {serie.map((d, i) => {
@@ -304,9 +305,11 @@ function GraficoDiario({ serie }: { serie: Relatorio['serie'] }) {
                     if (alt <= 0) return null;
                     topo -= alt;
                     const ultimo = usadas.slice(k + 1).every((r) => d[r] <= 0);
+                    // 2px de respiro entre segmentos: corta o TOPO do segmento de baixo (a base fica no eixo).
+                    const gap = ultimo ? 0 : Math.min(2, alt);
                     return (
-                      <rect key={s} x={x + 1} y={topo} width={largura} height={Math.max(0, alt - (ultimo ? 0 : 2))}
-                        rx={ultimo ? 3 : 0} fill={COR[s]} opacity={foco === null || foco === i ? 1 : 0.45} />
+                      <path key={s} d={barra(x + 1, topo + gap, largura, alt - gap, ultimo ? 3 : 0)}
+                        fill={COR[s]} opacity={foco === null || foco === i ? 1 : 0.45} />
                     );
                   })}
                   {i % passoRotulo === 0 && (
@@ -331,4 +334,17 @@ function GraficoDiario({ serie }: { serie: Relatorio['serie'] }) {
       )}
     </div>
   );
+}
+
+/** Retângulo com só os cantos de CIMA arredondados (a base fica reta, presa no eixo). */
+function barra(x: number, y: number, w: number, h: number, r: number): string {
+  const rr = Math.min(r, w / 2, h);
+  return `M${x},${y + h} V${y + rr} Q${x},${y} ${x + rr},${y} H${x + w - rr} Q${x + w},${y} ${x + w},${y + rr} V${y + h} Z`;
+}
+
+/** Passo "redondo" do eixo (1, 2, 2,5 ou 5 × 10^n) — rótulos que batem com as linhas. */
+function passoBonito(bruto: number): number {
+  const mag = 10 ** Math.floor(Math.log10(Math.max(bruto, 1)));
+  const n = bruto / mag;
+  return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * mag;
 }

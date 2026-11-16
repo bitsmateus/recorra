@@ -1,11 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { NumeroConta } from '@/components/NumeroConta';
 import { Plus, X, Trash2, Loader2, CheckCircle2, AlertCircle, Webhook, MessageSquare } from 'lucide-react';
 import { api } from '@/lib/api';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 
-interface Integ { id: string; canal: string; apelido: string; ativo: boolean; status: string }
+interface Integ { id: string; canal: string; apelido: string; numero?: string | null; ativo: boolean; status: string }
 type TesteResult = { ok: boolean; mensagem: string };
 
 const CANAIS_ENVIO = ['NX_SYSTEMS', 'HTTP_GENERIC'];
@@ -55,6 +56,7 @@ export default function EnvioIntegracoes() {
                 <div className="flex items-center gap-2"><Icon size={18} className="text-muted" /><span className="font-medium text-ink">{c.apelido}</span></div>
                 <button onClick={() => setConfirmarExclusao(c)} className="rounded p-1 text-muted hover:bg-danger-tint hover:text-danger"><Trash2 size={14} /></button>
               </div>
+              <NumeroConta c={c} />
               <div className="text-xs text-muted">{L.label}</div>
             </div>
           );
