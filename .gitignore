@@ -28,3 +28,4 @@ logs/
 
 # Documento de deploy com segredos — não commitar
 RUNBOOK-EASYPANEL.md
+dump.rdb
