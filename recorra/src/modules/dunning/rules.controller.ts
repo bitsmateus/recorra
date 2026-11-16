@@ -31,8 +31,46 @@ export class RulesController {
     @CurrentUser() user: AuthUser,
     @Query('ruleId') ruleId?: string,
     @Query('pausadas') pausadas?: string,
+    @Query('modo') modo?: string,
   ) {
-    return this.rules.andamento(tenantId, ruleId, pausadas === '1', user);
+    return this.rules.andamento(tenantId, ruleId, pausadas === '1', user, modo === 'colunas' ? 'colunas' : 'regua');
+  }
+
+  // ----- Colunas próprias da esteira (independentes da régua) -----
+  @Get('esteira-colunas')
+  listColunas(@TenantId() tenantId: string) {
+    return this.rules.listColunas(tenantId);
+  }
+
+  @Post('esteira-colunas')
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
+  criarColuna(@TenantId() tenantId: string, @Body() dto: { nome?: string; diaMinimo?: number | null }) {
+    return this.rules.criarColuna(tenantId, dto);
+  }
+
+  @Post('esteira-colunas/ordem')
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
+  ordenarColunas(@TenantId() tenantId: string, @Body('ids') ids?: string[]) {
+    return this.rules.ordenarColunas(tenantId, ids ?? []);
+  }
+
+  @Put('esteira-colunas/:id')
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
+  editarColuna(@TenantId() tenantId: string, @Param('id') id: string, @Body() dto: { nome?: string; diaMinimo?: number | null }) {
+    return this.rules.editarColuna(tenantId, id, dto);
+  }
+
+  @Delete('esteira-colunas/:id')
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
+  excluirColuna(@TenantId() tenantId: string, @Param('id') id: string) {
+    return this.rules.excluirColuna(tenantId, id);
+  }
+
+  /** Move cards para uma coluna própria (null = volta à regra de dias). Operador também move. */
+  @Post('andamento/mover')
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO', 'OPERADOR')
+  mover(@TenantId() tenantId: string, @Body('invoiceIds') invoiceIds?: string[], @Body('colunaId') colunaId?: string | null) {
+    return this.rules.moverCards(tenantId, invoiceIds ?? [], colunaId || null);
   }
 
   /** Pausa/retoma a cobrança de faturas selecionadas na Esteira. */

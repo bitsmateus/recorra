@@ -1259,7 +1259,7 @@ function CarteirasCard() {
 
   return (
     <div className="mb-4 rounded-lg border border-line bg-surface p-4 sm:p-5">
-      <div className="text-sm font-semibold text-ink">Carteiras da esteira</div>
+      <div className="flex items-center gap-2 text-sm font-semibold text-ink">Carteiras da esteira <AjudaDistribuicao /></div>
       <p className="mb-3 text-xs text-muted">
         Crie quantas equipes precisar e a partir de qual dia de atraso cada uma assume o cliente (a carteira de maior
         dia "puxa" o cliente quando ele cruza esse limite). Quem não tem carteira atribuída em <Link href="/equipe" className="text-primary underline">Equipe</Link> vê
@@ -1414,5 +1414,40 @@ function FilaNx({ c, onSalvar }: { c: Carteira; onSalvar: (nxQueueId: number | n
       <input inputMode="numeric" value={v} onChange={(e) => setV(e.target.value.replace(/\D/g, ''))} onBlur={() => { if (v !== atual) onSalvar(v ? Number(v) : null); }}
         placeholder="—" aria-label={`Fila no NX da carteira ${c.nome}`} className="w-16 rounded border border-line px-2 py-1 text-xs outline-none focus:border-primary" />
     </label>
+  );
+}
+
+/** "?" das carteiras: como funcionam a distribuição manual e a automática (balanceada/sequencial). */
+function AjudaDistribuicao() {
+  const [aberto, setAberto] = useState(false);
+  return (
+    <span className="relative inline-flex">
+      <button type="button" onClick={() => setAberto((v) => !v)} aria-expanded={aberto} aria-label="Como funciona a distribuição"
+        className="flex h-6 w-6 items-center justify-center rounded-full border border-primary/40 bg-primary-tint text-xs font-bold text-primary hover:bg-primary hover:text-white">?</button>
+      {aberto && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setAberto(false)} />
+          <div role="dialog" className="absolute left-0 top-8 z-50 w-[min(560px,85vw)] rounded-lg border border-line bg-surface p-4 text-left text-xs font-normal text-ink shadow-lg">
+            <div className="mb-2 text-sm font-semibold">Como os clientes são divididos entre as operadoras</div>
+            <p className="mb-2 text-muted">Cada carteira é uma faixa de atraso (ex.: Cobrança 1 a partir de D+5, Cobrança 2 a partir de D+30). O cliente entra na carteira pela fatura vencida <b className="text-ink">mais antiga</b>. Quem cobra é o <b className="text-ink">responsável</b> do cliente — é dele o crédito no relatório de recuperação.</p>
+            <ul className="mb-2 space-y-1.5">
+              <li><b>Manual</b> — o Recorrai não mexe. O responsável é escolhido à mão, na linha do tempo do cliente (clique no card da Esteira) ou no cadastro. Bom para equipes pequenas ou quando cada cliente já tem dono fixo.</li>
+              <li><b>Automática balanceada</b> — cada cliente vencido sem dono vai para a operadora da carteira que está com <b>menos</b> clientes naquele momento (equilibra a carga).</li>
+              <li><b>Automática sequencial</b> — rodízio: um para cada operadora, na ordem, continuando de onde parou no dia anterior.</li>
+            </ul>
+            <div className="mb-1 font-semibold">Por dentro (automática)</div>
+            <ul className="mb-2 list-disc space-y-1 pl-4 text-muted">
+              <li>Roda <b className="text-ink">todo dia às 8h30</b>, depois da sincronização com o ERP e antes da régua das 9h — e na hora, pelo botão <b className="text-ink">Distribuir agora</b>.</li>
+              <li>As operadoras da carteira são as vinculadas a ela em <b className="text-ink">Equipe</b> (coluna Carteira), ativas.</li>
+              <li>Quem já tem responsável <b className="text-ink">da própria carteira</b> continua com ele. Quando o atraso passa para a faixa da próxima carteira (ex.: de 29 para 30 dias), o cliente é redistribuído para a equipe dela.</li>
+              <li>Na Esteira, a operadora de uma carteira automática vê <b className="text-ink">só os clientes dela</b>.</li>
+              <li>Se o cliente responde no chat do NX, o atendimento vai para a fila da responsável (ou da carteira) — configure as filas no campo &quot;fila no NX&quot;.</li>
+              <li>Clientes com atraso menor que o da 1ª carteira ainda não são de ninguém (a régua cobra sozinha).</li>
+            </ul>
+            <p className="text-muted">Trocar o modo vale a partir da próxima distribuição; ninguém perde os clientes que já tem.</p>
+          </div>
+        </>
+      )}
+    </span>
   );
 }

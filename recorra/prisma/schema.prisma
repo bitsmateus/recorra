@@ -214,6 +214,7 @@ model Tenant {
   customerNotes      CustomerNote[]
   carteiras          Carteira[]
   nxTicketRoutes     NxTicketRoute[]
+  esteiraColunas     EsteiraColuna[]
 
   @@index([reguaPadraoId])
   @@map("tenants")
@@ -574,6 +575,9 @@ model Invoice {
   recuperadoDispatchId String? // último contato (disparo) antes do pagamento, se houver
   recuperadoCarteira   String? // snapshot do nome da carteira pelos dias de atraso no pagamento
   diasAtrasoPagamento  Int?
+  // Coluna personalizada da esteira em que alguém colocou o card À MÃO (null =
+  // segue a regra de dias da coluna). Ver EsteiraColuna.
+  esteiraColunaId      String?
   createdAt            DateTime                @default(now())
   updatedAt            DateTime                @updatedAt
 
@@ -581,6 +585,7 @@ model Invoice {
   customer        Customer                @relation(fields: [customerId], references: [id], onDelete: Cascade)
   providerAccount PaymentProviderAccount? @relation(fields: [providerAccountId], references: [id])
   recuperadoPor   User?                   @relation("RecuperacoesDoUsuario", fields: [recuperadoPorId], references: [id], onDelete: SetNull)
+  esteiraColuna   EsteiraColuna?          @relation(fields: [esteiraColunaId], references: [id], onDelete: SetNull)
   dispatches      MessageDispatch[]
 
   @@unique([tenantId, provider, externalId])
@@ -1186,4 +1191,25 @@ model NxTicketRoute {
   @@unique([channelAccountId, ticketId])
   @@index([tenantId, createdAt])
   @@map("nx_ticket_routes")
+}
+
+/// Coluna da esteira criada pela empresa (independente dos passos da régua): ex.
+/// "Negociando", "Aguardando comprovante", "Rescisão". O card entra sozinho pela
+/// regra de dias de atraso (opcional) ou é movido à mão (Invoice.esteiraColunaId).
+model EsteiraColuna {
+  id        String   @id @default(cuid())
+  tenantId  String
+  nome      String
+  ordem     Int      @default(0)
+  // A partir deste dia de atraso o card entra sozinho nesta coluna (null = só à mão).
+  diaMinimo Int?
+  cor       String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoices Invoice[]
+
+  @@index([tenantId, ordem])
+  @@map("esteira_colunas")
 }

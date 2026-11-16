@@ -91,6 +91,13 @@ async function main() {
   // Operadora "dona" do cliente em cada carteira — estável, metade para cada.
   const donoDe = (customerId: string, carteiraId: string) => equipe[carteiraId][customerId.charCodeAt(customerId.length - 1) % 2];
 
+  // ---------------- Colunas próprias da esteira (exemplo) ----------------
+  const colunas = [
+    { nome: 'Lembrete enviado', diaMinimo: -5 }, { nome: 'Cobrando', diaMinimo: 5 }, { nome: 'Negociando', diaMinimo: null },
+    { nome: 'Aguardando comprovante', diaMinimo: null }, { nome: 'Retenção / rescisão', diaMinimo: 60 },
+  ];
+  await prisma.esteiraColuna.createMany({ data: colunas.map((c, ordem) => ({ tenantId: TENANT_ID, ordem, ...c })) });
+
   // ---------------- Canais (fictícios — host .invalid nunca resolve) ----------------
   const nx = (apiId: string) => encryptWith(chave, JSON.stringify({ nxBaseUrl: `https://demo.invalid/v2/api/external/${apiId}`, nxToken: 'demo', nxOficial: true }));
   const conta = (apelido: string, numero: string | null, canal: ChannelType, credentials: string) =>

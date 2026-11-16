@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, Users, Plug, LogOut, CreditCard, GitBranch, UserCog, Send, BarChart3, Gauge, HelpCircle, ChevronDown, Megaphone, Wallet, SlidersHorizontal, Radio, Menu, X, Mail, MessageSquare, PanelLeftClose, PanelLeftOpen, Eraser, Moon, Sun, Columns3, KeyRound, CircleUserRound } from 'lucide-react';
+import { LayoutDashboard, Users, Plug, LogOut, CreditCard, GitBranch, UserCog, Send, BarChart3, Gauge, HelpCircle, ChevronDown, Megaphone, Wallet, SlidersHorizontal, Radio, Menu, X, Mail, MessageSquare, PanelLeftClose, PanelLeftOpen, Eraser, Moon, Sun, Columns3, KeyRound, CircleUserRound, Pin, PinOff } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Logo } from '@/components/Logo';
 import { api, getToken, logout } from '@/lib/api';
@@ -55,6 +55,18 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [menuMinimizado, setMenuMinimizado] = useState(false);
   const [escuro, setEscuro] = useState(false);
   const [telas, setTelas] = useState<string[] | null>(null);
+  // Itens fixados no topo do menu (preferência deste navegador).
+  const [fixados, setFixados] = useState<string[]>([]);
+  useEffect(() => {
+    try { const v = JSON.parse(localStorage.getItem('recorra_menu_fixados') ?? '[]'); if (Array.isArray(v)) setFixados(v.filter((x) => typeof x === 'string')); } catch { /* sem preferências */ }
+  }, []);
+  function alternarFixado(href: string) {
+    setFixados((atual) => {
+      const prox = atual.includes(href) ? atual.filter((h) => h !== href) : [...atual, href];
+      try { localStorage.setItem('recorra_menu_fixados', JSON.stringify(prox)); } catch { /* ignora */ }
+      return prox;
+    });
+  }
 
   useEffect(() => {
     if (!getToken()) router.replace('/login');
@@ -140,53 +152,61 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     window.location.reload();
   }
 
+  const visivel = (it: Item) => !it.tela || (telas !== null && telas.includes(it.tela));
+  const todosItens = grupos.flatMap((g) => g.items).filter(visivel);
+  const itensFixados = fixados.map((h) => todosItens.find((it) => it.href === h)).filter(Boolean) as Item[];
+
+  /** Link do menu com o alfinete de fixar no topo (aparece ao passar o mouse). */
+  const linkItem = (it: Item, compacto: boolean, recuo: boolean) => {
+    const Icon = it.icon;
+    const active = pathname.startsWith(it.href);
+    const fixo = fixados.includes(it.href);
+    return (
+      <div key={it.href} className="group relative">
+        <Link href={it.href} title={compacto ? it.label : undefined} className={`flex items-center rounded py-2 text-sm transition ${compacto ? 'justify-center px-2' : `gap-3 ${recuo ? 'pl-8' : 'px-3'} pr-8`} ${active ? 'bg-primary-tint font-medium text-primary' : 'text-muted hover:bg-canvas'}`}>
+          <Icon size={recuo ? 16 : 18} />
+          {!compacto && it.label}
+        </Link>
+        {!compacto && (
+          <button type="button" onClick={() => alternarFixado(it.href)} title={fixo ? 'Desafixar do topo' : 'Fixar no topo do menu'} aria-label={fixo ? `Desafixar ${it.label}` : `Fixar ${it.label} no topo`}
+            className={`absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 transition ${fixo ? 'text-primary opacity-100' : 'text-muted opacity-0 hover:text-primary focus:opacity-100 group-hover:opacity-100'}`}>
+            {fixo ? <PinOff size={13} /> : <Pin size={13} />}
+          </button>
+        )}
+      </div>
+    );
+  };
+
   const navContent = (compacto = false) => (
     <>
       <nav className={`min-h-0 flex-1 space-y-1 overflow-y-auto ${compacto ? 'p-2' : 'p-3'}`}>
+        {itensFixados.length > 0 && (
+          <div className="mb-2 border-b border-line pb-2">
+            {!compacto && <div className="flex items-center gap-2 px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-muted"><Pin size={13} /> Fixados</div>}
+            <div className="space-y-0.5">{itensFixados.map((it) => linkItem(it, compacto, false))}</div>
+          </div>
+        )}
         {grupos
-          .map((g) => ({ ...g, items: g.items.filter((it) => !it.tela || (telas !== null && telas.includes(it.tela))) }))
+          .map((g) => ({ ...g, items: g.items.filter(visivel) }))
           .filter((g) => g.items.length > 0)
           .map((g) => {
           const aberto = abertos[g.label];
           const GIcon = g.icon;
-          const soloItem = g.items.length === 1;
           // Grupos com um único item viram link direto (sem cabeçalho recolhível).
-          if (soloItem) {
-            const it = g.items[0];
-            const Icon = it.icon;
-            const active = pathname.startsWith(it.href);
-            return (
-              <Link key={it.href} href={it.href} title={compacto ? it.label : undefined} className={`flex items-center rounded py-2 text-sm transition ${compacto ? 'justify-center px-2' : 'gap-3 px-3'} ${active ? 'bg-primary-tint font-medium text-primary' : 'text-muted hover:bg-canvas'}`}>
-                <Icon size={18} />
-                {!compacto && it.label}
-              </Link>
-            );
-          }
+          if (g.items.length === 1) return linkItem(g.items[0], compacto, false);
           return (
             <div key={g.label} className="pt-1">
               <button onClick={() => toggle(g.label)} title={compacto ? g.label : undefined} className={`flex w-full items-center rounded py-2 text-xs font-semibold uppercase tracking-wide text-muted hover:bg-canvas ${compacto ? 'justify-center px-2' : 'gap-2 px-3'}`}>
                 <GIcon size={15} />
                 {!compacto && <><span className="flex-1 text-left">{g.label}</span><ChevronDown size={14} className={`transition ${aberto ? '' : '-rotate-90'}`} /></>}
               </button>
-              {aberto && (
-                <div className="mt-0.5 space-y-0.5">
-                  {g.items.map((it) => {
-                    const Icon = it.icon;
-                    const active = pathname.startsWith(it.href);
-                    return (
-                      <Link key={it.href} href={it.href} title={compacto ? it.label : undefined} className={`flex items-center rounded py-2 text-sm transition ${compacto ? 'justify-center px-2' : 'gap-3 pl-8 pr-3'} ${active ? 'bg-primary-tint font-medium text-primary' : 'text-muted hover:bg-canvas'}`}>
-                        <Icon size={16} />
-                        {!compacto && it.label}
-                      </Link>
-                    );
-                  })}
-                </div>
-              )}
+              {aberto && <div className="mt-0.5 space-y-0.5">{g.items.map((it) => linkItem(it, compacto, true))}</div>}
             </div>
           );
         })}
       </nav>
       <div className={`shrink-0 border-t border-line bg-surface ${compacto ? 'p-2' : 'p-3'}`}>
+        <button onClick={alternarMenu} className="mb-1 hidden w-full items-center gap-3 rounded border border-line px-3 py-2 text-sm font-medium text-ink transition hover:border-primary hover:bg-primary-tint hover:text-primary md:flex"><PanelLeftClose size={18} /> Esconder menu</button>
         <button onClick={alternarTema} title={compacto ? (escuro ? 'Modo claro' : 'Modo escuro') : undefined} aria-label={escuro ? 'Ativar modo claro' : 'Ativar modo escuro'} className={`mb-1 flex w-full items-center rounded py-2 text-sm text-muted transition hover:bg-canvas ${compacto ? 'justify-center px-2' : 'gap-3 px-3'}`}>{escuro ? <Sun size={18} /> : <Moon size={18} />}{!compacto && (escuro ? 'Modo claro' : 'Modo escuro')}</button>
         <button onClick={limparCache} title={compacto ? 'Limpar cache' : undefined} className={`mb-1 flex w-full items-center rounded py-2 text-sm text-muted transition hover:bg-canvas ${compacto ? 'justify-center px-2' : 'gap-3 px-3'}`}><Eraser size={18} />{!compacto && 'Limpar cache'}</button>
         <Link href="/perfil" title={compacto ? 'Meu perfil' : undefined} className={`mb-1 flex w-full items-center rounded py-2 text-sm transition ${pathname.startsWith('/perfil') ? 'bg-primary-tint font-medium text-primary' : 'text-muted hover:bg-canvas'} ${compacto ? 'justify-center px-2' : 'gap-3 px-3'}`}><CircleUserRound size={18} />{!compacto && 'Meu perfil'}</Link>
@@ -204,7 +224,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       {menuMinimizado ? (
         // Menu escondido: sobra só uma faixa estreita com o botão para trazê-lo de volta.
         <div className="hidden h-screen w-12 shrink-0 flex-col items-center border-r border-line bg-surface py-3 md:flex print:hidden">
-          <button onClick={alternarMenu} title="Mostrar menu" aria-label="Mostrar menu lateral" className="flex h-9 w-9 items-center justify-center rounded text-muted hover:bg-canvas hover:text-primary"><PanelLeftOpen size={20} /></button>
+          <button onClick={alternarMenu} title="Mostrar menu" aria-label="Mostrar menu lateral" className="flex flex-col items-center gap-1 rounded-lg border border-primary/40 bg-primary-tint px-1.5 py-2 text-[10px] font-medium text-primary shadow-sm hover:bg-primary hover:text-white"><PanelLeftOpen size={20} /> Menu</button>
         </div>
       ) : (
         <aside className="hidden h-screen w-60 shrink-0 flex-col overflow-hidden border-r border-line bg-surface md:flex print:hidden">
@@ -213,7 +233,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               <Logo size={30} />
               <span className="text-[10px] font-medium text-muted">v{APP_VERSION}</span>
             </div>
-            <button onClick={alternarMenu} title="Esconder menu" aria-label="Esconder menu lateral" className="rounded p-1.5 text-muted hover:bg-canvas hover:text-primary"><PanelLeftClose size={18} /></button>
           </div>
           {navContent(false)}
         </aside>

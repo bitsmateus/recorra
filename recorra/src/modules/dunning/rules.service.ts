@@ -37,6 +37,7 @@ export interface AndamentoCard {
   responsavel?: string | null; // operador atribuído manualmente ao cliente (independente da carteira)
   promessaAte?: Date | null;
   promessaSituacao?: 'PAUSADA' | 'VENCIDA' | null;
+  colunaManual?: boolean; // colunas próprias: o card foi movido à mão (não segue a regra de dias)
 }
 
 /** Teto de cards lidos pela esteira — acima disso a tela avisa que está truncada. */
@@ -178,7 +179,10 @@ export class RulesService {
    * sozinha conforme o tempo passa e os disparos saem. Colunas = passos da régua +
    * Aguardando início + Pagas/Encerradas + Sem contato.
    */
-  async andamento(tenantId: string, ruleId?: string, incluirPausadas = false, viewer?: AuthUser) {
+  async andamento(tenantId: string, ruleId?: string, incluirPausadas = false, viewer?: AuthUser, modo: 'regua' | 'colunas' = 'regua') {
+    const colunasProprias = modo === 'colunas'
+      ? await this.prisma.esteiraColuna.findMany({ where: { tenantId }, orderBy: [{ ordem: 'asc' }, { createdAt: 'asc' }] })
+      : [];
     const [tenant, reguas, carteirasTenant] = await Promise.all([
       this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { usarFaixaRisco: true, reguaPadraoId: true, config: true } }),
       this.prisma.dunningRule.findMany({
@@ -299,13 +303,32 @@ export class RulesService {
       canalDoOffset.set(r.id, m);
     }
 
-    const colunas: { key: string; label: string; cards: AndamentoCard[] }[] = [
-      { key: 'aguardando', label: 'Aguardando início', cards: [] },
-      ...offsets.map((o) => ({ key: `step:${o}`, label: labelOffset(o), cards: [] as AndamentoCard[] })),
-      { key: 'falharam', label: 'Falharam', cards: [] },
-      { key: 'encerradas', label: 'Pagas / Encerradas', cards: [] },
-      { key: 'sem-contato', label: 'Sem contato', cards: [] },
-    ];
+    // Visão "colunas próprias": as colunas que a empresa criou (independentes da
+    // régua). O card vai para a coluna em que foi colocado à mão; senão, pela regra
+    // de dias da coluna (a de maior "a partir do dia" que o atraso já alcançou);
+    // senão fica em "Sem coluna".
+    const usarProprias = modo === 'colunas' && colunasProprias.length > 0;
+    const colunas: { key: string; label: string; cards: AndamentoCard[]; colunaId?: string; diaMinimo?: number | null }[] = usarProprias
+      ? [
+          { key: 'sem-coluna', label: 'Sem coluna', cards: [] },
+          ...colunasProprias.map((cp) => ({ key: `col:${cp.id}`, label: cp.nome, cards: [] as AndamentoCard[], colunaId: cp.id, diaMinimo: cp.diaMinimo })),
+          { key: 'encerradas', label: 'Pagas / Encerradas', cards: [] },
+          { key: 'sem-contato', label: 'Sem contato', cards: [] },
+        ]
+      : [
+          { key: 'aguardando', label: 'Aguardando início', cards: [] },
+          ...offsets.map((o) => ({ key: `step:${o}`, label: labelOffset(o), cards: [] as AndamentoCard[] })),
+          { key: 'falharam', label: 'Falharam', cards: [] },
+          { key: 'encerradas', label: 'Pagas / Encerradas', cards: [] },
+          { key: 'sem-contato', label: 'Sem contato', cards: [] },
+        ];
+    const idsProprias = new Set(colunasProprias.map((cp) => cp.id));
+    const porRegraDeDias = colunasProprias.filter((cp) => cp.diaMinimo !== null).sort((a, b) => (b.diaMinimo! - a.diaMinimo!));
+    const colunaPropriaDe = (colunaManual: string | null, diffDias: number) => {
+      if (colunaManual && idsProprias.has(colunaManual)) return `col:${colunaManual}`;
+      const r = porRegraDeDias.find((cp) => diffDias >= cp.diaMinimo!);
+      return r ? `col:${r.id}` : 'sem-coluna';
+    };
     const col = (k: string) => colunas.find((c) => c.key === k)!;
 
     for (const inv of abertas) {
@@ -336,6 +359,7 @@ export class RulesService {
           : hojeUtc - c.promessaAte.getTime() <= 7 * 86400000 ? 'VENCIDA' : null,
       };
       if (!c.telefone?.trim() && !c.email?.trim()) { col('sem-contato').cards.push(card); continue; }
+      if (usarProprias) { col(colunaPropriaDe(inv.esteiraColunaId, diffDias)).cards.push({ ...card, colunaManual: !!inv.esteiraColunaId && idsProprias.has(inv.esteiraColunaId) }); continue; }
       // Último disparo falhou → coluna "Falharam" (destaca o problema em vez de esconder na etapa).
       if (d && (d.status === 'FALHA' || d.status === 'IGNORADO')) { col('falharam').cards.push(card); continue; }
       col(atual === undefined ? 'aguardando' : `step:${atual}`).cards.push(card);
@@ -361,7 +385,56 @@ export class RulesService {
       incluirPausadas,
       colunas: colunas.map((c) => ({ ...c, total: c.cards.length, valor: c.cards.reduce((s, x) => s + x.valor, 0) })),
       carteira: carteiraInfo,
+      modo: usarProprias ? 'colunas' : 'regua',
+      colunasProprias: colunasProprias.map((cp) => ({ id: cp.id, nome: cp.nome, ordem: cp.ordem, diaMinimo: cp.diaMinimo })),
     };
+  }
+
+  // ---------- Colunas próprias da esteira ----------
+
+  listColunas(tenantId: string) {
+    return this.prisma.esteiraColuna.findMany({ where: { tenantId }, orderBy: [{ ordem: 'asc' }, { createdAt: 'asc' }] });
+  }
+
+  private validarColuna(dto: { nome?: string; diaMinimo?: number | null }) {
+    const nome = (dto.nome ?? '').trim();
+    if (!nome || nome.length > 40) throw new BadRequestException('Dê um nome de até 40 caracteres para a coluna');
+    const dia = dto.diaMinimo === null || dto.diaMinimo === undefined || (dto.diaMinimo as unknown) === '' ? null : Number(dto.diaMinimo);
+    if (dia !== null && (!Number.isInteger(dia) || dia < -60 || dia > 3650)) throw new BadRequestException('"A partir do dia" deve ser um número inteiro (negativo = antes do vencimento)');
+    return { nome, diaMinimo: dia };
+  }
+
+  async criarColuna(tenantId: string, dto: { nome?: string; diaMinimo?: number | null }) {
+    const v = this.validarColuna(dto);
+    const ultima = await this.prisma.esteiraColuna.findFirst({ where: { tenantId }, orderBy: { ordem: 'desc' }, select: { ordem: true } });
+    return this.prisma.esteiraColuna.create({ data: { tenantId, ...v, ordem: (ultima?.ordem ?? -1) + 1 } });
+  }
+
+  async editarColuna(tenantId: string, id: string, dto: { nome?: string; diaMinimo?: number | null }) {
+    await this.prisma.esteiraColuna.findFirstOrThrow({ where: { id, tenantId } });
+    return this.prisma.esteiraColuna.update({ where: { id }, data: this.validarColuna(dto) });
+  }
+
+  /** Nova ordem das colunas (lista de ids na ordem desejada). */
+  async ordenarColunas(tenantId: string, ids: string[]) {
+    const minhas = new Set((await this.listColunas(tenantId)).map((c) => c.id));
+    const lista = ids.filter((id) => minhas.has(id));
+    await this.prisma.$transaction(lista.map((id, ordem) => this.prisma.esteiraColuna.update({ where: { id }, data: { ordem } })));
+    return this.listColunas(tenantId);
+  }
+
+  /** Exclui a coluna; os cards que estavam nela à mão voltam a seguir a regra de dias. */
+  async excluirColuna(tenantId: string, id: string) {
+    await this.prisma.esteiraColuna.deleteMany({ where: { id, tenantId } });
+    return { ok: true };
+  }
+
+  /** Move cards (faturas) para uma coluna própria; `colunaId: null` devolve à regra de dias. */
+  async moverCards(tenantId: string, invoiceIds: string[], colunaId: string | null) {
+    if (colunaId) await this.prisma.esteiraColuna.findFirstOrThrow({ where: { id: colunaId, tenantId } });
+    const ids = [...new Set(invoiceIds)].filter(Boolean);
+    const r = await this.prisma.invoice.updateMany({ where: { tenantId, id: { in: ids } }, data: { esteiraColunaId: colunaId } });
+    return { movidas: r.count };
   }
 
   // ---------- Carteiras (equipes de cobrança configuráveis por tenant) ----------

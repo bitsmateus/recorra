@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { UIEvent } from 'react';
 import Link from 'next/link';
-import { RefreshCw, Loader2, CheckCircle2, Clock, XCircle, Phone, ExternalLink, Send, Pause, Play, Pause as PauseIcon, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, X, History, Search, AlertTriangle, StickyNote } from 'lucide-react';
-import { api } from '@/lib/api';
+import { RefreshCw, Loader2, CheckCircle2, Clock, XCircle, Phone, ExternalLink, Send, Pause, Play, Pause as PauseIcon, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, X, History, Search, AlertTriangle, StickyNote, Columns3 } from 'lucide-react';
+import { api, papelAtual } from '@/lib/api';
 import { PageTitle, brl } from '@/components/ui';
 import { Timeline } from '@/components/Timeline';
 
@@ -15,8 +15,10 @@ interface Card {
   canal?: string; pausada?: boolean; status?: string; statusContrato?: string; tags?: string[];
   alertaRescisao?: boolean; alertaSerasa?: boolean; carteira?: string | null; responsavel?: string | null;
   promessaAte?: string | null; promessaSituacao?: 'PAUSADA' | 'VENCIDA' | null;
+  colunaManual?: boolean;
 }
-interface Coluna { key: string; label: string; cards: Card[]; total: number; valor: number }
+interface Coluna { key: string; label: string; cards: Card[]; total: number; valor: number; colunaId?: string; diaMinimo?: number | null }
+interface ColunaPropria { id: string; nome: string; ordem: number; diaMinimo: number | null }
 interface Andamento {
   regua: { id: string; nome: string } | null;
   reguas: { id: string; nome: string; faixaRisco?: string | null }[];
@@ -27,6 +29,8 @@ interface Andamento {
   teto?: number;
   pausadasOcultas?: number;
   incluirPausadas?: boolean;
+  modo?: 'regua' | 'colunas';
+  colunasProprias?: ColunaPropria[];
   carteira?: {
     visivel: { id: string; nome: string; diaMinimo: number } | null;
     somenteMeus?: boolean; // carteira com distribuição automática: operadora vê só os clientes dela
@@ -50,7 +54,8 @@ const canalLabel: Record<string, string> = {
 };
 
 function corDaColuna(key: string): string {
-  if (key === 'aguardando') return '#9aa8a3';
+  if (key === 'aguardando' || key === 'sem-coluna') return '#9aa8a3';
+  if (key.startsWith('col:')) return '#14857C';
   if (key === 'falharam') return '#C8392F';
   if (key === 'encerradas') return '#12925b';
   if (key === 'sem-contato') return '#C88A2E';
@@ -95,6 +100,13 @@ export default function AndamentoPage() {
   // Pausada fora por padrão: é cobrança que ninguém vai disparar. Fica a um
   // clique para quem precisa retomar alguma.
   const [verPausadas, setVerPausadas] = useState(false);
+  // Colunas da régua (passos) ou colunas próprias da empresa. Preferência deste navegador.
+  const [modo, setModo] = useState<'regua' | 'colunas'>('regua');
+  useEffect(() => { try { if (localStorage.getItem('recorra_esteira_modo') === 'colunas') setModo('colunas'); } catch { /* ignora */ } }, []);
+  const trocarModo = (m: 'regua' | 'colunas') => { setModo(m); try { localStorage.setItem('recorra_esteira_modo', m); } catch { /* ignora */ } };
+  const [editarColunas, setEditarColunas] = useState(false);
+  const [arrastando, setArrastando] = useState<string | null>(null);
+  const podeEditarColunas = ['OWNER', 'ADMIN', 'FINANCEIRO'].includes(papelAtual() ?? '');
   const [historico, setHistorico] = useState<{ invoiceId: string; nome: string } | null>(null);
   const [notaDe, setNotaDe] = useState<{ customerId: string; nome: string; invoiceId?: string } | null>(null);
   // Mensagem escrita pelo operador: para as selecionadas (null = usa a seleção) ou um card só.
@@ -125,12 +137,25 @@ export default function AndamentoPage() {
     const p = new URLSearchParams();
     if (ruleId) p.set('ruleId', ruleId);
     if (verPausadas) p.set('pausadas', '1');
+    if (modo === 'colunas') p.set('modo', 'colunas');
     const q = p.toString();
     const r = await api<Andamento>(`/reguas/andamento${q ? `?${q}` : ''}`).catch(() => null);
     if (r) setDados(r);
     if (!silencioso) setLoading(false);
-  }, [ruleId, verPausadas]);
+  }, [ruleId, verPausadas, modo]);
   useEffect(() => { carregar(); }, [carregar]);
+
+  /** Move cards para uma coluna própria (null = "Sem coluna": volta à regra de dias). */
+  async function moverPara(ids: string[], colunaId: string | null) {
+    if (!ids.length) return;
+    setBusy(true); setMsg('');
+    try {
+      const r = await api<{ movidas: number }>('/reguas/andamento/mover', { method: 'POST', body: { invoiceIds: ids, colunaId } });
+      setMsg(`✓ ${r.movidas} card(s) movido(s).`);
+      limpar(); carregar(true);
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro ao mover'); }
+    setBusy(false);
+  }
   useEffect(() => { const t = setInterval(() => carregar(true), 30000); return () => clearInterval(t); }, [carregar]);
 
   const canaisDisponiveis = useMemo(() => {
@@ -283,6 +308,13 @@ export default function AndamentoPage() {
               {dados.reguas.map((r) => <option key={r.id} value={r.id}>{r.nome}{r.faixaRisco ? ` · ${faixaLabel[r.faixaRisco] || r.faixaRisco}` : ''}</option>)}
             </select>
           )}
+          <div role="group" aria-label="Colunas da esteira" className="flex overflow-hidden rounded-lg border border-line text-sm">
+            <button onClick={() => trocarModo('regua')} aria-pressed={modo === 'regua'} className={`px-3 py-2 ${modo === 'regua' ? 'bg-primary text-white' : 'bg-surface text-muted hover:bg-canvas'}`}>Colunas da régua</button>
+            <button onClick={() => trocarModo('colunas')} aria-pressed={modo === 'colunas'} className={`border-l border-line px-3 py-2 ${modo === 'colunas' ? 'bg-primary text-white' : 'bg-surface text-muted hover:bg-canvas'}`}>Colunas próprias</button>
+          </div>
+          {modo === 'colunas' && podeEditarColunas && (
+            <button onClick={() => setEditarColunas(true)} className="flex items-center gap-2 rounded-lg border border-primary/40 bg-primary-tint px-3 py-2 text-sm font-medium text-primary hover:bg-primary hover:text-white"><Columns3 size={15} /> Editar colunas</button>
+          )}
           <button onClick={() => carregar()} className="flex items-center gap-2 rounded-lg border border-line px-3 py-2 text-sm hover:bg-canvas"><RefreshCw size={15} /> Atualizar</button>
         </div>
       </div>
@@ -382,10 +414,18 @@ export default function AndamentoPage() {
               </div>
             </div>
           </div>
+          {modo === 'colunas' && dados.modo !== 'colunas' && (
+            <div className="mb-3 rounded-lg border border-dashed border-primary/40 bg-primary-tint p-4 text-sm text-ink">
+              <b>Nenhuma coluna própria ainda.</b> Crie colunas com os nomes que a equipe usa (ex.: Negociando, Aguardando comprovante, Rescisão) — os cards podem entrar sozinhos por dias de atraso ou ser arrastados entre elas. Enquanto isso, a esteira mostra as colunas da régua.
+              {podeEditarColunas
+                ? <button onClick={() => setEditarColunas(true)} className="ml-2 rounded bg-primary px-3 py-1 text-xs font-medium text-white">Criar colunas</button>
+                : <span className="ml-1 text-muted">Peça a um administrador para criar.</span>}
+            </div>
+          )}
           <div ref={esteiraRef} className="overflow-x-auto pb-3">
             <div className="flex gap-3" style={{ minWidth: 'min-content' }}>
               {dados.colunas
-                .filter((c) => !somenteComCards || c.cards.some(passaFiltro))
+                .filter((c) => !somenteComCards || c.cards.some(passaFiltro) || c.key.startsWith('col:')) // coluna própria vazia continua: é onde se solta o card
                 .map((c) => {
                 const cards = c.cards.filter(passaFiltro);
                 const quantidadeVisivel = visiveisPorColuna[c.key] ?? CARDS_POR_LOTE;
@@ -393,7 +433,16 @@ export default function AndamentoPage() {
                 const idsCol = selecionavelCol ? cards.map((x) => x.invoiceId) : [];
                 const todosCol = idsCol.length > 0 && idsCol.every((id) => sel.has(id));
                 return (
-                  <div key={c.key} className="flex w-72 shrink-0 flex-col rounded-lg border border-line bg-canvas">
+                  <div key={c.key}
+                    onDragOver={(e) => { if (arrastando && (c.key.startsWith('col:') || c.key === 'sem-coluna')) e.preventDefault(); }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const ids = (e.dataTransfer.getData('text/plain') || '').split(',').filter(Boolean);
+                      setArrastando(null);
+                      if (c.key.startsWith('col:')) moverPara(ids, c.colunaId!);
+                      else if (c.key === 'sem-coluna') moverPara(ids, null);
+                    }}
+                    className={`flex w-72 shrink-0 flex-col rounded-lg border bg-canvas transition ${arrastando && (c.key.startsWith('col:') || c.key === 'sem-coluna') ? 'border-primary/60 ring-2 ring-primary/20' : 'border-line'}`}>
                     <div className="rounded-t-lg border-t-4 bg-surface px-3 py-2.5" style={{ borderTopColor: corDaColuna(c.key) }}>
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex min-w-0 items-center gap-2">
@@ -404,6 +453,10 @@ export default function AndamentoPage() {
                         </div>
                         <span className="rounded-full bg-canvas px-2 py-0.5 text-xs font-medium text-muted">{cards.length}</span>
                       </div>
+                      {c.key.startsWith('col:') && c.diaMinimo !== null && c.diaMinimo !== undefined && (
+                        <div className="mt-0.5 text-[11px] text-muted">entra sozinho a partir de {c.diaMinimo < 0 ? `${-c.diaMinimo} dia(s) antes` : `D+${c.diaMinimo}`}</div>
+                      )}
+                      {c.key === 'sem-coluna' && <div className="mt-0.5 text-[11px] text-muted">arraste para uma coluna</div>}
                       {c.key === 'falharam' && idsCol.length > 0 && (
                         <button onClick={() => acao('disparar', idsCol)} disabled={busy} className="mt-2 flex w-full items-center justify-center gap-1.5 rounded border border-[#C8392F]/40 bg-danger-tint px-2 py-1 text-xs font-medium text-[#A32D2D] hover:opacity-90 disabled:opacity-60"><Send size={12} /> Reenviar todos</button>
                       )}
@@ -420,6 +473,15 @@ export default function AndamentoPage() {
                         return (
                           <div
                             key={card.invoiceId}
+                            draggable={dados.modo === 'colunas' && selecionavel}
+                            onDragStart={(e) => {
+                              // Arrastar um card selecionado leva a seleção inteira junto.
+                              const ids = sel.has(card.invoiceId) ? [...sel] : [card.invoiceId];
+                              e.dataTransfer.setData('text/plain', ids.join(','));
+                              e.dataTransfer.effectAllowed = 'move';
+                              setArrastando(card.invoiceId);
+                            }}
+                            onDragEnd={() => setArrastando(null)}
                             onClick={() => setNotaDe({ customerId: card.customerId, nome: card.nome, invoiceId: c.key !== 'encerradas' ? card.invoiceId : undefined })}
                             title="Abrir a linha do tempo do cliente"
                             className={`cursor-pointer rounded-lg border bg-surface p-2.5 shadow-sm transition ${marcado ? 'border-primary ring-1 ring-primary/40' : 'border-line hover:border-primary/40'}`}
@@ -449,6 +511,7 @@ export default function AndamentoPage() {
                               <div className="mt-1 text-[11px] text-muted">carteira: {card.carteira}</div>
                             )}
                             {card.pausada && <div className="mt-1 flex items-center gap-1 text-[11px] font-medium text-[#854F0B]"><PauseIcon size={11} /> cobrança pausada</div>}
+                            {card.colunaManual && <div className="mt-1 text-[10px] text-muted" title="Colocado nesta coluna à mão — não segue a regra de dias">movido à mão</div>}
                             {card.promessaSituacao === 'PAUSADA' && card.promessaAte && (
                               <div className="mt-1 flex items-center gap-1 rounded bg-danger-tint px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-danger" title="A régua não cobra este cliente até a data prometida">
                                 <PauseIcon size={11} /> Pausada por promessa · até {new Date(card.promessaAte).toLocaleDateString('pt-BR', { timeZone: 'UTC', day: '2-digit', month: '2-digit' })}
@@ -493,6 +556,7 @@ export default function AndamentoPage() {
           onEnviar={notaDe.invoiceId ? () => { const n = notaDe; setNotaDe(null); setMensagemPara({ ids: [n.invoiceId!], nome: n.nome }); } : undefined}
         />
       )}
+      {editarColunas && <EditorColunas onClose={() => setEditarColunas(false)} onSalvo={() => carregar(true)} />}
       {mensagemPara && (
         <EnviarModal
           invoiceIds={mensagemPara.ids}
@@ -508,6 +572,13 @@ export default function AndamentoPage() {
             <span className="text-sm font-medium text-ink">{sel.size} selecionada(s)</span>
             <div className="ml-auto flex flex-wrap gap-2">
               <button onClick={() => setMensagemPara({ ids: [...sel] })} disabled={busy} className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-1.5 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-60"><Send size={14} /> Enviar</button>
+              {dados?.modo === 'colunas' && (dados.colunasProprias?.length ?? 0) > 0 && (
+                <select value="" onChange={(e) => { const v = e.target.value; if (v) moverPara([...sel], v === 'sem' ? null : v); }} disabled={busy} aria-label="Mover para a coluna" className="rounded-lg border border-line bg-surface px-3 py-1.5 text-sm outline-none focus:border-primary">
+                  <option value="">Mover para…</option>
+                  {dados.colunasProprias!.map((cp) => <option key={cp.id} value={cp.id}>{cp.nome}</option>)}
+                  <option value="sem">Sem coluna (volta à regra de dias)</option>
+                </select>
+              )}
               <button onClick={() => acao('pausar')} disabled={busy} className="flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm hover:bg-canvas disabled:opacity-60"><Pause size={14} /> Pausar cobrança</button>
               <button onClick={() => acao('retomar')} disabled={busy} className="flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm hover:bg-canvas disabled:opacity-60"><Play size={14} /> Retomar</button>
               <button onClick={limpar} className="rounded-lg px-3 py-1.5 text-sm text-muted hover:text-ink">Limpar</button>
@@ -834,6 +905,93 @@ function TimelineModal({ customerId, nome, onClose, onChange, onEnviar }: { cust
           <Timeline customerId={customerId} onChange={onChange} />
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Editor das colunas próprias da esteira: nome, regra opcional "entra sozinho a
+ * partir do dia X de atraso", ordem e exclusão. Cards movidos à mão ficam onde
+ * foram colocados; os demais seguem a regra de dias.
+ */
+function EditorColunas({ onClose, onSalvo }: { onClose: () => void; onSalvo: () => void }) {
+  const [colunas, setColunas] = useState<ColunaPropria[]>([]);
+  const [novo, setNovo] = useState({ nome: '', dia: '' });
+  const [erro, setErro] = useState('');
+  const [busy, setBusy] = useState(false);
+  const carregarLista = useCallback(() => { api<ColunaPropria[]>('/reguas/esteira-colunas').then(setColunas).catch(() => {}); }, []);
+  useEffect(() => { carregarLista(); }, [carregarLista]);
+
+  const dia = (v: string) => (v.trim() === '' ? null : Number(v));
+  async function rodar(fn: () => Promise<unknown>) {
+    setBusy(true); setErro('');
+    try { await fn(); carregarLista(); onSalvo(); } catch (e) { setErro(e instanceof Error ? e.message : 'Erro'); }
+    finally { setBusy(false); }
+  }
+  const criar = () => rodar(async () => {
+    await api('/reguas/esteira-colunas', { method: 'POST', body: { nome: novo.nome, diaMinimo: dia(novo.dia) } });
+    setNovo({ nome: '', dia: '' });
+  });
+  const salvar = (c: ColunaPropria, nome: string, d: string) => rodar(() => api(`/reguas/esteira-colunas/${c.id}`, { method: 'PUT', body: { nome, diaMinimo: dia(d) } }));
+  const excluir = (c: ColunaPropria) => { if (window.confirm(`Excluir a coluna "${c.nome}"? Os cards dela voltam a seguir a regra de dias.`)) rodar(() => api(`/reguas/esteira-colunas/${c.id}`, { method: 'DELETE' })); };
+  const mover = (i: number, d: -1 | 1) => {
+    const ids = colunas.map((c) => c.id);
+    const j = i + d;
+    if (j < 0 || j >= ids.length) return;
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+    rodar(() => api('/reguas/esteira-colunas/ordem', { method: 'POST', body: { ids } }));
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-surface p-6 shadow-lg">
+        <div className="mb-1 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-ink">Colunas próprias da esteira</h2>
+          <button onClick={onClose} aria-label="Fechar" className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>
+        </div>
+        <p className="mb-4 text-sm text-muted">
+          Crie as etapas que a equipe usa, independentes da régua. Com <b className="text-ink">&quot;entra sozinho a partir do dia&quot;</b> o card cai na coluna quando o atraso chega lá
+          (negativo = antes do vencimento); sem ele, o card só entra arrastando. Arrastar sempre vale mais que a regra. &quot;Pagas&quot; e &quot;Sem contato&quot; continuam automáticas.
+        </p>
+        <div className="mb-4 space-y-1.5">
+          {colunas.length === 0 && <p className="text-sm text-muted">Nenhuma coluna ainda.</p>}
+          {colunas.map((c, i) => <LinhaColuna key={c.id} c={c} i={i} total={colunas.length} busy={busy} onSalvar={salvar} onExcluir={excluir} onMover={mover} />)}
+        </div>
+        <div className="flex flex-wrap items-end gap-2 rounded border border-line bg-canvas p-3">
+          <label className="text-sm"><span className="mb-1 block text-xs text-muted">Nova coluna</span>
+            <input value={novo.nome} onChange={(e) => setNovo({ ...novo, nome: e.target.value })} placeholder="Ex.: Negociando" maxLength={40} className="w-52 rounded border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-primary" />
+          </label>
+          <label className="text-sm"><span className="mb-1 block text-xs text-muted">Entra sozinho a partir do dia (opcional)</span>
+            <input value={novo.dia} onChange={(e) => setNovo({ ...novo, dia: e.target.value.replace(/[^\d-]/g, '') })} placeholder="ex.: 5" inputMode="numeric" className="w-28 rounded border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-primary" />
+          </label>
+          <button onClick={criar} disabled={busy || !novo.nome.trim()} className="rounded bg-primary px-4 py-2 text-sm font-medium text-white disabled:opacity-60">Adicionar</button>
+        </div>
+        {erro && <p className="mt-2 text-sm text-danger">{erro}</p>}
+        <div className="mt-4 flex justify-end"><button onClick={onClose} className="rounded border border-line px-4 py-2 text-sm hover:bg-canvas">Fechar</button></div>
+      </div>
+    </div>
+  );
+}
+
+function LinhaColuna({ c, i, total, busy, onSalvar, onExcluir, onMover }: {
+  c: ColunaPropria; i: number; total: number; busy: boolean;
+  onSalvar: (c: ColunaPropria, nome: string, dia: string) => void; onExcluir: (c: ColunaPropria) => void; onMover: (i: number, d: -1 | 1) => void;
+}) {
+  const [nome, setNome] = useState(c.nome);
+  const [dia, setDia] = useState(c.diaMinimo === null ? '' : String(c.diaMinimo));
+  const mudou = nome.trim() !== c.nome || dia !== (c.diaMinimo === null ? '' : String(c.diaMinimo));
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded border border-line px-3 py-2">
+      <div className="flex flex-col">
+        <button onClick={() => onMover(i, -1)} disabled={busy || i === 0} aria-label="Subir" className="text-muted hover:text-primary disabled:opacity-30"><ChevronLeft size={14} className="rotate-90" /></button>
+        <button onClick={() => onMover(i, 1)} disabled={busy || i === total - 1} aria-label="Descer" className="text-muted hover:text-primary disabled:opacity-30"><ChevronRight size={14} className="rotate-90" /></button>
+      </div>
+      <input value={nome} onChange={(e) => setNome(e.target.value)} maxLength={40} aria-label="Nome da coluna" className="w-52 rounded border border-line px-2 py-1 text-sm outline-none focus:border-primary" />
+      <label className="flex items-center gap-1 text-xs text-muted">a partir do dia
+        <input value={dia} onChange={(e) => setDia(e.target.value.replace(/[^\d-]/g, ''))} placeholder="só à mão" inputMode="numeric" aria-label="Entra sozinho a partir do dia" className="w-20 rounded border border-line px-2 py-1 text-sm outline-none focus:border-primary" />
+      </label>
+      {mudou && <button onClick={() => onSalvar(c, nome, dia)} disabled={busy} className="rounded bg-primary px-3 py-1 text-xs font-medium text-white disabled:opacity-60">Salvar</button>}
+      <button onClick={() => onExcluir(c)} disabled={busy} className="ml-auto rounded border border-line px-3 py-1 text-xs text-danger hover:bg-danger-tint disabled:opacity-60">Excluir</button>
     </div>
   );
 }
