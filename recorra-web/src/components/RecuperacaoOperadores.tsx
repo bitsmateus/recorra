@@ -143,7 +143,7 @@ export function RecuperacaoOperadores() {
 
           <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-5">
             <Kpi label="Disparos da régua" valor={num(t.disparos.regua + t.disparos.campanha)} detalhe={t.disparos.campanha ? `${num(t.disparos.campanha)} de campanha` : 'automáticos'} cor={COR.REGUA} />
-            <Kpi label="Contatos manuais" valor={num(t.disparos.manual)} detalhe="enviados pelas operadoras" cor={COR.MANUAL} />
+            <Kpi label="Contatos manuais" valor={num(t.disparos.manual)} detalhe="das operadoras (inclui chat NX)" cor={COR.MANUAL} />
             <Kpi label="Recuperado pela régua" valor={brl(t.recuperado.REGUA.valor + t.recuperado.CAMPANHA.valor)} detalhe={`${num(t.recuperado.REGUA.faturas + t.recuperado.CAMPANHA.faturas)} faturas`} cor={COR.REGUA} />
             <Kpi label="Recuperado no manual" valor={brl(t.recuperado.MANUAL.valor)} detalhe={`${num(t.recuperado.MANUAL.faturas)} faturas`} cor={COR.MANUAL} />
             <Kpi label="Pagou sem contato" valor={brl(t.recuperado.SEM_CONTATO.valor)} detalhe={`${num(t.recuperado.SEM_CONTATO.faturas)} faturas · fora da conta`} />

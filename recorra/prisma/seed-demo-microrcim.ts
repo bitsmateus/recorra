@@ -70,10 +70,16 @@ async function main() {
   });
 
   // ---------------- Equipe e carteiras ----------------
-  const c1 = await prisma.carteira.create({ data: { tenantId: TENANT_ID, nome: 'Cobrança 1', diaMinimo: 5, distribuicao: 'BALANCEADA' } });
-  const c2 = await prisma.carteira.create({ data: { tenantId: TENANT_ID, nome: 'Cobrança 2', diaMinimo: 30, distribuicao: 'BALANCEADA' } });
-  const user = (nome: string, email: string, role: 'OWNER' | 'ADMIN' | 'OPERADOR', carteiraId?: string) =>
-    prisma.user.create({ data: { tenantId: TENANT_ID, nome, email, senhaHash, role, emailVerify: true, carteiraId } });
+  // Filas e IDs do NX fictícios (itens 6/7): equipe 10/20, fila pessoal 11–14, usuários 101–104.
+  const c1 = await prisma.carteira.create({ data: { tenantId: TENANT_ID, nome: 'Cobrança 1', diaMinimo: 5, distribuicao: 'BALANCEADA', nxQueueId: 10 } });
+  const c2 = await prisma.carteira.create({ data: { tenantId: TENANT_ID, nome: 'Cobrança 2', diaMinimo: 30, distribuicao: 'BALANCEADA', nxQueueId: 20 } });
+  let nxSeq = 0;
+  const user = (nome: string, email: string, role: 'OWNER' | 'ADMIN' | 'OPERADOR', carteiraId?: string) => {
+    const nx = carteiraId ? ++nxSeq : 0;
+    return prisma.user.create({
+      data: { tenantId: TENANT_ID, nome, email, senhaHash, role, emailVerify: true, carteiraId, ...(nx ? { nxUserId: 100 + nx, nxQueueId: 10 + nx } : {}) },
+    });
+  };
   await user('Antônio Júnior', 'antonio@microrcim.demo', 'OWNER');
   await user('Tais Oliveira', 'tais@microrcim.demo', 'ADMIN');
   const lais = await user('Laís', 'lais@microrcim.demo', 'OPERADOR', c1.id);
@@ -130,7 +136,7 @@ async function main() {
 
   // ---------------- Clientes e mensalidades ----------------
   const meses = [-2, -1, 0].map((m) => ({ ano: hoje.getUTCFullYear(), mes: hoje.getUTCMonth() + m }));
-  type Toque = { data: Date; origem: 'REGUA' | 'MANUAL'; canal: ChannelType; contaId: string; userId?: string; texto: string; passo?: number };
+  type Toque = { data: Date; origem: 'REGUA' | 'MANUAL'; canal: ChannelType; contaId: string; userId?: string; texto: string; passo?: number; chat?: boolean };
   const dispatches: Record<string, unknown>[] = [];
   const notas: Record<string, unknown>[] = [];
   const pagas: { id: string; customerId: string; pagoEm: Date; diasAtraso: number }[] = [];
@@ -180,9 +186,13 @@ async function main() {
         if (offset >= cartAtual.diaMinimo && offset <= diasAtrasoFim) {
           const dataToque = horario(new Date(venc.getTime() + offset * DIA), 9, 17);
           if (dataToque < (pagou ? horario(diaPag!, 18, 18) : agora)) {
+            // Parte das conversas acontece direto no chat do NX (registrada pelo webhook — item 7).
+            const chat = rnd() < 0.35;
             toques.push({
-              data: dataToque, origem: 'MANUAL', canal: 'NX_SYSTEMS', contaId: linhaDaCarteira[cartAtual.id], userId: op,
-              texto: `Olá ${nome.split(' ')[0]}, aqui é da Microrcim. Vi que a fatura de ${brl(plano.valor)} está em aberto — posso te ajudar a regularizar hoje?`,
+              data: dataToque, origem: 'MANUAL', canal: 'NX_SYSTEMS', contaId: linhaDaCarteira[cartAtual.id], userId: op, chat,
+              texto: chat
+                ? `Oi ${nome.split(' ')[0]}, tudo bem? Conseguimos combinar o pagamento da fatura de ${brl(plano.valor)} hoje?`
+                : `Olá ${nome.split(' ')[0]}, aqui é da Microrcim. Vi que a fatura de ${brl(plano.valor)} está em aberto — posso te ajudar a regularizar hoje?`,
             });
             if (rnd() < 0.35) {
               notas.push({
@@ -218,8 +228,9 @@ async function main() {
         const falhou = t.origem === 'REGUA' && rnd() < 0.03;
         dispatches.push({
           tenantId: TENANT_ID, customerId: cliente.id, invoiceId: inv.id, channelAccountId: t.contaId,
-          ruleId: regua.id, ruleNome: regua.nome, origem: t.origem, userId: t.userId ?? null,
-          canal: t.canal, cadeiaCanais: [t.canal], template: t.texto,
+          ruleId: t.chat ? null : regua.id, ruleNome: t.chat ? null : regua.nome, origem: t.origem, userId: t.userId ?? null,
+          canal: t.canal, cadeiaCanais: [t.canal], template: t.chat ? 'nx_chat' : t.texto,
+          stepId: t.chat ? `nxchat:${t.contaId}:${inv.id}:${t.data.toISOString().slice(0, 10)}` : null,
           conteudo: t.texto.replace('{{nome}}', nome.split(' ')[0]).replace(/\{\{valor\}\}/g, brl(plano.valor))
             .replace('{{vencimento}}', venc.toLocaleDateString('pt-BR', { timeZone: 'UTC' })).replace(/\{\{(pix|link)\}\}/g, '(link de pagamento)'),
           status: falhou ? 'FALHA' : 'ENVIADO', erro: falhou ? 'Número sem WhatsApp' : null,
@@ -254,6 +265,23 @@ async function main() {
   }
   // ---------------- Distribuição automática dos vencidos de hoje ----------------
   const dist = await new DistribuicaoService(prisma as never).distribuirTenant(TENANT_ID);
+
+  // ---------------- Exemplos de transferência de fila no NX (item 6) ----------------
+  const respondendo = await prisma.customer.findMany({
+    where: { tenantId: TENANT_ID, responsavelId: { not: null }, invoices: { some: { status: 'VENCIDA' } } },
+    select: { id: true, responsavelId: true }, take: 25,
+  });
+  const usuarios = new Map((await prisma.user.findMany({ where: { tenantId: TENANT_ID }, select: { id: true, nxQueueId: true, carteiraId: true } })).map((u) => [u.id, u]));
+  await prisma.nxTicketRoute.createMany({
+    data: respondendo.map((c, k) => {
+      const u = usuarios.get(c.responsavelId!)!;
+      return {
+        tenantId: TENANT_ID, channelAccountId: u.carteiraId === c2.id ? l3000.id : l2000.id, ticketId: String(5000 + k),
+        queueId: u.nxQueueId ?? 10, customerId: c.id, responsavelId: u.id, motivo: 'responsavel',
+        createdAt: new Date(agora.getTime() - entre(1, 72) * 3_600_000),
+      };
+    }),
+  });
 
   const [nClientes, nFaturas, nDisp, nManuais, abertas] = await Promise.all([
     prisma.customer.count({ where: { tenantId: TENANT_ID } }),

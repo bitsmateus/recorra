@@ -355,13 +355,13 @@ export class RulesService {
 
   async createCarteira(tenantId: string, dto: SaveCarteiraDto) {
     await this.assertDiaMinimoLivre(tenantId, dto.diaMinimo);
-    return this.prisma.carteira.create({ data: { tenantId, nome: dto.nome.trim(), diaMinimo: dto.diaMinimo, ...(dto.distribuicao ? { distribuicao: dto.distribuicao } : {}) } });
+    return this.prisma.carteira.create({ data: { tenantId, nome: dto.nome.trim(), diaMinimo: dto.diaMinimo, ...(dto.distribuicao ? { distribuicao: dto.distribuicao } : {}), ...(dto.nxQueueId !== undefined ? { nxQueueId: dto.nxQueueId } : {}) } });
   }
 
   async updateCarteira(tenantId: string, id: string, dto: SaveCarteiraDto) {
     await this.prisma.carteira.findFirstOrThrow({ where: { id, tenantId } });
     await this.assertDiaMinimoLivre(tenantId, dto.diaMinimo, id);
-    return this.prisma.carteira.update({ where: { id }, data: { nome: dto.nome.trim(), diaMinimo: dto.diaMinimo, ...(dto.distribuicao ? { distribuicao: dto.distribuicao } : {}) } });
+    return this.prisma.carteira.update({ where: { id }, data: { nome: dto.nome.trim(), diaMinimo: dto.diaMinimo, ...(dto.distribuicao ? { distribuicao: dto.distribuicao } : {}), ...(dto.nxQueueId !== undefined ? { nxQueueId: dto.nxQueueId } : {}) } });
   }
 
   /** Remove a carteira; operadores nela ficam sem restrição (User.carteiraId vira null, ON DELETE SET NULL). */

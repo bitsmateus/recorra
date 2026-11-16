@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { NumeroConta } from '@/components/NumeroConta';
+import { NxWebhook } from '@/components/NxWebhook';
 import { Plus, X, Trash2, Loader2, CheckCircle2, AlertCircle, Webhook, MessageSquare } from 'lucide-react';
 import { api } from '@/lib/api';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -58,6 +59,7 @@ export default function EnvioIntegracoes() {
               </div>
               <NumeroConta c={c} />
               <div className="text-xs text-muted">{L.label}</div>
+              {c.canal === 'NX_SYSTEMS' && <NxWebhook conta={c} />}
             </div>
           );
         })}

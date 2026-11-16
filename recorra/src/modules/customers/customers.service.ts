@@ -435,7 +435,7 @@ export class CustomersService {
         where: { tenantId, customerId, status: { not: 'FILA' } },
         orderBy: { createdAt: 'desc' },
         take: 150,
-        select: { id: true, canal: true, status: true, conteudo: true, enviadoEm: true, createdAt: true, origem: true, ruleNome: true, user: { select: { nome: true } } },
+        select: { id: true, canal: true, status: true, conteudo: true, enviadoEm: true, createdAt: true, origem: true, ruleNome: true, template: true, assunto: true, user: { select: { nome: true } } },
       }),
     ]);
     const itens = [
@@ -459,7 +459,8 @@ export class CustomersService {
         status: d.status as string | undefined,
         // Automático (régua) x manual (com o operador que enviou).
         origem: d.origem as string | null,
-        autor: d.origem === 'MANUAL' ? d.user?.nome ?? null : null,
+        autor: d.origem === 'MANUAL' ? d.user?.nome ?? (d.template === 'nx_chat' ? d.assunto?.replace(/^Atendente no NX: /, '') ?? null : null) : null,
+        chatNx: d.template === 'nx_chat',
         regua: d.ruleNome,
       })),
     ];

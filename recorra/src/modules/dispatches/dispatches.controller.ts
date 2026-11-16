@@ -24,7 +24,12 @@ const INCLUDE = {
 };
 
 /** Rótulo da origem para a tela/CSV. Disparos antigos sem `origem` caem na regra antiga. */
-export function rotuloOrigem(r: { origem?: string | null; campaignId: string | null; ruleId: string | null; ruleNome: string | null; template: string | null; user?: { nome: string } | null }): string | null {
+export function rotuloOrigem(r: { origem?: string | null; campaignId: string | null; ruleId: string | null; ruleNome: string | null; template: string | null; assunto?: string | null; user?: { nome: string } | null }): string | null {
+  // Conversa da atendente direto no chat do NX (webhook) — também é contato manual.
+  if (r.template === 'nx_chat') {
+    const quem = r.user?.nome ?? r.assunto?.replace(/^Atendente no NX: /, '') ?? null;
+    return quem ? `Manual · ${quem} (chat NX)` : 'Manual (chat NX)';
+  }
   const origem = r.origem
     ?? (r.campaignId ? 'CAMPANHA' : r.ruleId || r.ruleNome ? 'REGUA' : r.template === 'confirmacao_pagamento' ? 'CONFIRMACAO' : null);
   switch (origem) {
@@ -56,6 +61,7 @@ interface LinhaBanco {
   campaignId: string | null;
   ruleId: string | null;
   ruleNome: string | null;
+  assunto?: string | null;
   origem?: string | null;
   userId?: string | null;
   template: string | null;
@@ -221,7 +227,7 @@ export class DispatchesController {
         regua: r.ruleNome ?? (r.ruleId ? rmap.get(r.ruleId) ?? null : null),
         origem: rotuloOrigem(r),
         tipoOrigem: r.origem ?? null,
-        operador: r.user?.nome ?? null,
+        operador: r.user?.nome ?? (r.template === 'nx_chat' ? r.assunto?.replace(/^Atendente no NX: /, '') ?? null : null),
         conteudo: cortar ? texto!.slice(0, PREVIA) : texto,
         conteudoTruncado: cortar,
         status: r.status,

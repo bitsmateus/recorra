@@ -15,4 +15,10 @@ export class SaveCarteiraDto {
   @IsOptional()
   @IsIn(['MANUAL', 'BALANCEADA', 'SEQUENCIAL'])
   distribuicao?: 'MANUAL' | 'BALANCEADA' | 'SEQUENCIAL';
+
+  // Fila da equipe no NX (respostas dos clientes desta carteira). null limpa.
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  nxQueueId?: number | null;
 }

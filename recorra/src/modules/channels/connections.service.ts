@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { ChannelType } from '@prisma/client';
 import axios from 'axios';
+import { randomBytes } from 'node:crypto';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { CryptoService } from '@/common/crypto/crypto.service';
 import { env } from '@/config/env';
@@ -9,6 +10,7 @@ import { ChannelCredentials } from './message-channel.interface';
 import { erroMeta, listarTemplates, wabaDoPhoneId } from './meta-graph';
 
 type Creds = {
+  webhookSecret?: string; // token do webhook do chat NX (itens 6/7)
   apiUrl?: string; apiKey?: string; instance?: string; token?: string; phoneId?: string; from?: string; provider?: string;
   // E-mail: Resend (apiKey) ou SMTP próprio
   emailProvider?: 'resend' | 'smtp';
@@ -124,6 +126,8 @@ export class ConnectionsService {
           wabaId: canal.wabaId ?? null,
           // O token informado à mão sobrevive às sincronizações.
           bmToken: decifradas.find((c) => c.creds.nxChannelId === nxChannelId)?.creds.bmToken ?? null,
+          // Idem o token do webhook do chat: sem isto, sincronizar quebraria a URL já cadastrada no NX.
+          webhookSecret: decifradas.find((c) => c.creds.nxChannelId === nxChannelId)?.creds.webhookSecret ?? undefined,
         };
         const apelido = canal.name?.trim() || `Canal NX #${canal.id}`;
         const existente = decifradas.find((c) => c.creds.nxChannelId === nxChannelId);
@@ -179,6 +183,36 @@ export class ConnectionsService {
   }
 
   // ---------- criação por tipo ----------
+
+  async webhookNx(tenantId: string, id: string, novo = false) {
+    const conta = await this.prisma.channelAccount.findFirst({ where: { id, tenantId, canal: 'NX_SYSTEMS' } });
+    if (!conta) throw new NotFoundException('Conexão NX não encontrada');
+    const creds = this.creds(conta.id, conta.credentials);
+    let secret = creds.webhookSecret;
+    if (!secret || novo) {
+      secret = randomBytes(24).toString('base64url');
+      await this.prisma.channelAccount.update({ where: { id }, data: { credentials: this.crypto.encryptJson({ ...creds, webhookSecret: secret }) } });
+    }
+    return { caminho: `/webhooks/nx-chat/${id}/${secret}` };
+  }
+
+  async eventosNx(tenantId: string, id: string) {
+    const conta = await this.prisma.channelAccount.findFirst({ where: { id, tenantId, canal: 'NX_SYSTEMS' }, select: { id: true } });
+    if (!conta) throw new NotFoundException('Conexão NX não encontrada');
+    const [rotas, contatos] = await Promise.all([
+      this.prisma.nxTicketRoute.findMany({ where: { tenantId, channelAccountId: id }, orderBy: { createdAt: 'desc' }, take: 15 }),
+      this.prisma.messageDispatch.findMany({
+        where: { tenantId, channelAccountId: id, template: 'nx_chat' }, orderBy: { createdAt: 'desc' }, take: 15,
+        select: { id: true, createdAt: true, conteudo: true, assunto: true, user: { select: { nome: true } }, customer: { select: { nome: true } } },
+      }),
+    ]);
+    const ids = [...new Set(rotas.map((r) => r.customerId).filter(Boolean) as string[])];
+    const nomes = new Map((await this.prisma.customer.findMany({ where: { id: { in: ids } }, select: { id: true, nome: true } })).map((c) => [c.id, c.nome]));
+    return {
+      transferencias: rotas.map((r) => ({ quando: r.createdAt, ticketId: r.ticketId, fila: r.queueId, motivo: r.motivo, cliente: r.customerId ? nomes.get(r.customerId) ?? null : null })),
+      contatos: contatos.map((c) => ({ quando: c.createdAt, cliente: c.customer.nome, atendente: c.user?.nome ?? c.assunto?.replace(/^Atendente no NX: /, '') ?? '—', texto: c.conteudo })),
+    };
+  }
 
   async definirNumero(tenantId: string, id: string, numero?: string) {
     const conta = await this.prisma.channelAccount.findFirst({ where: { id, tenantId }, select: { id: true } });

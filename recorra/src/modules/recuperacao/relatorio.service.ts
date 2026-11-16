@@ -36,7 +36,7 @@ export class RelatorioRecuperacaoService {
       // e campanha contam para a responsável pelo cliente (a "carteira" dela).
       this.prisma.$queryRaw<LinhaDisparo[]>`
         SELECT d.origem::text AS origem, d.canal::text AS canal, d."channelAccountId" AS "contaId",
-               CASE WHEN d.origem = 'MANUAL' THEN d."userId" ELSE c."responsavelId" END AS "operadorId",
+               CASE WHEN d.origem = 'MANUAL' AND d."userId" IS NOT NULL THEN d."userId" ELSE c."responsavelId" END AS "operadorId",
                count(*)::int AS n
           FROM message_dispatches d JOIN customers c ON c.id = d."customerId"
          WHERE d."tenantId" = ${tenantId}
@@ -45,7 +45,7 @@ export class RelatorioRecuperacaoService {
            AND d."createdAt" BETWEEN ${p.gte} AND ${p.lte}
          GROUP BY 1,2,3,4`,
       this.prisma.$queryRaw<{ operadorId: string | null; n: number }[]>`
-        SELECT CASE WHEN d.origem = 'MANUAL' THEN d."userId" ELSE c."responsavelId" END AS "operadorId",
+        SELECT CASE WHEN d.origem = 'MANUAL' AND d."userId" IS NOT NULL THEN d."userId" ELSE c."responsavelId" END AS "operadorId",
                count(DISTINCT d."customerId")::int AS n
           FROM message_dispatches d JOIN customers c ON c.id = d."customerId"
          WHERE d."tenantId" = ${tenantId}

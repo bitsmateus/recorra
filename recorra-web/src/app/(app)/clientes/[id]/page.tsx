@@ -15,7 +15,7 @@ interface Detalhe {
   faturas: { id: string; valor: number; vencimento: string; status: string; metodo: string; origem?: string; pixCopiaCola?: string; linkPagamento?: string }[];
   disparos: {
     id: string; canal: string; conteudo?: string; status: string; createdAt: string;
-    origem?: string | null; ruleNome?: string | null; user?: { nome: string } | null;
+    origem?: string | null; ruleNome?: string | null; user?: { nome: string } | null; template?: string | null; assunto?: string | null;
     channelAccount?: { apelido: string | null; numero: string | null } | null;
   }[];
   acordos: { id: string; valorOriginal: number; valorAcordado: number; parcelas: number; status: string }[];
@@ -33,6 +33,7 @@ const canalLabel: Record<string, string> = { WHATSAPP_CLOUD: 'WhatsApp', WHATSAP
 
 /** Automático (régua) x manual (quem enviou) — a mesma leitura do relatório de recuperação. */
 function origemLabel(m: Detalhe['disparos'][number]): string {
+  if (m.template === 'nx_chat') return `Manual · ${m.user?.nome ?? m.assunto?.replace(/^Atendente no NX: /, '') ?? 'atendente'} (chat NX)`;
   if (m.origem === 'MANUAL') return `Manual · ${m.user?.nome ?? 'operador removido'}`;
   if (m.origem === 'CAMPANHA') return 'Campanha';
   if (m.origem === 'CONFIRMACAO') return 'Confirmação de pagamento';

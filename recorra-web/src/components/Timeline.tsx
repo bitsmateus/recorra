@@ -18,12 +18,13 @@ interface TimelineItem {
   canal?: string;
   status?: string;
   origem?: string | null; // disparo: REGUA | MANUAL | CAMPANHA | CONFIRMACAO
+  chatNx?: boolean; // conversa da atendente direto no chat do NX
   regua?: string | null;
 }
 
 /** Quem originou o disparo: régua (automático) ou o operador que enviou (manual). */
 function origemDisparo(it: TimelineItem): string {
-  if (it.origem === 'MANUAL') return `Manual · ${it.autor ?? 'operador removido'}`;
+  if (it.origem === 'MANUAL') return `Manual · ${it.autor ?? (it.chatNx ? 'atendente' : 'operador removido')}${it.chatNx ? ' (chat NX)' : ''}`;
   if (it.origem === 'CAMPANHA') return 'Campanha';
   if (it.origem === 'CONFIRMACAO') return 'Confirmação de pagamento';
   return it.regua ? `Automático · ${it.regua}` : 'Automático (régua)';

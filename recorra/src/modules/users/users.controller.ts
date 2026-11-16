@@ -49,6 +49,14 @@ export class UsersController {
     return this.users.updateCarteira(tenantId, actor, id, carteiraId || null);
   }
 
+  /** Vínculo com o NX (ID do usuário e fila pessoal) — itens de fila e chat do NX. */
+  @Patch(':id/nx')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('OWNER', 'ADMIN')
+  nx(@TenantId() tenantId: string, @CurrentUser() actor: AuthUser, @Param('id') id: string, @Body('nxUserId') nxUserId?: unknown, @Body('nxQueueId') nxQueueId?: unknown) {
+    return this.users.updateNx(tenantId, actor, id, nxUserId, nxQueueId);
+  }
+
   @Patch(':id/ativo')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('OWNER', 'ADMIN')

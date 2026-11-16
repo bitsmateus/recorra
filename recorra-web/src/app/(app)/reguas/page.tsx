@@ -1177,7 +1177,7 @@ function NichoGallery({ onClone }: { onClone: () => void }) {
 }
 
 type ModoDistribuicao = 'MANUAL' | 'BALANCEADA' | 'SEQUENCIAL';
-interface Carteira { id: string; nome: string; diaMinimo: number; distribuicao?: ModoDistribuicao }
+interface Carteira { id: string; nome: string; diaMinimo: number; distribuicao?: ModoDistribuicao; nxQueueId?: number | null }
 interface ResumoDistribuicao {
   carteira: string; modo: ModoDistribuicao; clientes: number; atribuidos: number; mantidos: number;
   operadores: { nome: string; clientes: number }[]; aviso?: string;
@@ -1287,6 +1287,7 @@ function CarteirasCard() {
                     className="rounded border border-line px-2 py-1 text-xs outline-none focus:border-primary" aria-label={`Distribuição da carteira ${c.nome}`}>
                     {MODOS.map((m) => <option key={m.valor} value={m.valor}>Distribuição: {m.label}</option>)}
                   </select>
+                  <FilaNx c={c} onSalvar={(nxQueueId) => api(`/reguas/carteiras/${c.id}`, { method: 'PUT', body: { nome: c.nome, diaMinimo: c.diaMinimo, nxQueueId } }).then(carregar).catch((e) => setMsg(e instanceof Error ? e.message : 'Erro'))} />
                   <button onClick={() => setEditando(c)} className="ml-auto rounded border border-line px-3 py-1 text-xs hover:bg-canvas">Editar</button>
                   <button onClick={() => excluir(c)} disabled={busy} className="rounded border border-line px-3 py-1 text-xs text-danger hover:bg-danger-tint disabled:opacity-60">Excluir</button>
                 </>
@@ -1400,5 +1401,18 @@ function AbStats() {
         ))}
       </div>
     </div>
+  );
+}
+
+/** Fila da equipe no NX: as respostas dos clientes desta carteira são transferidas para ela. */
+function FilaNx({ c, onSalvar }: { c: Carteira; onSalvar: (nxQueueId: number | null) => void }) {
+  const atual = c.nxQueueId ? String(c.nxQueueId) : '';
+  const [v, setV] = useState(atual);
+  return (
+    <label className="flex items-center gap-1 text-xs text-muted" title="ID da fila desta equipe no NX: quando um cliente desta carteira responde no chat, o atendimento vai para ela (se a responsável não tiver fila própria)">
+      fila no NX
+      <input inputMode="numeric" value={v} onChange={(e) => setV(e.target.value.replace(/\D/g, ''))} onBlur={() => { if (v !== atual) onSalvar(v ? Number(v) : null); }}
+        placeholder="—" aria-label={`Fila no NX da carteira ${c.nome}`} className="w-16 rounded border border-line px-2 py-1 text-xs outline-none focus:border-primary" />
+    </label>
   );
 }

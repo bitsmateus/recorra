@@ -63,6 +63,24 @@ export class ConnectionsController {
     return this.connections.definirNumero(tenantId, id, numero);
   }
 
+  /**
+   * Webhook do chat NX desta conta (itens 6/7: fila da responsável + contato manual
+   * da atendente). Gera o token na primeira vez; `novo: true` troca o token (a URL
+   * antiga para de funcionar). Devolve só o caminho — o painel monta com o host da API.
+   */
+  @Post(':id/webhook-nx')
+  @Roles('OWNER', 'ADMIN')
+  webhookNx(@TenantId() tenantId: string, @Param('id') id: string, @Body('novo') novo?: boolean) {
+    return this.connections.webhookNx(tenantId, id, novo === true);
+  }
+
+  /** Últimas transferências de fila e contatos do chat recebidos por esta conta (diagnóstico). */
+  @Get(':id/webhook-nx/eventos')
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
+  eventosNx(@TenantId() tenantId: string, @Param('id') id: string) {
+    return this.connections.eventosNx(tenantId, id);
+  }
+
   @Get(':id/qrcode')
   qrcode(@TenantId() tenantId: string, @Param('id') id: string) {
     return this.connections.qrcode(tenantId, id);

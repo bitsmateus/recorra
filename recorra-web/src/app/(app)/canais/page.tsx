@@ -6,6 +6,7 @@ import { api } from '@/lib/api';
 import { PageTitle } from '@/components/ui';
 import PlataformasEnvio from '@/components/PlataformasEnvio';
 import { NumeroConta } from '@/components/NumeroConta';
+import { NxWebhook } from '@/components/NxWebhook';
 import ConfirmacaoPagamento from '@/components/ConfirmacaoPagamento';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 
@@ -179,6 +180,7 @@ function CanalCard({ c, onExcluir, onQr, onToken }: { c: Conexao; onExcluir: (c:
         )}
         {tipo?.qr && c.status !== 'CONECTADO' && <button onClick={() => onQr(c)} className="text-xs font-medium text-primary hover:underline">Conectar (QR)</button>}
       </div>
+      {c.canal === 'NX_SYSTEMS' && <NxWebhook conta={c} />}
     </div>
   );
 }

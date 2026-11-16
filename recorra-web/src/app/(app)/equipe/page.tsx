@@ -16,6 +16,8 @@ interface User {
   emailVerify: boolean;
   twoFaEnabled: boolean;
   carteiraId: string | null;
+  nxUserId?: number | null;
+  nxQueueId?: number | null;
 }
 interface Carteira { id: string; nome: string; diaMinimo: number }
 
@@ -117,6 +119,7 @@ export default function EquipePage() {
               <th className="px-4 py-3 font-medium">Usuário</th>
               <th className="px-4 py-3 font-medium">Papel</th>
               <th className="px-4 py-3 font-medium">Carteira</th>
+              <th className="px-4 py-3 font-medium" title="Vínculo com o chat do NX: ID do usuário lá e fila pessoal (opcional)">No NX</th>
               <th className="px-4 py-3 font-medium">Situação</th>
               <th className="px-4 py-3 font-medium">Status</th>
               <th className="px-4 py-3 font-medium text-right">Ações</th>
@@ -147,6 +150,9 @@ export default function EquipePage() {
                   ) : (
                     <span className="text-xs text-muted" title="Papéis administrativos veem a esteira inteira">vê tudo</span>
                   )}
+                </td>
+                <td className="px-4 py-3">
+                  <VinculoNx u={u} onErro={setMsg} />
                 </td>
                 <td className="px-4 py-3 text-xs">
                   {u.semSenha ? (
@@ -220,6 +226,33 @@ function SenhaModal({ user, onClose, onSaved }: { user: User; onClose: () => voi
         </div>
         <p className="mt-3 text-xs text-muted">A pessoa entra com o e-mail acima e esta senha. Passe por um canal seguro.</p>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Vínculo com o NX: ID do usuário lá (a conversa dele no chat vira contato manual
+ * dele no Recorrai) e fila pessoal (respostas dos clientes de quem ele é responsável).
+ */
+function VinculoNx({ u, onErro }: { u: User; onErro: (m: string) => void }) {
+  const [userId, setUserId] = useState(u.nxUserId ? String(u.nxUserId) : '');
+  const [fila, setFila] = useState(u.nxQueueId ? String(u.nxQueueId) : '');
+  const [salvo, setSalvo] = useState(false);
+  async function salvar() {
+    if (userId === (u.nxUserId ? String(u.nxUserId) : '') && fila === (u.nxQueueId ? String(u.nxQueueId) : '')) return;
+    try {
+      await api(`/usuarios/${u.id}/nx`, { method: 'PATCH', body: { nxUserId: userId || null, nxQueueId: fila || null } });
+      u.nxUserId = userId ? Number(userId) : null;
+      u.nxQueueId = fila ? Number(fila) : null;
+      setSalvo(true); setTimeout(() => setSalvo(false), 1500);
+    } catch (e) { onErro(e instanceof Error ? e.message : 'Erro ao salvar o vínculo com o NX'); }
+  }
+  const cls = 'w-16 rounded border border-line px-2 py-1 text-xs outline-none focus:border-primary';
+  return (
+    <div className="flex items-center gap-1.5 text-xs text-muted">
+      <label className="flex items-center gap-1" title="ID do usuário no NX">ID <input inputMode="numeric" value={userId} onChange={(e) => setUserId(e.target.value.replace(/\D/g, ''))} onBlur={salvar} placeholder="—" aria-label={`ID no NX de ${u.nome}`} className={cls} /></label>
+      <label className="flex items-center gap-1" title="Fila pessoal no NX (opcional)">fila <input inputMode="numeric" value={fila} onChange={(e) => setFila(e.target.value.replace(/\D/g, ''))} onBlur={salvar} placeholder="—" aria-label={`Fila pessoal no NX de ${u.nome}`} className={cls} /></label>
+      {salvo && <span className="text-primary">✓</span>}
     </div>
   );
 }

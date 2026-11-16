@@ -313,7 +313,7 @@ function DisparosConteudo() {
                     {d.campanha
                       ? <span>{d.campanha}</span>
                       : d.tipoOrigem === 'MANUAL'
-                        ? <span><span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium text-white" style={{ background: 'var(--serie-manual)' }}>Manual</span><br /><span className="text-xs text-muted">por {d.operador ?? '—'}</span></span>
+                        ? <span><span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium text-white" style={{ background: 'var(--serie-manual)' }}>Manual</span><br /><span className="text-xs text-muted">por {d.operador ?? '—'}{d.origem?.includes('(chat NX)') ? ' · chat NX' : ''}</span></span>
                       : d.regua
                         ? <span>Cobrança automática<br /><span className="text-xs text-muted">régua: {d.regua}</span></span>
                         : <span className="text-xs">{d.origem || '—'}</span>}

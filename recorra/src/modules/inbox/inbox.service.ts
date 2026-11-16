@@ -43,7 +43,8 @@ export class InboxService {
   async sendReply(tenantId: string, conversationId: string, texto: string, userId: string) {
     const conv = await this.prisma.conversation.findFirst({ where: { id: conversationId, tenantId } });
     if (!conv) throw new NotFoundException('Conversa não encontrada');
-    await this.deliver(tenantId, conv.canal, conv.contato, texto);
+    // Responde pelo MESMO número em que o cliente escreveu (conv.channelAccountId).
+    await this.deliver(tenantId, conv.canal, conv.contato, texto, conv.channelAccountId);
     await this.pushMessage(tenantId, conversationId, 'OUT', texto, userId);
     return { ok: true };
   }
@@ -78,8 +79,11 @@ export class InboxService {
     let conv = await this.prisma.conversation.findFirst({ where: { tenantId, canal: account.canal, contato } });
     if (!conv) {
       conv = await this.prisma.conversation.create({
-        data: { tenantId, canal: account.canal, contato, customerId: customer?.id, status: 'ABERTA' },
+        data: { tenantId, canal: account.canal, contato, customerId: customer?.id, status: 'ABERTA', channelAccountId: account.id },
       });
+    } else if (conv.channelAccountId !== account.id) {
+      // O cliente escreveu agora por outro número: a conversa passa a responder por ele.
+      conv = await this.prisma.conversation.update({ where: { id: conv.id }, data: { channelAccountId: account.id } });
     }
     await this.pushMessage(tenantId, conv.id, 'IN', texto, 'cliente');
 
@@ -104,12 +108,12 @@ export class InboxService {
     await this.prisma.conversation.update({ where: { id: conv.id }, data: {} });
 
     // resposta do bot
-    await this.deliver(tenantId, account.canal, contato, action.reply);
+    await this.deliver(tenantId, account.canal, contato, action.reply, account.id);
     await this.pushMessage(tenantId, conv.id, 'OUT', action.reply, 'bot', action.intent);
 
     // ações
     if (action.enviarPix && vencida?.pixCopiaCola) {
-      await this.deliver(tenantId, account.canal, contato, vencida.pixCopiaCola);
+      await this.deliver(tenantId, account.canal, contato, vencida.pixCopiaCola, account.id);
       await this.pushMessage(tenantId, conv.id, 'OUT', vencida.pixCopiaCola, 'bot');
     }
     if (action.marcarContestada && vencida) {
@@ -127,9 +131,9 @@ export class InboxService {
 
   // ---------- helpers ----------
 
-  private async deliver(tenantId: string, canal: ChannelType, to: string, texto: string) {
+  private async deliver(tenantId: string, canal: ChannelType, to: string, texto: string, accountId?: string | null) {
     try {
-      const channel = await this.channels.forTenantChannel(tenantId, canal);
+      const channel = await this.channels.forTenantChannel(tenantId, canal, accountId);
       await channel.send({ to, text: texto });
     } catch (e) {
       this.logger.warn(`Falha ao responder no inbox (${canal}): ${String(e)}`);

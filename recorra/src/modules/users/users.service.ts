@@ -25,6 +25,7 @@ export class UsersService {
       select: {
         id: true, nome: true, email: true, role: true, ativo: true, senhaHash: true, emailVerify: true, twoFaEnabled: true, createdAt: true,
         carteiraId: true, carteira: { select: { id: true, nome: true } },
+        nxUserId: true, nxQueueId: true,
       },
       orderBy: { createdAt: 'asc' },
     });
@@ -117,6 +118,29 @@ export class UsersService {
     await this.audit.record({
       tenantId, userId: actor.id, acao: 'user.carteira.update', entidade: 'User', entidadeId: userId,
       antes: { carteiraId: alvo.carteiraId }, depois: { carteiraId },
+    });
+    return upd;
+  }
+
+  /** Vínculo com o NX: id do usuário lá (contato manual no chat) e fila pessoal (respostas dos clientes dele). */
+  async updateNx(tenantId: string, actor: AuthUser, userId: string, nxUserId: unknown, nxQueueId: unknown) {
+    const alvo = await this.assertTenant(tenantId, userId);
+    const id = (v: unknown) => {
+      if (v === null || v === undefined || v === '') return null;
+      const n = Number(v);
+      if (!Number.isInteger(n) || n <= 0) throw new BadRequestException('IDs do NX são números inteiros positivos');
+      return n;
+    };
+    const data = { nxUserId: id(nxUserId), nxQueueId: id(nxQueueId) };
+    if (data.nxUserId) {
+      const outro = await this.prisma.user.findFirst({ where: { tenantId, nxUserId: data.nxUserId, id: { not: userId } }, select: { nome: true } });
+      if (outro) throw new BadRequestException(`O usuário ${data.nxUserId} do NX já está vinculado a ${outro.nome}`);
+    }
+    const upd = await this.prisma.user.update({ where: { id: userId }, data, select: { id: true, nxUserId: true, nxQueueId: true } });
+    await this.audit.record({
+      tenantId, userId: actor.id, acao: 'user.nx.update', entidade: 'User', entidadeId: userId,
+      antes: { nxUserId: (alvo as { nxUserId?: number | null }).nxUserId ?? null, nxQueueId: (alvo as { nxQueueId?: number | null }).nxQueueId ?? null },
+      depois: data,
     });
     return upd;
   }

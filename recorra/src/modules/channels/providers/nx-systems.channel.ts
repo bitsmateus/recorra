@@ -84,6 +84,21 @@ export class NxSystemsChannel implements MessageChannel {
     return cru;
   }
 
+  /**
+   * Transfere um atendimento para outra fila do NX (POST /updatequeue). O NX
+   * responde 200 mesmo em alguns erros, sinalizando no corpo — trata os dois.
+   */
+  async transferirFila(ticketId: string, queueId: number): Promise<{ ok: boolean; erro?: string }> {
+    try {
+      const { data } = await this.http.post('/updatequeue', { ticketId: Number(ticketId) || ticketId, queueId });
+      if (data && (data.success === false || data.error)) return { ok: false, erro: JSON.stringify(data) };
+      return { ok: true };
+    } catch (e) {
+      const data = axios.isAxiosError(e) ? e.response?.data : undefined;
+      return { ok: false, erro: data ? JSON.stringify(data) : String(e) };
+    }
+  }
+
   async send(input: SendMessageInput): Promise<SendMessageResult> {
     const number = this.waNumber(input.to);
     const idioma = input.templateLanguage || 'pt_BR';

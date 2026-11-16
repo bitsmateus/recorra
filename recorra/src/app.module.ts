@@ -28,6 +28,7 @@ import { TutorialsModule } from '@/modules/tutorials/tutorials.module';
 import { CampaignsModule } from '@/modules/campaigns/campaigns.module';
 import { AiModule } from '@/modules/ai/ai.module';
 import { RecuperacaoModule } from '@/modules/recuperacao/recuperacao.module';
+import { NxChatModule } from '@/modules/nx-chat/nx-chat.module';
 import { HealthController } from '@/health.controller';
 
 @Module({
@@ -84,6 +85,7 @@ import { HealthController } from '@/health.controller';
     PlatformModule,
     DispatchesModule,
     RecuperacaoModule,
+    NxChatModule,
     TutorialsModule,
     CampaignsModule,
     AiModule,
