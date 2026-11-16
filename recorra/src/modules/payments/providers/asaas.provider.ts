@@ -214,6 +214,16 @@ export class AsaasProvider implements PaymentProvider {
     return out;
   }
 
+  /**
+   * Vencimento que vale para a régua. Quando o ERP (ex.: LocaSmartPro) atualiza a
+   * cobrança vencida no Asaas para somar multa/juros, o Asaas troca o `dueDate` para
+   * a data nova e guarda a data original em `originalDueDate`. Sem isto a fatura
+   * "vence de novo" todo dia, nunca fica VENCIDA e a régua de atraso não dispara.
+   */
+  private vencimentoReal(p: { dueDate?: string; originalDueDate?: string }): Date {
+    return new Date(p.originalDueDate || p.dueDate || '');
+  }
+
   async getChargeDetail(externalId: string): Promise<ImportedPayment | null> {
     try {
       const { data: p } = await this.http.get(`/payments/${externalId}`);
@@ -222,7 +232,7 @@ export class AsaasProvider implements PaymentProvider {
         externalId: p.id,
         customerExternalId: p.customer,
         valor: Number(p.value),
-        vencimento: new Date(p.dueDate),
+        vencimento: this.vencimentoReal(p),
         status: this.normalizeStatus(p.status),
         metodo: this.methodFromBillingType(p.billingType),
         descricao: p.description ?? undefined,
@@ -245,7 +255,7 @@ export class AsaasProvider implements PaymentProvider {
           externalId: p.id,
           customerExternalId: p.customer,
           valor: Number(p.value),
-          vencimento: new Date(p.dueDate),
+          vencimento: this.vencimentoReal(p),
           status: p.deleted === true ? 'CANCELADA' : this.normalizeStatus(p.status),
           metodo: this.methodFromBillingType(p.billingType),
           descricao: p.description ?? undefined,
