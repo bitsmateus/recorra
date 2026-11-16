@@ -4,6 +4,7 @@ import * as argon2 from 'argon2';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { AuditService } from '@/common/audit/audit.service';
 import { AuthUser } from '@/common/auth/jwt.types';
+import { TELAS, Tela, telasEfetivas, telasPadrao } from '@/common/auth/telas';
 
 /**
  * Gestão de usuários do tenant: criação com senha, listagem, papéis.
@@ -25,13 +26,13 @@ export class UsersService {
       select: {
         id: true, nome: true, email: true, role: true, ativo: true, senhaHash: true, emailVerify: true, twoFaEnabled: true, createdAt: true,
         carteiraId: true, carteira: { select: { id: true, nome: true } },
-        nxUserId: true, nxQueueId: true,
+        nxUserId: true, nxQueueId: true, telas: true, telasCustom: true,
       },
       orderBy: { createdAt: 'asc' },
     });
     // `semSenha` sai do próprio hash, não de uma flag que pode divergir: sem senha,
     // o usuário simplesmente não consegue entrar.
-    return rows.map(({ senhaHash, ...u }) => ({ ...u, semSenha: !senhaHash }));
+    return rows.map(({ senhaHash, telas, ...u }) => ({ ...u, semSenha: !senhaHash, telas: telasEfetivas({ ...u, telas }) }));
   }
 
   /** Cria o usuário já pronto para entrar: e-mail + senha definidos por quem administra. */
@@ -128,6 +129,7 @@ export class UsersService {
       select: {
         id: true, nome: true, email: true, role: true, emailVerify: true, twoFaEnabled: true, createdAt: true, provider: true,
         carteira: { select: { nome: true, diaMinimo: true } }, nxUserId: true, nxQueueId: true,
+        telas: true, telasCustom: true,
         tenant: { select: { nome: true } },
       },
     });
@@ -136,7 +138,7 @@ export class UsersService {
       this.prisma.customer.count({ where: { tenantId, responsavelId: userId, ativo: true } }),
       this.prisma.customer.count({ where: { tenantId, responsavelId: userId, ativo: true, invoices: { some: { status: 'VENCIDA' } } } }),
     ]);
-    return { ...u, empresa: u.tenant.nome, tenant: undefined, clientesResponsavel: clientes, clientesVencidos: vencidos };
+    return { ...u, telas: telasEfetivas(u), empresa: u.tenant.nome, tenant: undefined, clientesResponsavel: clientes, clientesVencidos: vencidos };
   }
 
   async editarMeuPerfil(tenantId: string, userId: string, nome?: string) {
@@ -162,6 +164,30 @@ export class UsersService {
     await this.prisma.refreshToken.deleteMany({ where: { userId } }).catch(() => undefined);
     await this.audit.record({ tenantId, userId, acao: 'user.senha.propria', entidade: 'User', entidadeId: userId });
     return { ok: true };
+  }
+
+  /** Catálogo de telas + padrão de cada papel (para a janela "Telas" em Equipe). */
+  catalogoTelas() {
+    return {
+      telas: TELAS,
+      padrao: Object.fromEntries(['OWNER', 'ADMIN', 'FINANCEIRO', 'OPERADOR', 'LEITURA'].map((r) => [r, telasPadrao(r)])),
+    };
+  }
+
+  /** Telas que a pessoa vê. `telas: null` volta ao padrão do papel. OWNER sempre vê tudo. */
+  async updateTelas(tenantId: string, actor: AuthUser, userId: string, telas: string[] | null) {
+    const alvo = await this.assertTenant(tenantId, userId);
+    if (alvo.role === 'OWNER') throw new BadRequestException('O dono da conta sempre vê todas as telas');
+    const validas = TELAS.map((t) => t.chave) as string[];
+    const lista = telas === null ? [] : [...new Set(telas)].filter((t) => validas.includes(t));
+    if (telas !== null && lista.length !== new Set(telas).size) throw new BadRequestException('Tela desconhecida na lista');
+    const data = telas === null ? { telas: [], telasCustom: false } : { telas: lista as Tela[], telasCustom: true };
+    await this.prisma.user.update({ where: { id: userId }, data });
+    await this.audit.record({
+      tenantId, userId: actor.id, acao: 'user.telas.update', entidade: 'User', entidadeId: userId,
+      depois: { telas: telas === null ? 'padrão do papel' : lista },
+    });
+    return { id: userId, telas: telasEfetivas({ role: alvo.role, ...data }), telasCustom: data.telasCustom };
   }
 
   /** Vínculo com o NX: id do usuário lá (contato manual no chat) e fila pessoal (respostas dos clientes dele). */

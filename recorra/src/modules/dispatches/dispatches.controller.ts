@@ -1,7 +1,9 @@
 import { Controller, Get, Header, NotFoundException, Param, Query, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { JwtAuthGuard } from '@/common/auth/jwt-auth.guard';
-import { TenantId } from '@/common/auth/current-user.decorator';
+import { CurrentUser, TenantId } from '@/common/auth/current-user.decorator';
+import { AuthUser } from '@/common/auth/jwt.types';
+import { somenteProprios } from '@/common/auth/telas';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { parseDateFilter } from '@/common/util/parse';
 import { toCsv } from '../reports/csv';
@@ -52,6 +54,8 @@ interface FiltrosQuery {
   q?: string;
   de?: string;
   ate?: string;
+  /** Interno: operador/leitura veem só disparos dos seus clientes ou feitos por eles. */
+  soDoUsuario?: string;
 }
 
 /** Só o que `mapear` consome — evita arrastar o tipo gerado do Prisma. */
@@ -130,6 +134,7 @@ export class DispatchesController {
     else if (f.origem === 'MANUAL') and.push({ origem: 'MANUAL' });
     else if (f.origem === 'CONFIRMACAO' || f.origem === 'AVULSO') and.push({ origem: 'CONFIRMACAO' });
     if (f.userId) and.push({ userId: f.userId });
+    if (f.soDoUsuario) and.push({ OR: [{ userId: f.soDoUsuario }, { customer: { responsavelId: f.soDoUsuario } }] });
 
     const termo = f.q?.trim();
     if (termo) {
@@ -249,9 +254,10 @@ export class DispatchesController {
   @Get()
   async list(
     @TenantId() tenantId: string,
+    @CurrentUser() user: AuthUser,
     @Query() query: FiltrosQuery & { cursor?: string; pageSize?: string; comTotal?: string },
   ) {
-    const base = this.buildWhere(tenantId, query);
+    const base = this.buildWhere(tenantId, { ...query, soDoUsuario: somenteProprios(user.role) ? user.id : undefined });
     const take = Math.min(100, Math.max(5, Number(query.pageSize) || 20));
 
     const cur = decodeCursor(query.cursor);
@@ -275,9 +281,9 @@ export class DispatchesController {
    * dentro do período e dos demais filtros ativos.
    */
   @Get('resumo')
-  async resumo(@TenantId() tenantId: string, @Query() query: FiltrosQuery) {
+  async resumo(@TenantId() tenantId: string, @CurrentUser() user: AuthUser, @Query() query: FiltrosQuery) {
     const { status: _semStatus, ...resto } = query;
-    const where = this.buildWhere(tenantId, resto);
+    const where = this.buildWhere(tenantId, { ...resto, soDoUsuario: somenteProprios(user.role) ? user.id : undefined });
     const grupos = await this.prisma.messageDispatch.groupBy({
       by: ['status'],
       where,
@@ -298,8 +304,8 @@ export class DispatchesController {
   @Get('export.csv')
   @Header('Content-Type', 'text/csv; charset=utf-8')
   @Header('Content-Disposition', 'attachment; filename="disparos.csv"')
-  async exportar(@TenantId() tenantId: string, @Query() query: FiltrosQuery, @Res() res: Response) {
-    const base = this.buildWhere(tenantId, query);
+  async exportar(@TenantId() tenantId: string, @CurrentUser() user: AuthUser, @Query() query: FiltrosQuery, @Res() res: Response) {
+    const base = this.buildWhere(tenantId, { ...query, soDoUsuario: somenteProprios(user.role) ? user.id : undefined });
     const linhas: Record<string, unknown>[] = [];
     let cur: { createdAt: Date; id: string } | undefined;
 

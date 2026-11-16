@@ -2,14 +2,14 @@ import { Controller, Get, Header, Query, Res, UseGuards } from '@nestjs/common';
 import { Response } from 'express';
 import { JwtAuthGuard } from '@/common/auth/jwt-auth.guard';
 import { TenantId } from '@/common/auth/current-user.decorator';
-import { RolesGuard } from '@/common/auth/roles.guard';
-import { Roles } from '@/common/auth/roles.decorator';
+import { RequerTela, TelaGuard } from '@/common/auth/tela.guard';
 import { ReportsService } from './reports.service';
 
-// Valores recebidos, ROI e extrato são dado financeiro: operador e leitura não veem.
+// Valores recebidos, ROI e extrato são dado financeiro: só quem tem a tela
+// Relatórios (padrão: OWNER/ADMIN/FINANCEIRO; operador só se liberado em Equipe).
 @Controller('relatorios')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('OWNER', 'ADMIN', 'FINANCEIRO')
+@UseGuards(JwtAuthGuard, TelaGuard)
+@RequerTela('relatorios')
 export class ReportsController {
   constructor(private readonly reports: ReportsService) {}
 

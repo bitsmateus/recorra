@@ -33,6 +33,20 @@ export class UsersController {
     return this.users.trocarMinhaSenha(tenantId, user.id, senhaAtual ?? '', novaSenha ?? '');
   }
 
+  @Get('telas')
+  @UseGuards(JwtAuthGuard)
+  catalogoTelas() {
+    return this.users.catalogoTelas();
+  }
+
+  /** Quais telas a pessoa vê (null = padrão do papel). */
+  @Patch(':id/telas')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('OWNER', 'ADMIN')
+  telas(@TenantId() tenantId: string, @CurrentUser() actor: AuthUser, @Param('id') id: string, @Body('telas') telas?: string[] | null) {
+    return this.users.updateTelas(tenantId, actor, id, Array.isArray(telas) ? telas : null);
+  }
+
   @Get()
   @UseGuards(JwtAuthGuard)
   list(@TenantId() tenantId: string) {

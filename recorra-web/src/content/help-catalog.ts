@@ -341,7 +341,9 @@ export const HELP_TOPICS: HelpTopic[] = [
     rules: [
       'OWNER possui o maior nível dentro da empresa.',
       'ADMIN administra grande parte da operação; FINANCEIRO atua em cobranças; OPERADOR possui ações operacionais limitadas.',
-      'OPERADOR e LEITURA (atendentes de cobrança) não veem Cobranças, Relatórios nem o grupo Configurações — trabalham pela Esteira, Clientes e Disparos.',
+      'Telas por pessoa: em Equipe → "Telas", quem administra marca o que cada usuário vê (Dashboard, Clientes, Cobranças, Campanhas, Disparos, Réguas, Esteira, Relatórios e cada tela de Configurações). Sem personalizar, vale o padrão do papel; "Voltar ao padrão do papel" desfaz. O dono da conta sempre vê tudo. A mudança vale no próximo carregamento da página, e a API também confere (Relatórios e painel geral).',
+      'Padrão do OPERADOR e LEITURA (atendentes de cobrança): só o que é deles — Dashboard vira "Meu painel" (clientes sob sua responsabilidade, vencido em aberto, o que recuperou no mês com crédito dele, contatos manuais e promessas), Clientes e Disparos mostram apenas os clientes de que são responsáveis (e os disparos que eles fizeram) e a Esteira mostra a carteira deles. Nunca veem Configurações, Réguas, Cobranças gerais nem Relatórios gerais, a não ser que sejam liberados.',
+      'Mesmo com uma tela liberada, operador e leitura continuam vendo em Clientes e Disparos só o que é deles. Liberar Relatórios dá acesso aos relatórios e ao painel geral da empresa.',
       'Cada usuário tem "Meu perfil" (rodapé do menu): vê seus dados, papel, carteira e clientes sob sua responsabilidade, troca o próprio nome e senha (exige a senha atual e encerra as sessões) e liga a verificação em duas etapas. O e-mail de acesso só é trocado por um administrador.',
       'O backend valida papel e empresa em ações protegidas; esconder um botão na interface não é a única proteção.',
       'Cada plano pode limitar a quantidade de usuários.',

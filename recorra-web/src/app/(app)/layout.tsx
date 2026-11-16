@@ -6,42 +6,39 @@ import { usePathname, useRouter } from 'next/navigation';
 import { LayoutDashboard, Users, Plug, LogOut, CreditCard, GitBranch, UserCog, Send, BarChart3, Gauge, HelpCircle, ChevronDown, Megaphone, Wallet, SlidersHorizontal, Radio, Menu, X, Mail, MessageSquare, PanelLeftClose, PanelLeftOpen, Eraser, Moon, Sun, Columns3, KeyRound, CircleUserRound } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Logo } from '@/components/Logo';
-import { getToken, logout, papelAtual } from '@/lib/api';
+import { api, getToken, logout } from '@/lib/api';
 import { APP_VERSION } from '@/lib/version';
 
-type Item = { href: string; label: string; icon: LucideIcon; papeis?: string[] };
+type Item = { href: string; label: string; icon: LucideIcon; tela?: string };
 type Grupo = { label: string; icon: LucideIcon; items: Item[] };
 
-/** Quem administra a operação. OPERADOR/LEITURA (atendentes de cobrança) não veem
- *  Cobranças nem Configurações — trabalham pela Esteira, Clientes e Disparos. */
-const GESTAO = ['OWNER', 'ADMIN', 'FINANCEIRO'];
-
+/** Cada item tem a sua "tela": só aparece para quem a tem liberada (Equipe → Telas;
+ *  sem escolha, vale o padrão do papel — operador vê só o que é dele). A API confere de novo. */
 const grupos: Grupo[] = [
   { label: 'Início', icon: LayoutDashboard, items: [
-    { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, tela: 'dashboard' },
   ] },
   { label: 'Cobrança', icon: Wallet, items: [
-    { href: '/clientes', label: 'Clientes', icon: Users },
-    { href: '/cobrancas', label: 'Cobranças', icon: CreditCard, papeis: GESTAO },
+    { href: '/clientes', label: 'Clientes', icon: Users, tela: 'clientes' },
+    { href: '/cobrancas', label: 'Cobranças', icon: CreditCard, tela: 'cobrancas' },
   ] },
   { label: 'Comunicação', icon: Megaphone, items: [
-    { href: '/campanhas', label: 'Campanhas', icon: Megaphone },
-    { href: '/disparos', label: 'Disparos', icon: Send },
-    { href: '/reguas', label: 'Réguas', icon: GitBranch },
-    { href: '/andamento', label: 'Esteira', icon: Columns3 },
+    { href: '/campanhas', label: 'Campanhas', icon: Megaphone, tela: 'campanhas' },
+    { href: '/disparos', label: 'Disparos', icon: Send, tela: 'disparos' },
+    { href: '/reguas', label: 'Réguas', icon: GitBranch, tela: 'reguas' },
+    { href: '/andamento', label: 'Esteira', icon: Columns3, tela: 'esteira' },
   ] },
   { label: 'Análises', icon: BarChart3, items: [
-    // Dado financeiro e de remuneração: operador/leitura não veem (a API também barra).
-    { href: '/relatorios', label: 'Relatórios', icon: BarChart3, papeis: ['OWNER', 'ADMIN', 'FINANCEIRO'] },
+    { href: '/relatorios', label: 'Relatórios', icon: BarChart3, tela: 'relatorios' },
   ] },
   { label: 'Configurações', icon: SlidersHorizontal, items: [
-    { href: '/integracoes', label: 'Integrações', icon: Plug, papeis: GESTAO },
-    { href: '/canais', label: 'Canais', icon: Radio, papeis: GESTAO },
-    { href: '/templates', label: 'Templates WhatsApp', icon: MessageSquare, papeis: GESTAO },
-    { href: '/modelos-email', label: 'Modelos de e-mail', icon: Mail, papeis: GESTAO },
-    { href: '/equipe', label: 'Equipe', icon: UserCog, papeis: GESTAO },
-    { href: '/api-tokens', label: 'API', icon: KeyRound, papeis: GESTAO },
-    { href: '/plano', label: 'Plano', icon: Gauge, papeis: GESTAO },
+    { href: '/integracoes', label: 'Integrações', icon: Plug, tela: 'integracoes' },
+    { href: '/canais', label: 'Canais', icon: Radio, tela: 'canais' },
+    { href: '/templates', label: 'Templates WhatsApp', icon: MessageSquare, tela: 'templates' },
+    { href: '/modelos-email', label: 'Modelos de e-mail', icon: Mail, tela: 'modelos-email' },
+    { href: '/equipe', label: 'Equipe', icon: UserCog, tela: 'equipe' },
+    { href: '/api-tokens', label: 'API', icon: KeyRound, tela: 'api' },
+    { href: '/plano', label: 'Plano', icon: Gauge, tela: 'plano' },
   ] },
   { label: 'Ajuda', icon: HelpCircle, items: [
     { href: '/ajuda', label: 'Central de Ajuda', icon: HelpCircle },
@@ -57,7 +54,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [menuAberto, setMenuAberto] = useState(false);
   const [menuMinimizado, setMenuMinimizado] = useState(false);
   const [escuro, setEscuro] = useState(false);
-  const [papel, setPapel] = useState<string | null>(null);
+  const [telas, setTelas] = useState<string[] | null>(null);
 
   useEffect(() => {
     if (!getToken()) router.replace('/login');
@@ -66,17 +63,26 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       // O tema já foi aplicado pelo script inline do layout raiz; aqui só espelhamos
       // o estado atual para o ícone/rótulo do botão ficarem certos.
       setEscuro(document.documentElement.classList.contains('dark'));
-      setPapel(papelAtual());
       setReady(true);
     }
   }, [router]);
 
-  // Rota restrita digitada direto na barra: leva para a Esteira em vez de mostrar a tela.
+  // Telas liberadas para quem está logado (lidas do servidor: mudar em Equipe vale no próximo carregamento).
   useEffect(() => {
-    if (!ready || !papel) return;
-    const item = grupos.flatMap((g) => g.items).find((it) => pathname.startsWith(it.href));
-    if (item?.papeis && !item.papeis.includes(papel)) router.replace('/andamento');
-  }, [ready, papel, pathname, router]);
+    if (!ready) return;
+    api<{ telas: string[] }>('/usuarios/me').then((m) => setTelas(m.telas)).catch(() => setTelas([]));
+  }, [ready]);
+
+  // Tela não liberada digitada direto na barra: leva para a primeira liberada.
+  useEffect(() => {
+    if (!telas) return;
+    const todos = grupos.flatMap((g) => g.items);
+    const item = todos.find((it) => pathname.startsWith(it.href));
+    if (item?.tela && !telas.includes(item.tela)) {
+      const destino = todos.find((it) => !it.tela || telas.includes(it.tela));
+      router.replace(destino?.href ?? '/perfil');
+    }
+  }, [telas, pathname, router]);
 
   // Fecha o menu mobile ao navegar e abre o grupo da rota ativa.
   useEffect(() => {
@@ -138,7 +144,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <>
       <nav className={`min-h-0 flex-1 space-y-1 overflow-y-auto ${compacto ? 'p-2' : 'p-3'}`}>
         {grupos
-          .map((g) => ({ ...g, items: g.items.filter((it) => !it.papeis || (papel !== null && it.papeis.includes(papel))) }))
+          .map((g) => ({ ...g, items: g.items.filter((it) => !it.tela || (telas !== null && telas.includes(it.tela))) }))
           .filter((g) => g.items.length > 0)
           .map((g) => {
           const aberto = abertos[g.label];

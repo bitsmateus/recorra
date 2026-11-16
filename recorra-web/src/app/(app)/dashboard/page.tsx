@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Check, Circle, HelpCircle, Filter, X, MessageCircle, Mail, Smartphone, Send } from 'lucide-react';
 import { api } from '@/lib/api';
 import { PageTitle, Metric, brl } from '@/components/ui';
+import { MeuPainel } from '@/components/MeuPainel';
 import { PERIODOS, PeriodoChave, intervaloDe, rotuloPeriodo } from '@/lib/periodo';
 
 interface Resumo {
@@ -270,7 +271,19 @@ function OnboardingCard() {
   );
 }
 
+/**
+ * Quem vê só o que é dele (operador/leitura) ganha o "Meu painel"; o painel geral
+ * da empresa só aparece para quem administra ou tem Relatórios liberado.
+ */
 export default function DashboardPage() {
+  const [quem, setQuem] = useState<{ nome: string; role: string; telas: string[] } | null>(null);
+  useEffect(() => { api<{ nome: string; role: string; telas: string[] }>('/usuarios/me').then(setQuem).catch(() => setQuem({ nome: '', role: '', telas: [] })); }, []);
+  if (!quem) return <div className="text-sm text-muted">Carregando…</div>;
+  const proprio = (quem.role === 'OPERADOR' || quem.role === 'LEITURA') && !quem.telas.includes('relatorios');
+  return proprio ? <MeuPainel nome={quem.nome} /> : <DashboardGeral />;
+}
+
+function DashboardGeral() {
   const [data, setData] = useState<Resumo | null>(null);
   const [aging, setAging] = useState<Aging | null>(null);
   const [serie, setSerie] = useState<SerieMes[]>([]);

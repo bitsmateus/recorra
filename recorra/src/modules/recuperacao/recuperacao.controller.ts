@@ -3,9 +3,11 @@ import type { Response } from 'express';
 import { JwtAuthGuard } from '@/common/auth/jwt-auth.guard';
 import { RolesGuard } from '@/common/auth/roles.guard';
 import { Roles } from '@/common/auth/roles.decorator';
+import { RequerTela, TelaGuard } from '@/common/auth/tela.guard';
 import { CurrentUser, TenantId } from '@/common/auth/current-user.decorator';
 import { AuthUser } from '@/common/auth/jwt.types';
 import { PrismaService } from '@/common/prisma/prisma.service';
+import { inicioDoMes } from '@/common/util/periodo';
 import { RelatorioRecuperacaoService } from './relatorio.service';
 import { AtribuicaoService } from './atribuicao.service';
 import { DistribuicaoService } from './distribuicao.service';
@@ -15,7 +17,7 @@ import { DistribuicaoService } from './distribuicao.service';
  * financeiro e de remuneração variável: só quem administra vê (não operador).
  */
 @Controller('recuperacao')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, TelaGuard)
 export class RecuperacaoController {
   constructor(
     private readonly prisma: PrismaService,
@@ -25,13 +27,13 @@ export class RecuperacaoController {
   ) {}
 
   @Get('relatorio')
-  @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
+  @RequerTela('relatorios')
   relatorio(@TenantId() tenantId: string, @Query('de') de?: string, @Query('ate') ate?: string) {
     return this.relatorios.relatorio(tenantId, de, ate);
   }
 
   @Get('relatorio/export.csv')
-  @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
+  @RequerTela('relatorios')
   @Header('Content-Type', 'text/csv; charset=utf-8')
   @Header('Content-Disposition', 'attachment; filename="recuperacao.csv"')
   async exportCsv(@TenantId() tenantId: string, @Res() res: Response, @Query('de') de?: string, @Query('ate') ate?: string) {
@@ -39,9 +41,61 @@ export class RecuperacaoController {
   }
 
   @Get('relatorio/export.xlsx')
-  @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
+  @RequerTela('relatorios')
   exportXlsx(@TenantId() tenantId: string, @Query('de') de?: string, @Query('ate') ate?: string) {
     return this.relatorios.exportXlsx(tenantId, de, ate);
+  }
+
+  /**
+   * "Meu painel": só os números da própria pessoa — clientes sob sua
+   * responsabilidade, o que está vencido com eles, o que ela recuperou no mês
+   * (crédito dela), contatos manuais e promessas. É o Dashboard do operador.
+   */
+  @Get('meu-painel')
+  async meuPainel(@TenantId() tenantId: string, @CurrentUser() user: AuthUser) {
+    const t = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId }, select: { timezone: true } });
+    const inicio = inicioDoMes(new Date(), t.timezone);
+    const n = new Date();
+    const hoje = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate()));
+    const meus = { tenantId, responsavelId: user.id, ativo: true };
+    const [clientes, comVencida, aberto, recuperado, manuais, promessas, quebradas, atrasados] = await Promise.all([
+      this.prisma.customer.count({ where: meus }),
+      this.prisma.customer.count({ where: { ...meus, invoices: { some: { status: 'VENCIDA', gestaoCobranca: 'ATIVA' } } } }),
+      this.prisma.invoice.aggregate({ where: { tenantId, status: 'VENCIDA', gestaoCobranca: 'ATIVA', customer: meus }, _sum: { valor: true }, _count: true }),
+      this.prisma.invoice.groupBy({
+        by: ['recuperadoOrigem'],
+        where: { tenantId, status: 'PAGA', recuperadoPorId: user.id, pagoEm: { gte: inicio } },
+        _sum: { valor: true }, _count: true,
+      }),
+      this.prisma.messageDispatch.count({ where: { tenantId, userId: user.id, origem: 'MANUAL', createdAt: { gte: inicio }, status: { in: ['ENVIADO', 'ENTREGUE', 'LIDO'] } } }),
+      this.prisma.customer.findMany({ where: { ...meus, promessaAte: { gte: hoje } }, orderBy: { promessaAte: 'asc' }, take: 10, select: { id: true, nome: true, promessaAte: true } }),
+      this.prisma.customer.findMany({
+        where: { ...meus, promessaAte: { lt: hoje, gte: new Date(hoje.getTime() - 7 * 86400000) }, invoices: { some: { status: 'VENCIDA' } } },
+        orderBy: { promessaAte: 'desc' }, take: 10, select: { id: true, nome: true, promessaAte: true },
+      }),
+      this.prisma.invoice.findMany({
+        where: { tenantId, status: 'VENCIDA', gestaoCobranca: 'ATIVA', customer: meus },
+        orderBy: { vencimento: 'asc' }, take: 8,
+        select: { id: true, valor: true, vencimento: true, customer: { select: { id: true, nome: true } } },
+      }),
+    ]);
+    const soma = (o: string) => recuperado.find((r) => r.recuperadoOrigem === o);
+    const val = (o: string) => Number(soma(o)?._sum.valor ?? 0);
+    const qtd = (o: string) => soma(o)?._count ?? 0;
+    return {
+      mesDesde: inicio,
+      clientes, clientesComVencida: comVencida,
+      vencidoEmAberto: { valor: Number(aberto._sum.valor ?? 0), faturas: aberto._count },
+      recuperadoNoMes: {
+        regua: { valor: val('REGUA') + val('CAMPANHA'), faturas: qtd('REGUA') + qtd('CAMPANHA') },
+        manual: { valor: val('MANUAL'), faturas: qtd('MANUAL') },
+        semContato: { valor: val('SEM_CONTATO'), faturas: qtd('SEM_CONTATO') },
+      },
+      contatosManuaisNoMes: manuais,
+      promessasEmVigor: promessas,
+      promessasNaoCumpridas: quebradas,
+      maisAtrasados: atrasados.map((i) => ({ invoiceId: i.id, customerId: i.customer.id, nome: i.customer.nome, valor: Number(i.valor), vencimento: i.vencimento })),
+    };
   }
 
   @Get('config')

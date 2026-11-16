@@ -1,8 +1,10 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { CanActivate, Controller, ExecutionContext, ForbiddenException, Get, Injectable, Query, UseGuards } from '@nestjs/common';
 import { ChannelType } from '@prisma/client';
 import { JwtAuthGuard } from '@/common/auth/jwt-auth.guard';
 import { TenantId } from '@/common/auth/current-user.decorator';
 import { PrismaService } from '@/common/prisma/prisma.service';
+import { AuthUser } from '@/common/auth/jwt.types';
+import { somenteProprios, telasEfetivas } from '@/common/auth/telas';
 import { intervaloDatas, inicioDoMes, intervaloVencimento, inicioDoMesUtc, chaveMes } from '@/common/util/periodo';
 
 const TIPO_LABEL: Record<string, string> = {
@@ -15,8 +17,26 @@ const TIPO_LABEL: Record<string, string> = {
 
 const tipoDeCanal = (c: ChannelType) => (c.startsWith('WHATSAPP') ? 'WHATSAPP' : c);
 
+/**
+ * Números da empresa toda: operador/leitura (que veem só o que é deles) não
+ * acessam — o painel deles é /recuperacao/meu-painel — a não ser que quem
+ * administra libere a tela Relatórios para a pessoa.
+ */
+@Injectable()
+class DashboardGeralGuard implements CanActivate {
+  constructor(private readonly prisma: PrismaService) {}
+  async canActivate(ctx: ExecutionContext): Promise<boolean> {
+    const user = ctx.switchToHttp().getRequest<{ user?: AuthUser }>().user;
+    if (!user) throw new ForbiddenException();
+    if (!somenteProprios(user.role)) return true;
+    const u = await this.prisma.user.findUnique({ where: { id: user.id }, select: { role: true, telas: true, telasCustom: true } });
+    if (u && telasEfetivas(u).includes('relatorios')) return true;
+    throw new ForbiddenException('Painel geral restrito — use o seu painel');
+  }
+}
+
 @Controller('dashboard')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, DashboardGeralGuard)
 export class DashboardController {
   constructor(private readonly prisma: PrismaService) {}
 

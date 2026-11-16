@@ -263,21 +263,24 @@ model ApiKey {
 }
 
 model User {
-  id         String   @id @default(cuid())
-  tenantId   String
-  nome       String
-  email      String
-  senhaHash  String?
-  role       UserRole @default(OPERADOR)
-  ativo      Boolean  @default(true)
+  id          String   @id @default(cuid())
+  tenantId    String
+  nome        String
+  email       String
+  senhaHash   String?
+  role        UserRole @default(OPERADOR)
+  ativo       Boolean  @default(true)
   // Carteira do operador na esteira (só relevante para OPERADOR/LEITURA — quem
   // administra vê tudo). Null = sem restrição de faixa (vê a esteira inteira).
-  carteiraId String?
+  carteiraId  String?
   // Vínculo com o NX (chat): id do usuário lá (para reconhecer as mensagens que ele
   // envia no chat como contato manual) e fila pessoal (opcional) para onde vão as
   // respostas dos clientes de quem ele é responsável.
-  nxUserId   Int?
-  nxQueueId  Int?
+  nxUserId    Int?
+  nxQueueId   Int?
+  // Telas que a pessoa vê (Equipe → Telas). telasCustom=false = padrão do papel.
+  telas       String[] @default([])
+  telasCustom Boolean  @default(false)
 
   emailVerify    Boolean   @default(false)
   verifyToken    String?

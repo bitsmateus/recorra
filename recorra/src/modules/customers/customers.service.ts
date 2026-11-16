@@ -11,6 +11,8 @@ import { UpsertCustomerDto } from './dto/customer.dto';
 import { CreatePromessaDto } from './dto/promessa.dto';
 
 export interface SegmentFilter {
+  /** Só os clientes deste responsável (operador/leitura veem apenas os seus). */
+  responsavelId?: string;
   q?: string;
   tags?: string[];
   plano?: string;
@@ -123,6 +125,7 @@ export class CustomersService {
   /** `where` base da segmentação (sem a condição da aba). Risco filtrado no banco. */
   private buildSegmentWhere(tenantId: string, f: SegmentFilter): Prisma.CustomerWhereInput {
     const where: Prisma.CustomerWhereInput = { tenantId };
+    if (f.responsavelId) where.responsavelId = f.responsavelId;
     if (f.ativo !== undefined) where.ativo = f.ativo;
     if (f.q?.trim()) {
       // Busca por nome (case-insensitive) e, só quando o termo tem dígitos, por documento.

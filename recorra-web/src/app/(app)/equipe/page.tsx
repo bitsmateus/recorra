@@ -18,6 +18,8 @@ interface User {
   carteiraId: string | null;
   nxUserId?: number | null;
   nxQueueId?: number | null;
+  telas?: string[];
+  telasCustom?: boolean;
 }
 interface Carteira { id: string; nome: string; diaMinimo: number }
 
@@ -170,6 +172,7 @@ export default function EquipePage() {
                   </button>
                 </td>
                 <td className="px-4 py-3 text-right">
+                  <TelasBotao u={u} onSalvo={load} />
                   <button onClick={() => setSenhaDe(u)} className={`inline-flex items-center gap-1.5 rounded border px-2.5 py-1 text-xs ${u.semSenha ? 'border-primary/40 bg-primary-tint font-medium text-primary' : 'border-line text-muted hover:bg-canvas hover:text-primary'}`}>
                     <KeyRound size={13} /> {u.semSenha ? 'Definir senha' : 'Trocar senha'}
                   </button>
@@ -254,5 +257,73 @@ function VinculoNx({ u, onErro }: { u: User; onErro: (m: string) => void }) {
       <label className="flex items-center gap-1" title="Fila pessoal no NX (opcional)">fila <input inputMode="numeric" value={fila} onChange={(e) => setFila(e.target.value.replace(/\D/g, ''))} onBlur={salvar} placeholder="—" aria-label={`Fila pessoal no NX de ${u.nome}`} className={cls} /></label>
       {salvo && <span className="text-primary">✓</span>}
     </div>
+  );
+}
+
+interface Catalogo { telas: { chave: string; nome: string }[]; padrao: Record<string, string[]> }
+
+/**
+ * Quais telas a pessoa vê. Sem personalizar, vale o padrão do papel (operador:
+ * só o que é dele — painel, clientes, esteira e disparos próprios).
+ */
+function TelasBotao({ u, onSalvo }: { u: User; onSalvo: () => void }) {
+  const [aberto, setAberto] = useState(false);
+  const [cat, setCat] = useState<Catalogo | null>(null);
+  const [sel, setSel] = useState<Set<string>>(new Set(u.telas ?? []));
+  const [erro, setErro] = useState('');
+  const [busy, setBusy] = useState(false);
+  if (u.role === 'OWNER') return null;
+
+  async function abrir() {
+    setAberto(true); setSel(new Set(u.telas ?? [])); setErro('');
+    if (!cat) api<Catalogo>('/usuarios/telas').then(setCat).catch(() => {});
+  }
+  async function salvar(telas: string[] | null) {
+    setBusy(true); setErro('');
+    try { await api(`/usuarios/${u.id}/telas`, { method: 'PATCH', body: { telas } }); setAberto(false); onSalvo(); }
+    catch (e) { setErro(e instanceof Error ? e.message : 'Erro'); }
+    finally { setBusy(false); }
+  }
+  const padrao = cat?.padrao[u.role] ?? [];
+
+  return (
+    <>
+      <button onClick={abrir} title="Escolher o que esta pessoa vê" className="mr-2 inline-flex items-center gap-1.5 rounded border border-line px-2.5 py-1 text-xs text-muted hover:bg-canvas hover:text-primary">
+        Telas{u.telasCustom ? ' · personalizado' : ''}
+      </button>
+      {aberto && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 text-left" onMouseDown={(e) => { if (e.target === e.currentTarget) setAberto(false); }}>
+          <div className="w-full max-w-md rounded-lg bg-surface p-5 shadow-lg">
+            <div className="mb-1 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-ink">O que {u.nome} vê</h2>
+              <button onClick={() => setAberto(false)} aria-label="Fechar" className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>
+            </div>
+            <p className="mb-3 text-xs text-muted">
+              Marque as telas liberadas. Operador e leitura, mesmo com a tela liberada, continuam vendo em Clientes e Disparos só o que é deles.
+              Meu perfil e a Central de Ajuda aparecem sempre.
+            </p>
+            {!cat ? <p className="text-sm text-muted">Carregando…</p> : (
+              <div className="grid grid-cols-2 gap-1.5">
+                {cat.telas.map((t) => (
+                  <label key={t.chave} className="flex items-center gap-2 rounded border border-line px-2 py-1.5 text-sm">
+                    <input type="checkbox" checked={sel.has(t.chave)} onChange={() => setSel((s) => { const n = new Set(s); if (n.has(t.chave)) n.delete(t.chave); else n.add(t.chave); return n; })} className="accent-primary" />
+                    <span className="text-ink">{t.nome}</span>
+                    {padrao.includes(t.chave) && <span className="ml-auto text-[10px] text-muted">padrão</span>}
+                  </label>
+                ))}
+              </div>
+            )}
+            {erro && <p className="mt-2 text-sm text-danger">{erro}</p>}
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+              <button onClick={() => salvar(null)} disabled={busy} className="text-xs font-medium text-primary underline disabled:opacity-60">Voltar ao padrão do papel ({u.role})</button>
+              <div className="flex gap-2">
+                <button onClick={() => setAberto(false)} className="rounded border border-line px-3 py-1.5 text-sm hover:bg-canvas">Cancelar</button>
+                <button onClick={() => salvar([...sel])} disabled={busy} className="rounded bg-primary px-4 py-1.5 text-sm font-medium text-white disabled:opacity-60">Salvar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

@@ -1,5 +1,6 @@
 import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { AuditService } from '@/common/audit/audit.service';
+import { somenteProprios } from '@/common/auth/telas';
 import { RiskBand } from '@prisma/client';
 import { JwtAuthGuard } from '@/common/auth/jwt-auth.guard';
 import { RolesGuard } from '@/common/auth/roles.guard';
@@ -24,6 +25,7 @@ export class CustomersController {
   @Get()
   list(
     @TenantId() tenantId: string,
+    @CurrentUser() user: AuthUser,
     @Query('q') q?: string,
     @Query('tags') tags?: string,
     @Query('plano') plano?: string,
@@ -38,6 +40,8 @@ export class CustomersController {
     @Query('pageSize') pageSize?: string,
   ) {
     return this.customers.segment(tenantId, {
+      // Operador/leitura veem só os clientes de que são responsáveis.
+      ...(somenteProprios(user.role) ? { responsavelId: user.id } : {}),
       q,
       tags: tags ? tags.split(',').map((t) => t.trim()).filter(Boolean) : undefined,
       plano,
@@ -57,6 +61,7 @@ export class CustomersController {
   @Get('exportar')
   exportar(
     @TenantId() tenantId: string,
+    @CurrentUser() user: AuthUser,
     @Query('q') q?: string,
     @Query('tags') tags?: string,
     @Query('plano') plano?: string,
@@ -69,6 +74,7 @@ export class CustomersController {
     @Query('falta') falta?: 'telefone' | 'email' | 'ambos',
   ) {
     return this.customers.exportSegment(tenantId, {
+      ...(somenteProprios(user.role) ? { responsavelId: user.id } : {}),
       q,
       tags: tags ? tags.split(',').map((t) => t.trim()).filter(Boolean) : undefined,
       plano,
