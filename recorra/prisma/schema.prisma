@@ -213,6 +213,7 @@ model Tenant {
   conversations      Conversation[]
   customerNotes      CustomerNote[]
   carteiras          Carteira[]
+  nxTicketRoutes     NxTicketRoute[]
 
   @@index([reguaPadraoId])
   @@map("tenants")
@@ -272,6 +273,11 @@ model User {
   // Carteira do operador na esteira (só relevante para OPERADOR/LEITURA — quem
   // administra vê tudo). Null = sem restrição de faixa (vê a esteira inteira).
   carteiraId String?
+  // Vínculo com o NX (chat): id do usuário lá (para reconhecer as mensagens que ele
+  // envia no chat como contato manual) e fila pessoal (opcional) para onde vão as
+  // respostas dos clientes de quem ele é responsável.
+  nxUserId   Int?
+  nxQueueId  Int?
 
   emailVerify    Boolean   @default(false)
   verifyToken    String?
@@ -391,6 +397,9 @@ model Carteira {
   // Como os clientes vencidos desta carteira são divididos entre os operadores dela.
   distribuicao       DistribuicaoModo @default(MANUAL)
   distribuicaoCursor Int              @default(0) // próximo operador no modo SEQUENCIAL
+  // Fila da equipe no NX: quando um cliente desta carteira responde no chat, o
+  // atendimento é transferido para esta fila (se a operadora não tiver fila própria).
+  nxQueueId          Int?
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
 
@@ -855,6 +864,8 @@ model Conversation {
   contato          String
   status           ConversationStatus @default(ABERTA)
   atribuidoA       String?
+  // Conta (número) pela qual o cliente escreveu — a resposta sai pela mesma.
+  channelAccountId String?
   ultimaMensagem   String?
   ultimaMensagemEm DateTime?
   naoLidas         Int                @default(0)
@@ -1140,4 +1151,25 @@ model CampaignRecipient {
 
   @@index([runId])
   @@map("campaign_recipients")
+}
+
+/// Atendimento do NX já transferido pelo Recorrai para a fila da operadora/equipe
+/// responsável. Uma vez por ticket: se a equipe mover o ticket depois, o Recorrai
+/// não briga com ela.
+model NxTicketRoute {
+  id               String   @id @default(cuid())
+  tenantId         String
+  channelAccountId String
+  ticketId         String
+  queueId          Int
+  customerId       String?
+  responsavelId    String?
+  motivo           String? // "responsavel" | "carteira"
+  createdAt        DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([channelAccountId, ticketId])
+  @@index([tenantId, createdAt])
+  @@map("nx_ticket_routes")
 }
