@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { UIEvent } from 'react';
 import Link from 'next/link';
-import { RefreshCw, Loader2, CheckCircle2, Clock, XCircle, Phone, ExternalLink, Send, Pause, Play, Pause as PauseIcon, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, X, History, Search, AlertTriangle, StickyNote, MessageSquareText } from 'lucide-react';
+import { RefreshCw, Loader2, CheckCircle2, Clock, XCircle, Phone, ExternalLink, Send, Pause, Play, Pause as PauseIcon, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, X, History, Search, AlertTriangle, StickyNote } from 'lucide-react';
 import { api } from '@/lib/api';
 import { PageTitle, brl } from '@/components/ui';
 import { Timeline } from '@/components/Timeline';
@@ -96,8 +96,7 @@ export default function AndamentoPage() {
   // clique para quem precisa retomar alguma.
   const [verPausadas, setVerPausadas] = useState(false);
   const [historico, setHistorico] = useState<{ invoiceId: string; nome: string } | null>(null);
-  const [notaDe, setNotaDe] = useState<{ customerId: string; nome: string } | null>(null);
-  const [dispararComOpen, setDispararComOpen] = useState(false);
+  const [notaDe, setNotaDe] = useState<{ customerId: string; nome: string; invoiceId?: string } | null>(null);
   // Mensagem escrita pelo operador: para as selecionadas (null = usa a seleção) ou um card só.
   const [mensagemPara, setMensagemPara] = useState<{ ids: string[]; nome?: string } | null>(null);
   const [visiveisPorColuna, setVisiveisPorColuna] = useState<Record<string, number>>({});
@@ -421,8 +420,9 @@ export default function AndamentoPage() {
                         return (
                           <div
                             key={card.invoiceId}
-                            onClick={() => selecionavel && toggle(card.invoiceId)}
-                            className={`rounded-lg border bg-surface p-2.5 shadow-sm transition ${selecionavel ? 'cursor-pointer' : ''} ${marcado ? 'border-primary ring-1 ring-primary/40' : 'border-line hover:border-primary/40'}`}
+                            onClick={() => setNotaDe({ customerId: card.customerId, nome: card.nome, invoiceId: c.key !== 'encerradas' ? card.invoiceId : undefined })}
+                            title="Abrir a linha do tempo do cliente"
+                            className={`cursor-pointer rounded-lg border bg-surface p-2.5 shadow-sm transition ${marcado ? 'border-primary ring-1 ring-primary/40' : 'border-line hover:border-primary/40'}`}
                           >
                             <div className="flex items-start justify-between gap-2">
                               <div className="flex min-w-0 items-center gap-1.5">
@@ -431,7 +431,6 @@ export default function AndamentoPage() {
                               </div>
                               <div className="flex shrink-0 items-center gap-1">
                                 <span className="tabular text-sm font-semibold text-ink">{brl(card.valor)}</span>
-                                {c.key !== 'encerradas' && <button type="button" onClick={(e) => { e.stopPropagation(); setMensagemPara({ ids: [card.invoiceId], nome: card.nome }); }} title="Escrever mensagem para o cliente" aria-label={`Escrever mensagem para ${card.nome}`} className="text-muted hover:text-primary"><MessageSquareText size={13} /></button>}
                                 <button type="button" onClick={(e) => { e.stopPropagation(); setNotaDe({ customerId: card.customerId, nome: card.nome }); }} title="Linha do tempo (notas, promessas, disparos)" className="text-muted hover:text-primary"><StickyNote size={13} /></button>
                                 <Link href={`/clientes/${card.customerId}`} onClick={(e) => e.stopPropagation()} title="Abrir cliente" className="text-muted hover:text-primary"><ExternalLink size={13} /></Link>
                               </div>
@@ -488,20 +487,18 @@ export default function AndamentoPage() {
       )}
 
       {historico && <HistoricoModal invoiceId={historico.invoiceId} nome={historico.nome} onClose={() => setHistorico(null)} />}
-      {notaDe && <TimelineModal customerId={notaDe.customerId} nome={notaDe.nome} onClose={() => setNotaDe(null)} onChange={() => carregar(true)} />}
+      {notaDe && (
+        <TimelineModal
+          customerId={notaDe.customerId} nome={notaDe.nome} onClose={() => setNotaDe(null)} onChange={() => carregar(true)}
+          onEnviar={notaDe.invoiceId ? () => { const n = notaDe; setNotaDe(null); setMensagemPara({ ids: [n.invoiceId!], nome: n.nome }); } : undefined}
+        />
+      )}
       {mensagemPara && (
-        <EnviarMensagemModal
+        <EnviarModal
           invoiceIds={mensagemPara.ids}
           nome={mensagemPara.nome}
           onClose={() => setMensagemPara(null)}
           onEnviado={(m) => { setMensagemPara(null); limpar(); carregar(true); setMsg(m); }}
-        />
-      )}
-      {dispararComOpen && (
-        <DispararComTemplateModal
-          invoiceIds={[...sel]}
-          onClose={() => setDispararComOpen(false)}
-          onEnviado={(m) => { setDispararComOpen(false); limpar(); carregar(true); setMsg(m); }}
         />
       )}
 
@@ -510,9 +507,7 @@ export default function AndamentoPage() {
           <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-2">
             <span className="text-sm font-medium text-ink">{sel.size} selecionada(s)</span>
             <div className="ml-auto flex flex-wrap gap-2">
-              <button onClick={() => acao('disparar')} disabled={busy} className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-60"><Send size={14} /> Disparar agora</button>
-              <button onClick={() => setMensagemPara({ ids: [...sel] })} disabled={busy} className="flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary-tint px-3 py-1.5 text-sm font-medium text-primary hover:bg-primary hover:text-white disabled:opacity-60"><MessageSquareText size={14} /> Escrever mensagem</button>
-              <button onClick={() => setDispararComOpen(true)} disabled={busy} className="flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary-tint px-3 py-1.5 text-sm font-medium text-primary hover:bg-primary hover:text-white disabled:opacity-60"><Send size={14} /> Disparar com...</button>
+              <button onClick={() => setMensagemPara({ ids: [...sel] })} disabled={busy} className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-1.5 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-60"><Send size={14} /> Enviar</button>
               <button onClick={() => acao('pausar')} disabled={busy} className="flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm hover:bg-canvas disabled:opacity-60"><Pause size={14} /> Pausar cobrança</button>
               <button onClick={() => acao('retomar')} disabled={busy} className="flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm hover:bg-canvas disabled:opacity-60"><Play size={14} /> Retomar</button>
               <button onClick={limpar} className="rounded-lg px-3 py-1.5 text-sm text-muted hover:text-ink">Limpar</button>
@@ -532,9 +527,9 @@ const VARIAVEIS_MSG = ['{{nome}}', '{{valor}}', '{{vencimento}}', '{{pix}}', '{{
 /**
  * Mensagem ESCRITA pelo operador, direto da esteira (texto livre com variáveis).
  * Fica registrada como contato manual de quem enviou. WhatsApp oficial (WABA) não
- * entrega texto livre fora da janela de 24h — para ele, o caminho é "Disparar com...".
+ * entrega texto livre fora da janela de 24h — para ele, o caminho é "Escolher template".
  */
-function EnviarMensagemModal({ invoiceIds, nome, onClose, onEnviado }: { invoiceIds: string[]; nome?: string; onClose: () => void; onEnviado: (msg: string) => void }) {
+function EnviarMensagemModal({ invoiceIds, nome, onClose, onEnviado, embutido }: { invoiceIds: string[]; nome?: string; onClose: () => void; onEnviado: (msg: string) => void; embutido?: boolean }) {
   const [contas, setContas] = useState<ContaCanal[]>([]);
   const [contaId, setContaId] = useState('');
   const [texto, setTexto] = useState('Olá {{nome}}, aqui é da cobrança. ');
@@ -577,13 +572,8 @@ function EnviarMensagemModal({ invoiceIds, nome, onClose, onEnviado }: { invoice
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="w-full max-w-lg rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-ink">Escrever mensagem</h2>
-          <button onClick={onClose} aria-label="Fechar" className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>
-        </div>
-        <p className="mb-3 text-sm text-muted">{nome ? <>Para <b className="text-ink">{nome}</b>.</> : <>{invoiceIds.length} cliente(s) selecionado(s).</>} Fica registrada como contato manual seu.</p>
+    <Moldura embutido={embutido} titulo="Escrever mensagem" onClose={onClose}>
+        <p className="mb-3 text-sm text-muted">{nome ? <>Para <b className="text-ink">{nome}</b>. </> : null}Fica registrada como contato manual seu.</p>
 
         <label className="mb-3 block text-sm"><span className="mb-1 block text-xs text-muted">Enviar pelo número / canal</span>
           <select value={contaId} onChange={(e) => setContaId(e.target.value)} className="w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
@@ -593,7 +583,7 @@ function EnviarMensagemModal({ invoiceIds, nome, onClose, onEnviado }: { invoice
         </label>
         {oficial && (
           <p className="mb-3 rounded border border-line bg-warning-tint p-2 text-xs text-[#854F0B]">
-            WhatsApp <b>oficial</b>: a Meta só entrega texto livre se o cliente escreveu nas últimas 24h. Fora disso a mensagem falha — use <b>Disparar com...</b> (template aprovado) ou outro número.
+            WhatsApp <b>oficial</b>: a Meta só entrega texto livre se o cliente escreveu nas últimas 24h. Fora disso a mensagem falha — use a aba <b>Escolher template</b> (template aprovado) ou outro número.
           </p>
         )}
         {conta?.canal === 'EMAIL' && (
@@ -614,6 +604,78 @@ function EnviarMensagemModal({ invoiceIds, nome, onClose, onEnviado }: { invoice
           <button onClick={onClose} className="rounded border border-line px-4 py-2 text-sm hover:bg-canvas">Cancelar</button>
           <button onClick={enviar} disabled={busy || !contaId || !texto.trim()} className="flex items-center gap-1.5 rounded bg-primary px-5 py-2 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-60"><Send size={14} /> {busy ? 'Enviando...' : 'Enviar'}</button>
         </div>
+    </Moldura>
+  );
+}
+
+/** Janela (ou só o conteúdo, quando embutido dentro de outra janela). */
+function Moldura({ embutido, titulo, onClose, children }: { embutido?: boolean; titulo: string; onClose: () => void; children: React.ReactNode }) {
+  if (embutido) return <div>{children}</div>;
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="w-full max-w-lg rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-ink">{titulo}</h2>
+          <button onClick={onClose} aria-label="Fechar" className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+type ModoEnvio = 'regua' | 'template' | 'texto';
+
+/**
+ * UM botão "Enviar" para tudo: a etapa atual da régua, um template escolhido ou
+ * uma mensagem escrita na hora. Mesma janela para a seleção e para um cliente só.
+ */
+function EnviarModal({ invoiceIds, nome, onClose, onEnviado }: { invoiceIds: string[]; nome?: string; onClose: () => void; onEnviado: (msg: string) => void }) {
+  const [modo, setModo] = useState<ModoEnvio>('regua');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  async function dispararEtapa() {
+    setBusy(true); setMsg('');
+    try {
+      const r = await api<{ enfileirados: number; falhas: number; erros?: { erro: string }[] }>('/reguas/andamento/disparar', { method: 'POST', body: { invoiceIds } });
+      if (!r.enfileirados && r.erros?.length) { setMsg(r.erros[0].erro); setBusy(false); return; }
+      onEnviado(`✓ ${r.enfileirados} disparo(s) na fila${r.enfileirados > 1 ? ' — enviados espaçados pelo intervalo da régua' : ''}${r.falhas ? ` · ${r.falhas} falharam` : ''}.`);
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro'); setBusy(false); }
+  }
+  const opcoes: [ModoEnvio, string, string][] = [
+    ['regua', 'Etapa da régua', 'a mensagem do passo atual'],
+    ['template', 'Escolher template', 'outro modelo aprovado'],
+    ['texto', 'Escrever mensagem', 'texto seu, na hora'],
+  ];
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-1 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-ink">Enviar para {nome ?? `${invoiceIds.length} cliente(s)`}</h2>
+          <button onClick={onClose} aria-label="Fechar" className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>
+        </div>
+        <p className="mb-3 text-xs text-muted">Escolha o que enviar. Tudo fica registrado como contato manual seu.</p>
+        <div role="tablist" className="mb-4 grid grid-cols-3 gap-1.5">
+          {opcoes.map(([k, t, d]) => (
+            <button key={k} role="tab" aria-selected={modo === k} onClick={() => { setModo(k); setMsg(''); }}
+              className={`rounded-lg border px-2 py-2 text-left transition ${modo === k ? 'border-primary bg-primary-tint' : 'border-line hover:border-primary/40'}`}>
+              <div className={`text-sm font-medium ${modo === k ? 'text-primary' : 'text-ink'}`}>{t}</div>
+              <div className="text-[11px] text-muted">{d}</div>
+            </button>
+          ))}
+        </div>
+        {modo === 'regua' && (
+          <div>
+            <p className="mb-4 text-sm text-muted">Envia agora a mensagem do passo em que {nome ? 'o cliente está' : 'cada cliente está'} na régua, pelo canal e número do passo. Mais de um cliente sai espaçado pelo intervalo da régua.</p>
+            {msg && <p className="mb-2 text-sm text-danger">{msg}</p>}
+            <div className="flex justify-end gap-2">
+              <button onClick={onClose} className="rounded border border-line px-4 py-2 text-sm hover:bg-canvas">Cancelar</button>
+              <button onClick={dispararEtapa} disabled={busy} className="flex items-center gap-1.5 rounded bg-primary px-5 py-2 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-60"><Send size={14} /> {busy ? 'Enviando...' : 'Enviar agora'}</button>
+            </div>
+          </div>
+        )}
+        {modo === 'template' && <DispararComTemplateModal embutido invoiceIds={invoiceIds} onClose={onClose} onEnviado={onEnviado} />}
+        {modo === 'texto' && <EnviarMensagemModal embutido invoiceIds={invoiceIds} nome={nome} onClose={onClose} onEnviado={onEnviado} />}
       </div>
     </div>
   );
@@ -623,7 +685,7 @@ const FAMILIA_WHATSAPP = new Set(['WHATSAPP_CLOUD', 'NX_SYSTEMS', 'WHATSAPP_EVOL
 const mesmoCanalFamilia = (a: string, b: string) => a === b || (FAMILIA_WHATSAPP.has(a) && FAMILIA_WHATSAPP.has(b));
 
 /** Escolhe manualmente o template (passo de qualquer régua) e a conta/canal de envio, ignorando a etapa atual da régua. */
-function DispararComTemplateModal({ invoiceIds, onClose, onEnviado }: { invoiceIds: string[]; onClose: () => void; onEnviado: (msg: string) => void }) {
+function DispararComTemplateModal({ invoiceIds, onClose, onEnviado, embutido }: { invoiceIds: string[]; onClose: () => void; onEnviado: (msg: string) => void; embutido?: boolean }) {
   const [templates, setTemplates] = useState<TemplateDisparo[]>([]);
   const [contas, setContas] = useState<ContaCanal[]>([]);
   const [stepId, setStepId] = useState('');
@@ -651,13 +713,8 @@ function DispararComTemplateModal({ invoiceIds, onClose, onEnviado }: { invoiceI
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-ink">Disparar com template escolhido</h2>
-          <button onClick={onClose} className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>
-        </div>
-        <p className="mb-3 text-sm text-muted">{invoiceIds.length} fatura(s) selecionada(s). Escolhe a mensagem e a conta que envia, ignorando a etapa atual da régua.</p>
+    <Moldura embutido={embutido} titulo="Disparar com template escolhido" onClose={onClose}>
+        <p className="mb-3 text-sm text-muted">Escolha o template aprovado e a conta que envia, em vez da etapa atual da régua.</p>
 
         <label className="mb-3 block text-sm"><span className="mb-1 block text-xs text-muted">Template</span>
           <select value={stepId} onChange={(e) => { setStepId(e.target.value); setChannelAccountId(''); }} className="w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
@@ -679,8 +736,7 @@ function DispararComTemplateModal({ invoiceIds, onClose, onEnviado }: { invoiceI
           <button onClick={onClose} className="rounded border border-line px-4 py-2 text-sm hover:bg-canvas">Cancelar</button>
           <button onClick={enviar} disabled={busy || !stepId || !channelAccountId} className="rounded bg-primary px-5 py-2 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-60">{busy ? 'Enviando...' : 'Disparar'}</button>
         </div>
-      </div>
-    </div>
+    </Moldura>
   );
 }
 
@@ -762,13 +818,17 @@ function HistoricoModal({ invoiceId, nome, onClose }: { invoiceId: string; nome:
 }
 
 /** Linha do tempo do cliente (notas, promessas, disparos), direto do card da esteira — sem precisar abrir o cadastro. */
-function TimelineModal({ customerId, nome, onClose, onChange }: { customerId: string; nome: string; onClose: () => void; onChange: () => void }) {
+function TimelineModal({ customerId, nome, onClose, onChange, onEnviar }: { customerId: string; nome: string; onClose: () => void; onChange: () => void; onEnviar?: () => void }) {
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="flex h-[85vh] w-full max-w-3xl flex-col rounded-lg bg-surface shadow-lg">
         <div className="flex items-center justify-between border-b border-line px-5 py-4">
-          <h2 className="flex items-center gap-2 text-base font-semibold text-ink"><StickyNote size={17} className="text-primary" /> Linha do tempo — {nome}</h2>
-          <button onClick={onClose} className="rounded p-1 text-muted hover:bg-canvas hover:text-ink"><X size={18} /></button>
+          <h2 className="flex min-w-0 items-center gap-2 text-base font-semibold text-ink"><StickyNote size={17} className="shrink-0 text-primary" /> <span className="truncate">Linha do tempo — {nome}</span></h2>
+          <div className="flex shrink-0 items-center gap-2">
+            {onEnviar && <button onClick={onEnviar} className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-hover"><Send size={14} /> Enviar</button>}
+            <Link href={`/clientes/${customerId}`} className="flex items-center gap-1 rounded-lg border border-line px-3 py-1.5 text-sm text-muted hover:bg-canvas hover:text-primary"><ExternalLink size={14} /> Abrir cliente</Link>
+            <button onClick={onClose} aria-label="Fechar" className="rounded p-1 text-muted hover:bg-canvas hover:text-ink"><X size={18} /></button>
+          </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
           <Timeline customerId={customerId} onChange={onChange} />
