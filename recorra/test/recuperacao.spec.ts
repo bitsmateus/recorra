@@ -191,3 +191,64 @@ describe('rótulo de origem do disparo', () => {
     expect(rotuloOrigem({ campaignId: null, ruleId: null, ruleNome: null, template: 'confirmacao_pagamento' })).toBe('Confirmação de pagamento');
   });
 });
+
+import { dividirEmBlocos } from '@/modules/recuperacao/distribuicao';
+
+describe('divisão em blocos (cima/baixo)', () => {
+  const lista = (n: number, extra: Record<string, unknown> = {}) =>
+    Array.from({ length: n }, (_, i) => ({ id: `c${i + 1}`, responsavelId: null, ...extra })); // c1 = mais atrasado
+  const de = (r: ReturnType<typeof dividirEmBlocos>, op: string) => [...r.atribuicoes].filter(([, o]) => o === op).map(([c]) => c);
+
+  it('duas operadoras: uma fica com a metade de cima, a outra com a de baixo', () => {
+    const r = dividirEmBlocos({ operadores: ['lais', 'graciele'], clientes: lista(10), diaIndice: 0 });
+    expect(de(r, 'lais')).toEqual(['c1', 'c2', 'c3', 'c4', 'c5']);
+    expect(de(r, 'graciele')).toEqual(['c6', 'c7', 'c8', 'c9', 'c10']);
+    expect(r.ordemDoDia).toEqual(['lais', 'graciele']);
+  });
+
+  it('500 vencidos: 250 para cada', () => {
+    const r = dividirEmBlocos({ operadores: ['a', 'b'], clientes: lista(500), diaIndice: 3 });
+    expect([r.carga.get('a'), r.carga.get('b')]).toEqual([250, 250]);
+  });
+
+  it('o topo reveza a cada dia, e no mesmo dia a divisão é a mesma', () => {
+    const dia0 = dividirEmBlocos({ operadores: ['lais', 'graciele'], clientes: lista(6), diaIndice: 0 });
+    const dia1 = dividirEmBlocos({ operadores: ['lais', 'graciele'], clientes: lista(6), diaIndice: 1 });
+    const dia0b = dividirEmBlocos({ operadores: ['lais', 'graciele'], clientes: lista(6), diaIndice: 0 });
+    expect(de(dia0, 'lais')).toEqual(['c1', 'c2', 'c3']);
+    expect(de(dia1, 'graciele')).toEqual(['c1', 'c2', 'c3']); // trocou: o topo agora é dela
+    expect(de(dia0b, 'lais')).toEqual(de(dia0, 'lais'));
+  });
+
+  it('número ímpar: a sobra fica com quem está no topo no dia', () => {
+    const r = dividirEmBlocos({ operadores: ['a', 'b'], clientes: lista(5), diaIndice: 0 });
+    expect([r.carga.get('a'), r.carga.get('b')]).toEqual([3, 2]);
+    expect(de(r, 'b')).toEqual(['c4', 'c5']);
+  });
+
+  it('três operadoras: três blocos seguidos, do topo ao fim', () => {
+    const r = dividirEmBlocos({ operadores: ['a', 'b', 'c'], clientes: lista(10), diaIndice: 0 });
+    expect(de(r, 'a')).toEqual(['c1', 'c2', 'c3', 'c4']);
+    expect(de(r, 'b')).toEqual(['c5', 'c6', 'c7']);
+    expect(de(r, 'c')).toEqual(['c8', 'c9', 'c10']);
+  });
+
+  it('cliente fixo (promessa) continua com a dona e o bloco dela encolhe', () => {
+    const clientes = [{ id: 'f1', responsavelId: 'b', fixo: true }, { id: 'f2', responsavelId: 'b', fixo: true }, ...lista(8)];
+    const r = dividirEmBlocos({ operadores: ['a', 'b'], clientes, diaIndice: 0 });
+    expect(r.atribuicoes.get('f1')).toBe('b');
+    expect(r.fixos).toBe(2);
+    expect([r.carga.get('a'), r.carga.get('b')]).toEqual([5, 5]); // 10 no total: b já tem 2, pega só 3
+    expect(de(r, 'a')).toEqual(['c1', 'c2', 'c3', 'c4', 'c5']);
+  });
+
+  it('fixo de quem não é da carteira não vale: entra na divisão', () => {
+    const r = dividirEmBlocos({ operadores: ['a', 'b'], clientes: [{ id: 'x', responsavelId: 'outra', fixo: true }, ...lista(3)], diaIndice: 0 });
+    expect(r.fixos).toBe(0);
+    expect(r.atribuicoes.size).toBe(4);
+  });
+
+  it('sem operadoras não faz nada', () => {
+    expect(dividirEmBlocos({ operadores: [], clientes: lista(3), diaIndice: 0 }).atribuicoes.size).toBe(0);
+  });
+});

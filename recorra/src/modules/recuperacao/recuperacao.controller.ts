@@ -123,10 +123,14 @@ export class RecuperacaoController {
     return { atribuidas: await this.atribuicao.processar(tenantId, 100) };
   }
 
-  /** "Distribuir agora": divide os vencidos sem dono entre os operadores das carteiras automáticas. */
+  /**
+   * "Distribuir agora": encaixa os vencidos sem dono. Em carteiras em BLOCOS que já
+   * foram divididas hoje, só os novos — `refazer: true` divide a lista inteira de
+   * novo (os clientes podem trocar de operadora).
+   */
   @Post('distribuir')
   @Roles('OWNER', 'ADMIN')
-  distribuir(@TenantId() tenantId: string, @CurrentUser() user: AuthUser) {
-    return this.distribuicao.distribuirTenant(tenantId, user.id);
+  distribuir(@TenantId() tenantId: string, @CurrentUser() user: AuthUser, @Body('refazer') refazer?: boolean) {
+    return this.distribuicao.distribuirTenant(tenantId, user.id, new Date(), refazer === true);
   }
 }

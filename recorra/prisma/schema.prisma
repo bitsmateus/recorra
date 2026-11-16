@@ -32,6 +32,9 @@ enum DistribuicaoModo {
   MANUAL
   BALANCEADA
   SEQUENCIAL
+  // Divide a lista do dia em blocos (um por operadora): a de cima fica com o topo
+  // (mais atrasados), a de baixo com o fim — e o topo reveza a cada dia.
+  BLOCOS
 }
 
 enum UserRole {
@@ -410,6 +413,7 @@ model Carteira {
   // Como os clientes vencidos desta carteira são divididos entre os operadores dela.
   distribuicao       DistribuicaoModo @default(MANUAL)
   distribuicaoCursor Int              @default(0) // próximo operador no modo SEQUENCIAL
+  distribuicaoEm     DateTime? // última divisão COMPLETA em blocos (a de 6h; o botão do dia não refaz)
   // Fila da equipe no NX: quando um cliente desta carteira responde no chat, o
   // atendimento é transferido para esta fila (se a operadora não tiver fila própria).
   nxQueueId          Int?

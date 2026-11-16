@@ -69,7 +69,14 @@ export class SchedulerService implements OnApplicationBootstrap {
     this.logger.log(`Risco recalculado: ${n} cliente(s)`);
   }
 
-  @Cron('30 8 * * *', { timeZone: 'America/Sao_Paulo' })
+  /**
+   * Distribuição diária dos vencidos entre as operadoras (carteiras com modo
+   * automático) — TODO DIA ÀS 6H, como a planilha que a equipe tirava de manhã.
+   * Em BLOCOS refaz a divisão da lista inteira (cima/baixo, topo revezando). Vem
+   * depois do sync do ERP das 4h e antes da régua das 9h, para o atendimento que a
+   * régua gerar já cair na responsável do dia.
+   */
+  @Cron('0 6 * * *', { timeZone: 'America/Sao_Paulo' })
   async runDistribuicao() {
     await this.distribuicao.distribuirTodos();
   }

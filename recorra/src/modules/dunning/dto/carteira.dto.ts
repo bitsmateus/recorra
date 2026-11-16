@@ -13,8 +13,8 @@ export class SaveCarteiraDto {
 
   // Como os clientes vencidos desta carteira são divididos entre os operadores.
   @IsOptional()
-  @IsIn(['MANUAL', 'BALANCEADA', 'SEQUENCIAL'])
-  distribuicao?: 'MANUAL' | 'BALANCEADA' | 'SEQUENCIAL';
+  @IsIn(['MANUAL', 'BALANCEADA', 'SEQUENCIAL', 'BLOCOS'])
+  distribuicao?: 'MANUAL' | 'BALANCEADA' | 'SEQUENCIAL' | 'BLOCOS';
 
   // Fila da equipe no NX (respostas dos clientes desta carteira). null limpa.
   @IsOptional()

@@ -72,7 +72,7 @@ async function main() {
 
   // ---------------- Equipe e carteiras ----------------
   // Filas e IDs do NX fictícios (itens 6/7): equipe 10/20, fila pessoal 11–14, usuários 101–104.
-  const c1 = await prisma.carteira.create({ data: { tenantId: TENANT_ID, nome: 'Cobrança 1', diaMinimo: 5, distribuicao: 'BALANCEADA', nxQueueId: 10 } });
+  const c1 = await prisma.carteira.create({ data: { tenantId: TENANT_ID, nome: 'Cobrança 1', diaMinimo: 5, distribuicao: 'BLOCOS', nxQueueId: 10 } });
   const c2 = await prisma.carteira.create({ data: { tenantId: TENANT_ID, nome: 'Cobrança 2', diaMinimo: 30, distribuicao: 'BALANCEADA', nxQueueId: 20 } });
   let nxSeq = 0;
   const user = (nome: string, email: string, role: 'OWNER' | 'ADMIN' | 'OPERADOR', carteiraId?: string) => {

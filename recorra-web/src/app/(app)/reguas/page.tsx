@@ -1176,16 +1176,18 @@ function NichoGallery({ onClone }: { onClone: () => void }) {
   );
 }
 
-type ModoDistribuicao = 'MANUAL' | 'BALANCEADA' | 'SEQUENCIAL';
+type ModoDistribuicao = 'MANUAL' | 'BALANCEADA' | 'SEQUENCIAL' | 'BLOCOS';
 interface Carteira { id: string; nome: string; diaMinimo: number; distribuicao?: ModoDistribuicao; nxQueueId?: number | null }
 interface ResumoDistribuicao {
   carteira: string; modo: ModoDistribuicao; clientes: number; atribuidos: number; mantidos: number;
   operadores: { nome: string; clientes: number }[]; aviso?: string;
+  topo?: string; divisaoCompleta?: boolean;
 }
 const MODOS: { valor: ModoDistribuicao; label: string; ajuda: string }[] = [
   { valor: 'MANUAL', label: 'Manual', ajuda: 'o responsável é definido à mão no cliente' },
   { valor: 'BALANCEADA', label: 'Automática balanceada', ajuda: 'cada cliente novo vai para quem está com menos' },
   { valor: 'SEQUENCIAL', label: 'Automática sequencial', ajuda: 'rodízio: um para cada, na ordem' },
+  { valor: 'BLOCOS', label: 'Automática em blocos (cima/baixo)', ajuda: 'todo dia às 6h a lista é cortada em blocos: uma operadora fica com o topo (mais atrasados), outra com o fim; o topo reveza a cada dia' },
 ];
 
 /**
@@ -1236,10 +1238,11 @@ function CarteirasCard() {
     finally { setBusy(false); }
   }
 
-  async function distribuirAgora() {
+  async function distribuirAgora(refazer = false) {
+    if (refazer && !window.confirm('Refazer a divisão da lista inteira agora? Os clientes podem trocar de operadora no meio do dia — o normal é deixar a divisão das 6h.')) return;
     setBusy(true); setMsg(''); setResumo(null);
     try {
-      const r = await api<ResumoDistribuicao[]>('/recuperacao/distribuir', { method: 'POST' });
+      const r = await api<ResumoDistribuicao[]>('/recuperacao/distribuir', { method: 'POST', body: { refazer } });
       if (!r.length) setMsg('Nenhuma carteira com distribuição automática.');
       setResumo(r);
     } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro'); }
@@ -1301,17 +1304,25 @@ function CarteirasCard() {
         <div className="mb-3 rounded border border-line bg-canvas p-3 text-xs text-muted">
           <div className="flex flex-wrap items-center gap-2">
             <span className="flex-1">
-              <b className="text-ink">Distribuição automática:</b> todo dia às 8h30 os clientes vencidos sem dono são divididos entre os operadores da carteira
-              (vincule em <Link href="/equipe" className="text-primary underline">Equipe</Link>). Quem já tem responsável na carteira continua com ele; ao mudar de faixa, passa para a próxima equipe.
+              <b className="text-ink">Distribuição automática:</b> todo dia às 6h os clientes vencidos são divididos entre os operadores da carteira
+              (vincule em <Link href="/equipe" className="text-primary underline">Equipe</Link>). Quem já tem responsável na carteira continua com ele (exceto em blocos, que dividem a lista de novo todo dia); ao mudar de faixa, passa para a próxima equipe.
               Na Esteira, cada operadora vê só os clientes dela.
             </span>
-            <button onClick={distribuirAgora} disabled={busy} className="rounded bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary-hover disabled:opacity-60">Distribuir agora</button>
+            <button onClick={() => distribuirAgora(false)} disabled={busy} className="rounded bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary-hover disabled:opacity-60">Distribuir agora</button>
+            {ordenadas.some((c) => c.distribuicao === 'BLOCOS') && (
+              <button onClick={() => distribuirAgora(true)} disabled={busy} title="Divide a lista inteira de novo, como a rotina das 6h" className="rounded border border-primary/40 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary-tint disabled:opacity-60">Refazer a divisão</button>
+            )}
           </div>
           {resumo && resumo.length > 0 && (
             <div className="mt-2 space-y-1">
               {resumo.map((r) => (
                 <div key={r.carteira} className="text-ink">
-                  <b>{r.carteira}</b>: {r.clientes} vencido(s) · {r.atribuidos} distribuído(s) agora · {r.mantidos} já tinham dono
+                  <b>{r.carteira}</b>: {r.clientes} vencido(s) ·{' '}
+                  {r.modo === 'BLOCOS'
+                    ? (r.divisaoCompleta
+                        ? <>lista dividida em blocos — <b>topo (mais atrasados) com {r.topo}</b> hoje · {r.atribuidos} trocaram de operadora</>
+                        : <>já dividida hoje · {r.atribuidos} novo(s) encaixado(s)</>)
+                    : <>{r.atribuidos} distribuído(s) agora · {r.mantidos} já tinham dono</>}
                   {r.operadores.length > 0 && <> — {r.operadores.map((o) => `${o.nome}: ${o.clientes}`).join(' · ')}</>}
                   {r.aviso && <span className="text-danger"> — {r.aviso}</span>}
                 </div>
@@ -1434,10 +1445,12 @@ function AjudaDistribuicao() {
               <li><b>Manual</b> — o Recorrai não mexe. O responsável é escolhido à mão, na linha do tempo do cliente (clique no card da Esteira) ou no cadastro. Bom para equipes pequenas ou quando cada cliente já tem dono fixo.</li>
               <li><b>Automática balanceada</b> — cada cliente vencido sem dono vai para a operadora da carteira que está com <b>menos</b> clientes naquele momento (equilibra a carga).</li>
               <li><b>Automática sequencial</b> — rodízio: um para cada operadora, na ordem, continuando de onde parou no dia anterior.</li>
+              <li><b>Automática em blocos (cima/baixo)</b> — o que a planilha da equipe faz: a lista do dia, do mais atrasado ao menos atrasado, é cortada em fatias. Com 2 operadoras, uma fica com a <b>metade de cima</b> e a outra com a <b>metade de baixo</b>; com 3 ou mais, um bloco para cada, em ordem. O <b>topo reveza a cada dia</b>, para ninguém ficar sempre com os casos mais difíceis.</li>
             </ul>
             <div className="mb-1 font-semibold">Por dentro (automática)</div>
             <ul className="mb-2 list-disc space-y-1 pl-4 text-muted">
-              <li>Roda <b className="text-ink">todo dia às 8h30</b>, depois da sincronização com o ERP e antes da régua das 9h — e na hora, pelo botão <b className="text-ink">Distribuir agora</b>.</li>
+              <li>Roda <b className="text-ink">todo dia às 6h</b>, depois da sincronização com o ERP das 4h e antes da régua das 9h — e na hora, pelo botão <b className="text-ink">Distribuir agora</b>.</li>
+              <li><b className="text-ink">Em blocos</b>, a rotina das 6h <b className="text-ink">divide a lista inteira de novo</b>: o cliente pode mudar de operadora de um dia para o outro (o crédito é de quem é responsável no dia do pagamento). Quem tem <b className="text-ink">promessa de pagamento em vigor</b> continua com a mesma operadora. O botão &quot;Distribuir agora&quot; só encaixa os clientes novos; &quot;Refazer a divisão&quot; corta a lista inteira de novo.</li>
               <li>As operadoras da carteira são as vinculadas a ela em <b className="text-ink">Equipe</b> (coluna Carteira), ativas.</li>
               <li>Quem já tem responsável <b className="text-ink">da própria carteira</b> continua com ele. Quando o atraso passa para a faixa da próxima carteira (ex.: de 29 para 30 dias), o cliente é redistribuído para a equipe dela.</li>
               <li>Na Esteira, a operadora de uma carteira automática vê <b className="text-ink">só os clientes dela</b>.</li>
