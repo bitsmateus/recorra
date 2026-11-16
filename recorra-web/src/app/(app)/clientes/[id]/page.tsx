@@ -6,10 +6,11 @@ import Link from 'next/link';
 import { ArrowLeft, Phone, Mail, MapPin, Plus, X, RefreshCw } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Metric, RiskBadge, brl } from '@/components/ui';
-import { Timeline } from '@/components/Timeline';
+import { RiscoPainel } from '@/components/RiscoPainel';
+import { Timeline, situacaoDaPromessa } from '@/components/Timeline';
 
 interface Detalhe {
-  customer: { id: string; nome: string; doc: string; email?: string; telefone?: string; plano?: string; valorPlano?: number; cidade?: string; uf?: string; tags?: string[]; contrato?: string; statusContrato?: string };
+  customer: { id: string; nome: string; doc: string; email?: string; telefone?: string; plano?: string; valorPlano?: number; cidade?: string; uf?: string; tags?: string[]; contrato?: string; statusContrato?: string; faixaAtual?: string | null; promessaAte?: string | null };
   risco?: { faixa: string; score: number; fatores?: { fator: string; pontos: number; detalhe: string }[] };
   features?: { atrasosQtd: number; atrasoMedioDias: number; faturasPagas: number; faturasVencidas: number; taxaResposta: number };
   faturas: { id: string; valor: number; vencimento: string; status: string; metodo: string; origem?: string; pixCopiaCola?: string; linkPagamento?: string }[];
@@ -90,7 +91,10 @@ export default function ClienteDetalhePage() {
             {c.tags && c.tags.length > 0 && <div className="mt-2 flex flex-wrap gap-1">{c.tags.map((t) => <span key={t} className="rounded-full bg-primary-tint px-2 py-0.5 text-xs text-primary">{t}</span>)}</div>}
           </div>
           <div className="flex flex-col items-end gap-2">
-            <RiskBadge faixa={d.risco?.faixa} />
+            <RiskBadge faixa={c.faixaAtual ?? d.risco?.faixa} />
+            {situacaoDaPromessa(c.promessaAte) === 'PAUSADA' && (
+              <span className="rounded bg-danger-tint px-2 py-0.5 text-xs font-bold uppercase tracking-wide text-danger">Pausada por promessa · até {new Date(c.promessaAte!).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}</span>
+            )}
             <div className="flex flex-wrap justify-end gap-2">
               <button onClick={() => setSyncPagas(true)} title="Buscar no gateway as cobranças já pagas deste cliente" className="flex items-center gap-2 rounded border border-line px-4 py-2 text-sm hover:bg-canvas"><RefreshCw size={16} /> Sincronizar pagas</button>
               <button onClick={() => setCobrar(true)} className="flex items-center gap-2 rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover"><Plus size={16} /> Gerar cobrança</button>
@@ -164,19 +168,11 @@ export default function ClienteDetalhePage() {
         </Card>
       </div>
 
-      {d.risco?.fatores && d.risco.fatores.length > 0 && (
-        <div className="mt-6 rounded-lg border border-line bg-surface p-4">
-          <div className="mb-2 text-sm font-semibold text-ink">Por que este cliente é {d.risco.faixa} (score {d.risco.score})</div>
-          <div className="space-y-1">
-            {d.risco.fatores.map((fa, i) => (
-              <div key={i} className="flex justify-between text-sm">
-                <span className="text-muted">{fa.detalhe}</span>
-                <span className={fa.pontos >= 0 ? 'text-danger' : 'text-success'}>{fa.pontos >= 0 ? '+' : ''}{fa.pontos}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      <div className="mt-6">
+        <Card title="Risco de pagamento">
+          <RiscoPainel customerId={c.id} onChange={carregar} />
+        </Card>
+      </div>
 
       {cobrar && <ChargeModal customerId={c.id} valorSugerido={c.valorPlano} onClose={() => setCobrar(false)} onSaved={() => { setCobrar(false); carregar(); }} />}
       {syncPagas && <SyncPagasModal customerId={c.id} onClose={() => setSyncPagas(false)} onDone={() => { setSyncPagas(false); carregar(); }} />}

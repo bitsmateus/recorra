@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { atribuir, Contato } from './atribuicao';
+import { RiskScoringService } from '@/modules/risk/risk-scoring.service';
 
 const LOTE = 500;
 const SUCESSO = ['ENVIADO', 'ENTREGUE', 'LIDO'] as const;
@@ -118,6 +119,11 @@ export class AtribuicaoService {
         where: { id: f.id },
         data: { ...a, atribuidoEm: marca, ...(f.pagoEm ? {} : { pagoEm }) },
       });
+    }
+    // Pagou: o risco é medido pelas últimas pagas, então recalcula na hora.
+    const risco = new RiskScoringService(this.prisma);
+    for (const cid of clientes) {
+      await risco.scoreCustomer(tenantId, cid).catch((e) => this.logger.warn(`Risco não recalculado (${cid}): ${String(e)}`));
     }
     return faturas.length;
   }

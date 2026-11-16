@@ -12,6 +12,27 @@ import { CreateUserDto, SetPasswordDto } from './dto/users.dto';
 export class UsersController {
   constructor(private readonly users: UsersService) {}
 
+  // ---------- Meu perfil (o próprio usuário logado) — antes das rotas :id ----------
+
+  @Get('me')
+  @UseGuards(JwtAuthGuard)
+  me(@TenantId() tenantId: string, @CurrentUser() user: AuthUser) {
+    return this.users.meuPerfil(tenantId, user.id);
+  }
+
+  @Patch('me')
+  @UseGuards(JwtAuthGuard)
+  editarMe(@TenantId() tenantId: string, @CurrentUser() user: AuthUser, @Body('nome') nome?: string) {
+    return this.users.editarMeuPerfil(tenantId, user.id, nome);
+  }
+
+  /** Troca a própria senha (exige a atual). Encerra as sessões: entra de novo com a nova. */
+  @Post('me/senha')
+  @UseGuards(JwtAuthGuard)
+  trocarMinhaSenha(@TenantId() tenantId: string, @CurrentUser() user: AuthUser, @Body('senhaAtual') senhaAtual?: string, @Body('novaSenha') novaSenha?: string) {
+    return this.users.trocarMinhaSenha(tenantId, user.id, senhaAtual ?? '', novaSenha ?? '');
+  }
+
   @Get()
   @UseGuards(JwtAuthGuard)
   list(@TenantId() tenantId: string) {

@@ -59,7 +59,9 @@ export class DispatchService {
 
     // WhatsApp sem template: a Meta não entrega. Falha aqui com motivo claro em vez de
     // gastar a chamada e receber um erro genérico do provedor.
-    if (WHATSAPP.includes(d.canal) && !d.templateName) {
+    // Exceção: mensagem ESCRITA por um operador (MANUAL sem régua) — ele sabe se o cliente
+    // está na janela de 24h; WhatsApp não oficial entrega normalmente. Quem decide é o provedor.
+    if (WHATSAPP.includes(d.canal) && !d.templateName && !(d.origem === 'MANUAL' && !d.ruleId)) {
       await this.marcar(d.id, 'FALHA', 'WhatsApp exige um template aprovado — texto livre não é entregue. Edite a campanha/régua e escolha um template.');
       return 'FALHA';
     }

@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { AuditService } from '@/common/audit/audit.service';
 import { RiskBand } from '@prisma/client';
 import { JwtAuthGuard } from '@/common/auth/jwt-auth.guard';
 import { RolesGuard } from '@/common/auth/roles.guard';
@@ -17,6 +18,7 @@ export class CustomersController {
   constructor(
     private readonly customers: CustomersService,
     private readonly risk: RiskScoringService,
+    private readonly audit: AuditService,
   ) {}
 
   @Get()
@@ -186,15 +188,45 @@ export class CustomersController {
     return this.customers.addPromessa(tenantId, id, dto, user.id);
   }
 
+  /** Situação da promessa (pausa da régua) — banner da linha do tempo. */
+  @Get(':id/promessa')
+  async promessa(@TenantId() tenantId: string, @Param('id') id: string) {
+    return this.customers.situacaoPromessa(tenantId, id);
+  }
+
+  /** Retoma a cobrança automática antes da data da promessa. */
+  @Post(':id/promessa/retomar')
+  @UseGuards(RolesGuard)
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO', 'OPERADOR')
+  retomarCobranca(@TenantId() tenantId: string, @Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.customers.retomarCobranca(tenantId, id, user.id);
+  }
+
   /** Linha do tempo: notas/promessas + disparos — mesma leitura no cliente e na esteira. */
   @Get(':id/timeline')
   timeline(@TenantId() tenantId: string, @Param('id') id: string) {
     return this.customers.getTimeline(tenantId, id);
   }
 
+  /** Score, faixa que vale, motivos, últimas pagas usadas no cálculo e o ajuste manual (se houver). */
   @Get(':id/risco')
   risco(@TenantId() tenantId: string, @Param('id') id: string) {
-    return this.risk.latest(tenantId, id);
+    return this.risk.painel(tenantId, id);
+  }
+
+  /** Faixa de risco à mão (escolhe a régua do cliente) ou `faixa: null` para voltar ao automático. */
+  @Put(':id/risco/manual')
+  @UseGuards(RolesGuard)
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO', 'OPERADOR')
+  async riscoManual(
+    @TenantId() tenantId: string, @Param('id') id: string, @CurrentUser() user: AuthUser,
+    @Body('faixa') faixa?: string | null, @Body('motivo') motivo?: string,
+  ) {
+    const valida = faixa === null || faixa === undefined || faixa === '' ? null : (['BOM', 'ATENCAO', 'RISCO'].includes(faixa) ? (faixa as RiskBand) : undefined);
+    if (valida === undefined) throw new BadRequestException('Faixa inválida (BOM, ATENCAO ou RISCO)');
+    await this.risk.definirManual(tenantId, id, valida, motivo, user.id);
+    await this.audit.record({ tenantId, userId: user.id, acao: valida ? 'customer.risco.manual' : 'customer.risco.automatico', entidade: 'Customer', entidadeId: id, depois: { faixa: valida, motivo: motivo ?? null } });
+    return this.risk.painel(tenantId, id);
   }
 
   @Post(':id/risco/recalcular')

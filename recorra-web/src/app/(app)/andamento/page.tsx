@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { UIEvent } from 'react';
 import Link from 'next/link';
-import { RefreshCw, Loader2, CheckCircle2, Clock, XCircle, Phone, ExternalLink, Send, Pause, Play, Pause as PauseIcon, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, X, History, Search, AlertTriangle, StickyNote } from 'lucide-react';
+import { RefreshCw, Loader2, CheckCircle2, Clock, XCircle, Phone, ExternalLink, Send, Pause, Play, Pause as PauseIcon, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, X, History, Search, AlertTriangle, StickyNote, MessageSquareText } from 'lucide-react';
 import { api } from '@/lib/api';
 import { PageTitle, brl } from '@/components/ui';
 import { Timeline } from '@/components/Timeline';
@@ -14,6 +14,7 @@ interface Card {
   ultimoDisparo: { status: string; canal: string; quando: string } | null;
   canal?: string; pausada?: boolean; status?: string; statusContrato?: string; tags?: string[];
   alertaRescisao?: boolean; alertaSerasa?: boolean; carteira?: string | null; responsavel?: string | null;
+  promessaAte?: string | null; promessaSituacao?: 'PAUSADA' | 'VENCIDA' | null;
 }
 interface Coluna { key: string; label: string; cards: Card[]; total: number; valor: number }
 interface Andamento {
@@ -82,11 +83,9 @@ export default function AndamentoPage() {
   const [canalFiltro, setCanalFiltro] = useState('');
   const [carteiraFiltro, setCarteiraFiltro] = useState('');
   const [responsavelFiltro, setResponsavelFiltro] = useState('');
-  // Padrão: o mês atual (vencimentos deste mês). "Todo o período" fica a um clique.
-  const [periodo, setPeriodo] = useState<{ de: string; ate: string }>(() => {
-    const h = new Date();
-    return { de: isoData(new Date(h.getFullYear(), h.getMonth(), 1)), ate: isoData(new Date(h.getFullYear(), h.getMonth() + 1, 0)) };
-  });
+  // Padrão: TODO o período e TODAS as réguas — a esteira abre mostrando tudo;
+  // o usuário recorta pelos filtros quando quiser.
+  const [periodo, setPeriodo] = useState<{ de: string; ate: string }>({ de: '', ate: '' });
   const [menuPeriodo, setMenuPeriodo] = useState(false);
   const [situacao, setSituacao] = useState<'' | 'vencidas' | 'avencer'>('');
   const [sel, setSel] = useState<Set<string>>(new Set());
@@ -99,6 +98,8 @@ export default function AndamentoPage() {
   const [historico, setHistorico] = useState<{ invoiceId: string; nome: string } | null>(null);
   const [notaDe, setNotaDe] = useState<{ customerId: string; nome: string } | null>(null);
   const [dispararComOpen, setDispararComOpen] = useState(false);
+  // Mensagem escrita pelo operador: para as selecionadas (null = usa a seleção) ou um card só.
+  const [mensagemPara, setMensagemPara] = useState<{ ids: string[]; nome?: string } | null>(null);
   const [visiveisPorColuna, setVisiveisPorColuna] = useState<Record<string, number>>({});
   const esteiraRef = useRef<HTMLDivElement>(null);
 
@@ -127,7 +128,7 @@ export default function AndamentoPage() {
     if (verPausadas) p.set('pausadas', '1');
     const q = p.toString();
     const r = await api<Andamento>(`/reguas/andamento${q ? `?${q}` : ''}`).catch(() => null);
-    if (r) { setDados(r); if (!ruleId && r.regua) setRuleId(r.regua.id); }
+    if (r) setDados(r);
     if (!silencioso) setLoading(false);
   }, [ruleId, verPausadas]);
   useEffect(() => { carregar(); }, [carregar]);
@@ -278,7 +279,8 @@ export default function AndamentoPage() {
             </select>
           )}
           {dados && dados.reguas.length > 1 && (
-            <select value={ruleId} onChange={(e) => { setRuleId(e.target.value); limpar(); }} className="rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-primary">
+            <select value={ruleId} onChange={(e) => { setRuleId(e.target.value); limpar(); }} aria-label="Régua" className="rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-primary">
+              <option value="">Todas as réguas</option>
               {dados.reguas.map((r) => <option key={r.id} value={r.id}>{r.nome}{r.faixaRisco ? ` · ${faixaLabel[r.faixaRisco] || r.faixaRisco}` : ''}</option>)}
             </select>
           )}
@@ -429,6 +431,7 @@ export default function AndamentoPage() {
                               </div>
                               <div className="flex shrink-0 items-center gap-1">
                                 <span className="tabular text-sm font-semibold text-ink">{brl(card.valor)}</span>
+                                {c.key !== 'encerradas' && <button type="button" onClick={(e) => { e.stopPropagation(); setMensagemPara({ ids: [card.invoiceId], nome: card.nome }); }} title="Escrever mensagem para o cliente" aria-label={`Escrever mensagem para ${card.nome}`} className="text-muted hover:text-primary"><MessageSquareText size={13} /></button>}
                                 <button type="button" onClick={(e) => { e.stopPropagation(); setNotaDe({ customerId: card.customerId, nome: card.nome }); }} title="Linha do tempo (notas, promessas, disparos)" className="text-muted hover:text-primary"><StickyNote size={13} /></button>
                                 <Link href={`/clientes/${card.customerId}`} onClick={(e) => e.stopPropagation()} title="Abrir cliente" className="text-muted hover:text-primary"><ExternalLink size={13} /></Link>
                               </div>
@@ -447,6 +450,14 @@ export default function AndamentoPage() {
                               <div className="mt-1 text-[11px] text-muted">carteira: {card.carteira}</div>
                             )}
                             {card.pausada && <div className="mt-1 flex items-center gap-1 text-[11px] font-medium text-[#854F0B]"><PauseIcon size={11} /> cobrança pausada</div>}
+                            {card.promessaSituacao === 'PAUSADA' && card.promessaAte && (
+                              <div className="mt-1 flex items-center gap-1 rounded bg-danger-tint px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-danger" title="A régua não cobra este cliente até a data prometida">
+                                <PauseIcon size={11} /> Pausada por promessa · até {new Date(card.promessaAte).toLocaleDateString('pt-BR', { timeZone: 'UTC', day: '2-digit', month: '2-digit' })}
+                              </div>
+                            )}
+                            {card.promessaSituacao === 'VENCIDA' && card.promessaAte && (
+                              <div className="mt-1 text-[11px] font-medium text-[#854F0B]">Promessa não cumprida ({new Date(card.promessaAte).toLocaleDateString('pt-BR', { timeZone: 'UTC', day: '2-digit', month: '2-digit' })}) · régua retomada</div>
+                            )}
                             {contratoEncerrado(card.statusContrato) && <div className="mt-1 flex items-center gap-1 text-[11px] font-medium text-[#A32D2D]"><AlertTriangle size={11} /> contrato {card.statusContrato!.toLowerCase()}</div>}
                             {card.alertaSerasa ? (
                               <div className="mt-1 flex items-center gap-1 text-[11px] font-medium text-[#A32D2D]"><AlertTriangle size={11} /> enviar ao Serasa</div>
@@ -478,6 +489,14 @@ export default function AndamentoPage() {
 
       {historico && <HistoricoModal invoiceId={historico.invoiceId} nome={historico.nome} onClose={() => setHistorico(null)} />}
       {notaDe && <TimelineModal customerId={notaDe.customerId} nome={notaDe.nome} onClose={() => setNotaDe(null)} onChange={() => carregar(true)} />}
+      {mensagemPara && (
+        <EnviarMensagemModal
+          invoiceIds={mensagemPara.ids}
+          nome={mensagemPara.nome}
+          onClose={() => setMensagemPara(null)}
+          onEnviado={(m) => { setMensagemPara(null); limpar(); carregar(true); setMsg(m); }}
+        />
+      )}
       {dispararComOpen && (
         <DispararComTemplateModal
           invoiceIds={[...sel]}
@@ -492,6 +511,7 @@ export default function AndamentoPage() {
             <span className="text-sm font-medium text-ink">{sel.size} selecionada(s)</span>
             <div className="ml-auto flex flex-wrap gap-2">
               <button onClick={() => acao('disparar')} disabled={busy} className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-60"><Send size={14} /> Disparar agora</button>
+              <button onClick={() => setMensagemPara({ ids: [...sel] })} disabled={busy} className="flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary-tint px-3 py-1.5 text-sm font-medium text-primary hover:bg-primary hover:text-white disabled:opacity-60"><MessageSquareText size={14} /> Escrever mensagem</button>
               <button onClick={() => setDispararComOpen(true)} disabled={busy} className="flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary-tint px-3 py-1.5 text-sm font-medium text-primary hover:bg-primary hover:text-white disabled:opacity-60"><Send size={14} /> Disparar com...</button>
               <button onClick={() => acao('pausar')} disabled={busy} className="flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm hover:bg-canvas disabled:opacity-60"><Pause size={14} /> Pausar cobrança</button>
               <button onClick={() => acao('retomar')} disabled={busy} className="flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm hover:bg-canvas disabled:opacity-60"><Play size={14} /> Retomar</button>
@@ -505,7 +525,99 @@ export default function AndamentoPage() {
 }
 
 interface TemplateDisparo { id: string; reguaNome: string; canal: string; templateName: string | null; resumo: string }
-interface ContaCanal { id: string; canal: string; apelido: string; ativo: boolean }
+interface ContaCanal { id: string; canal: string; apelido: string; ativo: boolean; numero?: string | null; oficial?: boolean }
+
+const VARIAVEIS_MSG = ['{{nome}}', '{{valor}}', '{{vencimento}}', '{{pix}}', '{{link}}'];
+
+/**
+ * Mensagem ESCRITA pelo operador, direto da esteira (texto livre com variáveis).
+ * Fica registrada como contato manual de quem enviou. WhatsApp oficial (WABA) não
+ * entrega texto livre fora da janela de 24h — para ele, o caminho é "Disparar com...".
+ */
+function EnviarMensagemModal({ invoiceIds, nome, onClose, onEnviado }: { invoiceIds: string[]; nome?: string; onClose: () => void; onEnviado: (msg: string) => void }) {
+  const [contas, setContas] = useState<ContaCanal[]>([]);
+  const [contaId, setContaId] = useState('');
+  const [texto, setTexto] = useState('Olá {{nome}}, aqui é da cobrança. ');
+  const [assunto, setAssunto] = useState('Sua fatura de {{valor}}');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    api<ContaCanal[]>('/canais').then((cs) => {
+      const ok = cs.filter((c) => c.ativo && ['WHATSAPP_CLOUD', 'WHATSAPP_EVOLUTION', 'WHATSAPP_UAZAPI', 'NX_SYSTEMS', 'EMAIL', 'SMS'].includes(c.canal));
+      setContas(ok);
+      const primeira = ok.find((c) => !c.oficial && c.canal !== 'WHATSAPP_CLOUD') ?? ok[0];
+      if (primeira) setContaId(primeira.id);
+    }).catch(() => {});
+  }, []);
+
+  const conta = contas.find((c) => c.id === contaId);
+  const oficial = !!conta && (conta.canal === 'WHATSAPP_CLOUD' || conta.oficial === true);
+
+  function inserir(v: string) {
+    const el = ref.current;
+    if (!el) return setTexto((t) => t + v);
+    const ini = el.selectionStart ?? texto.length;
+    const fim = el.selectionEnd ?? texto.length;
+    setTexto(texto.slice(0, ini) + v + texto.slice(fim));
+    requestAnimationFrame(() => { el.focus(); el.setSelectionRange(ini + v.length, ini + v.length); });
+  }
+
+  async function enviar() {
+    if (!texto.trim() || !contaId) return setMsg('Escreva a mensagem e escolha o número.');
+    setBusy(true); setMsg('');
+    try {
+      const r = await api<{ enfileirados: number; falhas: number; erros: { erro: string }[] }>('/reguas/andamento/mensagem', {
+        method: 'POST', body: { invoiceIds, texto, channelAccountId: contaId, assunto },
+      });
+      if (!r.enfileirados && r.erros.length) { setMsg(r.erros[0].erro); setBusy(false); return; }
+      onEnviado(`✓ ${r.enfileirados} mensagem(ns) enviada(s)${r.falhas ? ` · ${r.falhas} não puderam ser enviadas (${r.erros[0]?.erro ?? 'erro'})` : ''}. Acompanhe em Disparos.`);
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro'); setBusy(false); }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="w-full max-w-lg rounded-lg bg-surface p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-ink">Escrever mensagem</h2>
+          <button onClick={onClose} aria-label="Fechar" className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>
+        </div>
+        <p className="mb-3 text-sm text-muted">{nome ? <>Para <b className="text-ink">{nome}</b>.</> : <>{invoiceIds.length} cliente(s) selecionado(s).</>} Fica registrada como contato manual seu.</p>
+
+        <label className="mb-3 block text-sm"><span className="mb-1 block text-xs text-muted">Enviar pelo número / canal</span>
+          <select value={contaId} onChange={(e) => setContaId(e.target.value)} className="w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
+            {contas.length === 0 && <option value="">Nenhuma conta ativa</option>}
+            {contas.map((c) => <option key={c.id} value={c.id}>{c.apelido}{c.numero ? ` · ${c.numero}` : ''} ({canalLabel[c.canal] ?? c.canal}{c.oficial ? ', oficial' : ''})</option>)}
+          </select>
+        </label>
+        {oficial && (
+          <p className="mb-3 rounded border border-line bg-warning-tint p-2 text-xs text-[#854F0B]">
+            WhatsApp <b>oficial</b>: a Meta só entrega texto livre se o cliente escreveu nas últimas 24h. Fora disso a mensagem falha — use <b>Disparar com...</b> (template aprovado) ou outro número.
+          </p>
+        )}
+        {conta?.canal === 'EMAIL' && (
+          <label className="mb-3 block text-sm"><span className="mb-1 block text-xs text-muted">Assunto do e-mail</span>
+            <input value={assunto} onChange={(e) => setAssunto(e.target.value)} className="w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+          </label>
+        )}
+        <label className="mb-1 block text-sm"><span className="mb-1 block text-xs text-muted">Mensagem</span>
+          <textarea ref={ref} value={texto} onChange={(e) => setTexto(e.target.value)} rows={5} maxLength={4000} className="w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
+        </label>
+        <div className="mb-3 flex flex-wrap items-center gap-1.5 text-xs text-muted">
+          Inserir:
+          {VARIAVEIS_MSG.map((v) => <button key={v} type="button" onClick={() => inserir(v)} className="rounded-full border border-line px-2 py-0.5 font-mono hover:border-primary hover:text-primary">{v}</button>)}
+        </div>
+
+        {msg && <p className="mb-2 text-sm text-danger">{msg}</p>}
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="rounded border border-line px-4 py-2 text-sm hover:bg-canvas">Cancelar</button>
+          <button onClick={enviar} disabled={busy || !contaId || !texto.trim()} className="flex items-center gap-1.5 rounded bg-primary px-5 py-2 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-60"><Send size={14} /> {busy ? 'Enviando...' : 'Enviar'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 /** Canais de WhatsApp são intercambiáveis pra fins de conta de envio (mesma família do backend). */
 const FAMILIA_WHATSAPP = new Set(['WHATSAPP_CLOUD', 'NX_SYSTEMS', 'WHATSAPP_EVOLUTION', 'WHATSAPP_UAZAPI']);
 const mesmoCanalFamilia = (a: string, b: string) => a === b || (FAMILIA_WHATSAPP.has(a) && FAMILIA_WHATSAPP.has(b));

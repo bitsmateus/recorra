@@ -403,6 +403,15 @@ export class CustomersService {
       }
     }
 
+    // Promessa pausa a cobrança AUTOMÁTICA do cliente até a data prometida (inclusive):
+    // a régua não dispara e o que já estava na fila é segurado. Disparo manual continua livre.
+    const ate = new Date(Date.UTC(dataPromessa.getUTCFullYear(), dataPromessa.getUTCMonth(), dataPromessa.getUTCDate()));
+    await this.prisma.customer.update({ where: { id: customerId }, data: { promessaAte: ate } });
+    await this.prisma.messageDispatch.updateMany({
+      where: { tenantId, customerId, status: 'FILA', origem: { in: ['REGUA', 'CAMPANHA'] } },
+      data: { status: 'IGNORADO', erro: `Cobrança pausada por promessa de pagamento até ${dateBR(ate)}` },
+    });
+
     const nota = await this.prisma.customerNote.create({
       data: {
         tenantId, customerId, userId: actorId, tipo: 'PROMESSA', texto,
@@ -415,6 +424,28 @@ export class CustomersService {
       depois: { dataPromessa, valor: dto.valor, erpSincronizado },
     });
     return nota;
+  }
+
+  async situacaoPromessa(tenantId: string, customerId: string) {
+    const c = await this.getOrThrow(tenantId, customerId);
+    const n = new Date();
+    const hoje = Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate());
+    const ate = c.promessaAte;
+    return {
+      promessaAte: ate,
+      situacao: !ate ? null : ate.getTime() >= hoje ? 'PAUSADA' : hoje - ate.getTime() <= 7 * 86400000 ? 'VENCIDA' : null,
+    };
+  }
+
+  /** Encerra a pausa por promessa antes da data: a régua volta a cobrar o cliente. */
+  async retomarCobranca(tenantId: string, customerId: string, actorId?: string) {
+    const c = await this.getOrThrow(tenantId, customerId);
+    await this.prisma.customer.update({ where: { id: customerId }, data: { promessaAte: null } });
+    await this.audit.record({
+      tenantId, userId: actorId, acao: 'customer.promessa.retomar', entidade: 'Customer', entidadeId: customerId,
+      antes: { promessaAte: c.promessaAte }, depois: { promessaAte: null },
+    });
+    return { ok: true };
   }
 
   /**

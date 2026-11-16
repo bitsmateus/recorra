@@ -9,6 +9,12 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { toCsv, baixarArquivo } from '@/lib/csv';
 
 // Aceita valor em formato BR (109,90 ou 1.109,90) ou com ponto decimal (109.90).
+/** R$ ou máscara, pela mesma preferência do botão "Ocultar valores" (usada nas janelas da página). */
+function brlOculto(v: number): string {
+  try { if (localStorage.getItem('recorra_ocultar_valores') === '1') return 'R$ ••••'; } catch { /* sem storage: mostra */ }
+  return brl(v);
+}
+
 function parseValorBR(v: string): number {
   const s = String(v).trim();
   if (!s) return NaN;
@@ -239,7 +245,7 @@ export default function CobrancasPage() {
       if (r.baixadas > 0) setMsg(`✓ ${r.baixadas} cobrança(s) baixada(s) como Paga (de ${r.verificadas} verificadas).${extra}${canceladas}${reaval}`);
       else if ((r.reclassificadas ?? 0) > 0 || (r.canceladas ?? 0) > 0) setMsg(`✓ Pagamentos atualizados.${extra}${canceladas}${reaval} Nenhuma paga a baixar.`);
       else if (r.naoEncontradas && r.naoEncontradas > 0) {
-        const lista = (r.exemplos ?? []).map((e) => `${e.nome} (${brl(Number(e.valor))})`).join(', ');
+        const lista = (r.exemplos ?? []).map((e) => `${e.nome} (${brlOculto(Number(e.valor))})`).join(', ');
         setMsg(`⚠️ Nenhuma baixada. As demais o gateway confirma em aberto. Mas ${r.naoEncontradas} cobrança(s) NÃO existem no gateway (canceladas/apagadas lá): ${lista}.${reaval}`);
         setSumidas(r.naoEncontradasIds ?? []);
       } else { setMsg(`✓ Atualizado.${reaval || ' Nenhuma alteração — o gateway confirma as cobranças em aberto e nada a recalcular.'}`); setSumidas([]); }
@@ -500,8 +506,8 @@ export default function CobrancasPage() {
         </div>
         {resumo && resumo.total > 0 && (
           <div className="mt-2 flex flex-wrap items-baseline gap-x-5 gap-y-1 text-sm text-muted">
-            <span>Valor total: <span className="tabular font-semibold text-ink">{brl(resumo.soma)}</span></span>
-            {resumo.emAberto > 0 && <span>Em aberto: <span className="tabular font-semibold text-danger">{brl(resumo.emAberto)}</span></span>}
+            <span>Valor total: <span className="tabular font-semibold text-ink">{dinheiro(resumo.soma)}</span></span>
+            {resumo.emAberto > 0 && <span>Em aberto: <span className="tabular font-semibold text-danger">{dinheiro(resumo.emAberto)}</span></span>}
             <span>Ticket médio: <span className="tabular font-medium text-ink">{dinheiro(resumo.ticketMedio)}</span></span>
             <span>Clientes: <span className="tabular font-medium text-ink">{resumo.clientesDistintos}</span></span>
             {resumo.critico.n > 0 && (
@@ -603,7 +609,7 @@ export default function CobrancasPage() {
           confirmLabel={`Excluir ${selecionados.size} do Recorrai`}
           mensagem={
             <>
-              <p>Isto remove <b className="text-ink">{selecionados.size}</b> cobrança(s) daqui (total <b className="text-ink">{brl(valorSelecionado)}</b>). <b className="text-ink">Não dá para desfazer.</b></p>
+              <p>Isto remove <b className="text-ink">{selecionados.size}</b> cobrança(s) daqui (total <b className="text-ink">{dinheiro(valorSelecionado)}</b>). <b className="text-ink">Não dá para desfazer.</b></p>
               <p className="mt-2 rounded bg-canvas px-3 py-2 text-xs">
                 {geradasSelecionadas > 0
                   ? <>🔒 Por segurança, as <b>{geradasSelecionadas}</b> já geradas <b>continuam ativas no gateway</b> — a exclusão em massa nunca cancela lá. Para cancelar no gateway, faça uma a uma pelo botão de excluir da linha.</>
@@ -703,7 +709,7 @@ function ImportarGatewayModal({ gateways, onClose, onDone }: { gateways: Gateway
         </div>
         <div className="mt-4 min-h-24 rounded-lg border border-line bg-canvas p-3 text-sm">
           {carregando && <p className="flex items-center gap-2 text-muted"><RefreshCw size={14} className="animate-spin" /> Buscando cobranças no gateway...</p>}
-          {previa && <div className="space-y-2"><p className="text-muted">Encontradas <b className="text-ink">{previa.total.quantidade}</b> cobranças abertas ({brl(previa.total.valor)}).</p><div className="grid grid-cols-2 gap-2"><div className="rounded bg-success-tint p-2"><b className="text-success">{previa.ativas.quantidade} ativas</b><br /><span className="text-xs text-muted">{brl(previa.ativas.valor)}</span></div><div className="rounded bg-surface p-2"><b className="text-ink">{previa.legado.quantidade} legado</b><br /><span className="text-xs text-muted">{brl(previa.legado.valor)}</span></div></div></div>}
+          {previa && <div className="space-y-2"><p className="text-muted">Encontradas <b className="text-ink">{previa.total.quantidade}</b> cobranças abertas ({brlOculto(previa.total.valor)}).</p><div className="grid grid-cols-2 gap-2"><div className="rounded bg-success-tint p-2"><b className="text-success">{previa.ativas.quantidade} ativas</b><br /><span className="text-xs text-muted">{brlOculto(previa.ativas.valor)}</span></div><div className="rounded bg-surface p-2"><b className="text-ink">{previa.legado.quantidade} legado</b><br /><span className="text-xs text-muted">{brlOculto(previa.legado.valor)}</span></div></div></div>}
           {erro && <p className="text-danger">{erro}</p>}
         </div>
         <div className="mt-5 flex justify-end gap-2"><button onClick={onClose} disabled={importando} className="rounded border border-line px-4 py-2 text-sm hover:bg-canvas disabled:opacity-50">Cancelar</button><button onClick={importar} disabled={!previa || carregando || importando} className="rounded bg-primary px-5 py-2 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-50">{importando ? 'Importando...' : 'Confirmar importação'}</button></div>
@@ -820,7 +826,7 @@ function ExcluirModal({ inv, onClose, onEscolha }: { inv: Invoice; onClose: () =
           <h2 className="text-lg font-semibold text-ink">Excluir cobrança</h2>
           <button onClick={onClose} className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>
         </div>
-        <p className="mb-4 text-sm text-muted">{inv.customer?.nome || '—'} · {brl(Number(inv.valor))} · venc. {new Date(inv.vencimento).toLocaleDateString('pt-BR')}</p>
+        <p className="mb-4 text-sm text-muted">{inv.customer?.nome || '—'} · {brlOculto(Number(inv.valor))} · venc. {new Date(inv.vencimento).toLocaleDateString('pt-BR')}</p>
 
         {modo === 'menu' && (
           <>
@@ -921,7 +927,7 @@ function PagamentoModal({ inv, onClose }: { inv: Invoice; onClose: () => void })
           <h2 className="text-lg font-semibold text-ink">Dados de pagamento</h2>
           <button onClick={onClose} className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>
         </div>
-        <p className="mb-4 text-sm text-muted">{inv.customer?.nome || "—"} · {brl(Number(inv.valor))} · venc. {new Date(inv.vencimento).toLocaleDateString("pt-BR")}</p>
+        <p className="mb-4 text-sm text-muted">{inv.customer?.nome || "—"} · {brlOculto(Number(inv.valor))} · venc. {new Date(inv.vencimento).toLocaleDateString("pt-BR")}</p>
 
         {nada ? (
           <div className="rounded bg-canvas px-3 py-3 text-sm text-muted">
@@ -1007,8 +1013,8 @@ function ClienteDetalheModal({ id, nome, onClose }: { id: string; nome: string; 
             )}
 
             <div className="grid grid-cols-3 gap-2">
-              <div className="rounded border border-line px-3 py-2"><div className="text-xs text-muted">Em aberto</div><div className="tabular font-semibold text-ink">{brl(d.totais.emAberto)}</div></div>
-              <div className="rounded border border-line px-3 py-2"><div className="text-xs text-muted">Pago</div><div className="tabular font-semibold text-[#0F6E56]">{brl(d.totais.pago)}</div></div>
+              <div className="rounded border border-line px-3 py-2"><div className="text-xs text-muted">Em aberto</div><div className="tabular font-semibold text-ink">{brlOculto(d.totais.emAberto)}</div></div>
+              <div className="rounded border border-line px-3 py-2"><div className="text-xs text-muted">Pago</div><div className="tabular font-semibold text-[#0F6E56]">{brlOculto(d.totais.pago)}</div></div>
               <div className="rounded border border-line px-3 py-2"><div className="text-xs text-muted">Vencidas</div><div className="tabular font-semibold text-[#A32D2D]">{d.totais.vencidas}</div></div>
             </div>
 
@@ -1019,7 +1025,7 @@ function ClienteDetalheModal({ id, nome, onClose }: { id: string; nome: string; 
                   <tbody>
                     {d.faturas.slice(0, 20).map((f) => (
                       <tr key={f.id} className="border-b border-line last:border-0">
-                        <td className="tabular px-3 py-1.5">{brl(Number(f.valor))}</td>
+                        <td className="tabular px-3 py-1.5">{brlOculto(Number(f.valor))}</td>
                         <td className="px-3 py-1.5 text-muted">{new Date(f.vencimento).toLocaleDateString('pt-BR')}</td>
                         <td className="px-3 py-1.5"><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusColor[f.status] || 'bg-canvas text-muted'}`}>{f.status}</span>{f.status === 'PAGA' && f.pagoEm ? <span className="ml-1 text-xs text-[#0F6E56]">{new Date(f.pagoEm).toLocaleDateString('pt-BR')}</span> : null}</td>
                         <td className="px-2 py-1.5 text-right">

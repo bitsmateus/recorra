@@ -40,6 +40,16 @@ const statusLabel: Record<string, string> = {
 const dataHora = (s: string) => new Date(s).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 const dataCurta = (s: string) => new Date(s).toLocaleDateString('pt-BR', { timeZone: 'UTC' });
 
+/** Promessa em vigor (régua pausada até a data, inclusive) ou vencida há até 7 dias. */
+export function situacaoDaPromessa(ate: string | null | undefined): 'PAUSADA' | 'VENCIDA' | null {
+  if (!ate) return null;
+  const n = new Date();
+  const hoje = Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate());
+  const t = new Date(ate).getTime();
+  if (t >= hoje) return 'PAUSADA';
+  return hoje - t <= 7 * 86400000 ? 'VENCIDA' : null;
+}
+
 /**
  * Linha do tempo do cliente: notas manuais, promessas de pagamento e disparos já
  * concluídos, em ordem cronológica. Usado tanto no perfil do cliente quanto num
@@ -62,6 +72,7 @@ export function Timeline({ customerId, onChange }: { customerId: string; onChang
   const [usuarios, setUsuarios] = useState<UsuarioTenant[]>([]);
   const [responsavelId, setResponsavelId] = useState<string | null>(null);
   const [salvandoResp, setSalvandoResp] = useState(false);
+  const [promessaAte, setPromessaAte] = useState<string | null>(null);
 
   const carregar = useCallback(() => {
     api<TimelineItem[]>(`/clientes/${customerId}/timeline`).then(setItens).catch((e) => setErro(e instanceof Error ? e.message : 'Erro ao carregar'));
@@ -70,7 +81,7 @@ export function Timeline({ customerId, onChange }: { customerId: string; onChang
 
   const carregarTags = useCallback(() => {
     api<Etiqueta[]>('/clientes/etiquetas').then(setCatalogo).catch(() => {});
-    api<{ tags: string[]; responsavelId: string | null }>(`/clientes/${customerId}`).then((c) => { setTagsCliente(c.tags); setResponsavelId(c.responsavelId ?? null); }).catch(() => {});
+    api<{ tags: string[]; responsavelId: string | null; promessaAte?: string | null }>(`/clientes/${customerId}`).then((c) => { setTagsCliente(c.tags); setResponsavelId(c.responsavelId ?? null); setPromessaAte(c.promessaAte ?? null); }).catch(() => {});
   }, [customerId]);
   useEffect(() => { carregarTags(); }, [carregarTags]);
   useEffect(() => { api<UsuarioTenant[]>('/usuarios').then((us) => setUsuarios(us.filter((u) => u.ativo))).catch(() => {}); }, []);
@@ -118,13 +129,35 @@ export function Timeline({ customerId, onChange }: { customerId: string; onChang
       });
       setTexto(''); setDataPromessa(''); setValor('');
       carregar();
+      carregarTags(); // a promessa pausa a régua: atualiza o aviso no topo
       onChange?.();
     } catch (e) { setErro(e instanceof Error ? e.message : 'Erro ao registrar promessa'); }
     finally { setBusy(false); }
   }
 
+  async function retomar() {
+    if (!window.confirm('Retomar a cobrança automática deste cliente antes da data prometida?')) return;
+    await api(`/clientes/${customerId}/promessa/retomar`, { method: 'POST' }).catch((e) => setErro(e instanceof Error ? e.message : 'Erro'));
+    carregarTags();
+    onChange?.();
+  }
+
+  const situacaoPromessa = situacaoDaPromessa(promessaAte);
+
   return (
     <div>
+      {situacaoPromessa === 'PAUSADA' && (
+        <div role="status" className="flex flex-wrap items-center gap-2 border-b border-line bg-danger-tint px-3 py-2">
+          <span className="text-sm font-bold uppercase tracking-wide text-danger">Pausada por promessa</span>
+          <span className="text-xs text-danger">A régua não cobra este cliente até {dataCurta(promessaAte!)}. Se não pagar, volta a cobrar sozinha no dia seguinte.</span>
+          <button onClick={retomar} className="ml-auto rounded border border-danger/40 px-2 py-1 text-xs font-medium text-danger hover:bg-surface">Retomar cobrança agora</button>
+        </div>
+      )}
+      {situacaoPromessa === 'VENCIDA' && (
+        <div role="status" className="border-b border-line bg-warning-tint px-3 py-2 text-xs text-[#854F0B]">
+          <b>Promessa não cumprida:</b> o cliente prometeu pagar até {dataCurta(promessaAte!)}. A cobrança automática já voltou.
+        </div>
+      )}
       <div className="border-b border-line p-2">
         <div className="mb-1 text-xs font-medium text-muted">Etiquetas</div>
         <div className="mb-2 flex flex-wrap gap-1.5">

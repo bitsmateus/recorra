@@ -120,11 +120,14 @@ export class DunningService {
     const faixaPorCliente = new Map<string, string>();
 
     let enfileirados = 0;
+    // Promessa de pagamento em vigor (até a data prometida, inclusive): a régua não cobra.
+    const hojeUtc = Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), ref.getUTCDate());
     // Cursor de agendamento POR RÉGUA: cada disparo anda `delaySegundos` no
     // relógio. Sem isto o lote inteiro nascia com o mesmo `agendadoPara` e o
     // processador mandava tudo em rajada (até 500/minuto).
     const cursor = new Map<string, Date>();
     for (const invoice of invoices) {
+      if (invoice.customer.promessaAte && invoice.customer.promessaAte.getTime() >= hojeUtc) continue;
       const diffDias = Math.round((this.midnight(ref).getTime() - this.midnight(invoice.vencimento).getTime()) / 86400000);
 
       let faixa = faixaPorCliente.get(invoice.customerId) ?? invoice.customer.faixaAtual;
@@ -485,6 +488,59 @@ export class DunningService {
       }
     }
     return { enfileirados, falhas: erros.length, erros };
+  }
+
+  /**
+   * Mensagem ESCRITA pelo operador na esteira (texto livre, sem template), para
+   * uma ou várias faturas. Aceita as mesmas variáveis da régua ({{nome}},
+   * {{valor}}, {{vencimento}}, {{pix}}, {{link}}...). Sai na hora (lote espaçado
+   * pelo intervalo da conta), grava MANUAL + quem enviou. WhatsApp OFICIAL só
+   * entrega texto livre se o cliente falou nas últimas 24h — fora disso o
+   * provedor recusa e o disparo fica como FALHA com o motivo.
+   */
+  async enviarMensagemLivre(tenantId: string, invoiceIds: string[], texto: string, channelAccountId: string, userId: string, assunto?: string) {
+    const msg = (texto ?? '').trim();
+    if (!msg) throw new BadRequestException('Escreva a mensagem.');
+    if (msg.length > 4000) throw new BadRequestException('Mensagem muito longa (máx. 4000 caracteres).');
+    const conta = await this.prisma.channelAccount.findFirst({ where: { id: channelAccountId, tenantId, ativo: true } });
+    if (!conta) throw new BadRequestException('Conta de canal não encontrada ou inativa');
+    if (conta.canal === 'WEBHOOK' || conta.canal === 'HTTP_GENERIC') throw new BadRequestException('Escolha uma conta de WhatsApp, e-mail ou SMS.');
+
+    let enfileirados = 0;
+    const erros: { id: string; erro: string }[] = [];
+    let quando = Date.now();
+    for (const id of [...new Set(invoiceIds)].filter(Boolean)) {
+      try {
+        const invoice = await this.prisma.invoice.findFirst({ where: { id, tenantId }, include: { customer: true } });
+        if (!invoice) throw new NotFoundException('Fatura não encontrada');
+        if (conta.canal === 'EMAIL' && !invoice.customer.email) throw new BadRequestException('Cliente sem e-mail');
+        if (conta.canal !== 'EMAIL' && !invoice.customer.telefone) throw new BadRequestException('Cliente sem telefone');
+        const vars = {
+          nome: invoice.customer.nome.split(' ')[0],
+          valor: money(Number(invoice.valor)),
+          vencimento: dateBR(invoice.vencimento),
+          pix: invoice.pixCopiaCola ?? '',
+          boleto: invoice.boletoUrl ?? invoice.boletoLinha ?? '',
+          link: invoice.linkPagamento ?? invoice.boletoUrl ?? '',
+          pagina: assinarPagamento(invoice.id),
+          contrato: invoice.customer.contrato ?? '',
+        };
+        await this.prisma.messageDispatch.create({
+          data: {
+            tenantId, customerId: invoice.customerId, invoiceId: invoice.id,
+            origem: 'MANUAL', userId, canal: conta.canal, channelAccountId: conta.id, cadeiaCanais: [conta.canal],
+            template: msg, conteudo: renderTemplate(msg, vars),
+            assunto: conta.canal === 'EMAIL' ? renderTemplate(assunto?.trim() || 'Sua fatura de {{valor}}', vars) : null,
+            status: 'FILA', agendadoPara: new Date(quando),
+          },
+        });
+        quando += 2000; // lote: 2s entre mensagens, para não sair tudo em rajada
+        enfileirados++;
+      } catch (e) {
+        erros.push({ id, erro: e instanceof Error ? e.message : String(e) });
+      }
+    }
+    return { enfileirados, falhas: erros.length, erros: erros.slice(0, 5) };
   }
 
   private midnight(d: Date): Date {

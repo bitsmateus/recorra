@@ -3,12 +3,7 @@ import { RiskBand } from '@prisma/client';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { bandFromScore } from './bands';
 import { computeFeatures } from './features';
-
-interface RiskFactor {
-  fator: string;
-  pontos: number;
-  detalhe: string;
-}
+import { avaliarRisco } from './avaliacao';
 
 @Injectable()
 export class RiskScoringService {
@@ -18,53 +13,69 @@ export class RiskScoringService {
     return bandFromScore(score) as RiskBand;
   }
 
+  /**
+   * Score v2: últimas cobranças PAGAS + vencidas em aberto (ver avaliacao.ts). Se o
+   * cliente tem faixa MANUAL, o score continua sendo calculado e gravado (para
+   * consulta), mas a faixa que vale — e que escolhe a régua — é a manual.
+   */
   async scoreCustomer(tenantId: string, customerId: string) {
-    const feature = await this.prisma.paymentHistoryFeature.findUnique({ where: { customerId } });
     const customer = await this.prisma.customer.findFirstOrThrow({ where: { id: customerId, tenantId } });
-
-    const factors: RiskFactor[] = [];
-    let score = 80;
-
-    const atrasos = feature?.atrasosQtd ?? 0;
-    const atrasoMedio = feature?.atrasoMedioDias ?? 0;
-    const pagas = feature?.faturasPagas ?? 0;
-    const vencidas = feature?.faturasVencidas ?? 0;
-    const taxaResposta = feature?.taxaResposta ?? 0;
-
-    if (atrasos >= 6) factors.push({ fator: 'atrasos', pontos: -30, detalhe: `${atrasos} atrasos no historico` });
-    else if (atrasos >= 3) factors.push({ fator: 'atrasos', pontos: -18, detalhe: `${atrasos} atrasos` });
-    else if (atrasos >= 1) factors.push({ fator: 'atrasos', pontos: -8, detalhe: `${atrasos} atraso(s)` });
-
-    if (atrasoMedio >= 15) factors.push({ fator: 'atraso_medio', pontos: -20, detalhe: `media de ${Math.round(atrasoMedio)} dias de atraso` });
-    else if (atrasoMedio >= 5) factors.push({ fator: 'atraso_medio', pontos: -10, detalhe: `media de ${Math.round(atrasoMedio)} dias` });
-
-    const total = pagas + vencidas;
-    if (total > 0) {
-      const ratio = vencidas / total;
-      if (ratio >= 0.5) factors.push({ fator: 'proporcao_vencidas', pontos: -20, detalhe: `${Math.round(ratio * 100)}% das faturas vencidas` });
-      else if (ratio >= 0.2) factors.push({ fator: 'proporcao_vencidas', pontos: -10, detalhe: `${Math.round(ratio * 100)}% vencidas` });
-      else factors.push({ fator: 'bom_historico', pontos: 10, detalhe: 'maioria das faturas paga em dia' });
-    }
-
-    const tempoCasaDias = (Date.now() - customer.createdAt.getTime()) / 86400000;
-    if (total === 0 && tempoCasaDias < 60) {
-      factors.push({ fator: 'cliente_novo', pontos: -8, detalhe: 'cliente novo, sem historico' });
-    }
-
-    if (taxaResposta >= 0.5) factors.push({ fator: 'engajamento', pontos: 8, detalhe: 'responde as mensagens' });
-
-    score += factors.reduce((sum, f) => sum + f.pontos, 0);
-    score = Math.max(0, Math.min(100, Math.round(score)));
-    const faixa = this.bandFromScore(score);
-
+    const faturas = await this.prisma.invoice.findMany({
+      where: { tenantId, customerId, gestaoCobranca: 'ATIVA', status: { in: ['PAGA', 'VENCIDA', 'PENDENTE'] } },
+      select: { status: true, vencimento: true, pagoEm: true },
+      orderBy: { vencimento: 'desc' },
+      take: 60,
+    });
+    const a = avaliarRisco(faturas);
+    const faixa = (customer.riscoManual ?? a.faixa) as RiskBand;
     const [criado] = await this.prisma.$transaction([
       this.prisma.riskScore.create({
-        data: { tenantId, customerId, score, faixa, fatores: factors as unknown as object },
+        data: {
+          tenantId, customerId, score: a.score, faixa: a.faixa as RiskBand,
+          fatores: a.fatores as unknown as object, historico: a.historico as unknown as object, modeloVersao: 'ultimas-pagas-v2',
+        },
       }),
-      // Espelha a faixa no cliente para filtro/paginação por risco no banco.
+      // Espelha a faixa que VALE no cliente (filtro/paginação e escolha da régua).
       this.prisma.customer.update({ where: { id: customerId }, data: { faixaAtual: faixa } }),
     ]);
-    return criado;
+    return { ...criado, faixa };
+  }
+
+  /** Define a faixa à mão (sobrepõe a calculada) ou volta ao automático (faixa null). */
+  async definirManual(tenantId: string, customerId: string, faixa: RiskBand | null, motivo: string | undefined, userId: string) {
+    await this.prisma.customer.findFirstOrThrow({ where: { id: customerId, tenantId } });
+    await this.prisma.customer.update({
+      where: { id: customerId },
+      data: faixa
+        ? { riscoManual: faixa, riscoManualMotivo: motivo?.trim() || null, riscoManualPorId: userId, riscoManualEm: new Date(), faixaAtual: faixa }
+        : { riscoManual: null, riscoManualMotivo: null, riscoManualPorId: null, riscoManualEm: null },
+    });
+    // Recalcula: com manual, grava o score e mantém a faixa manual; sem, volta à calculada.
+    return this.scoreCustomer(tenantId, customerId);
+  }
+
+  /** O que o painel do cliente mostra: score calculado, motivos, histórico e o ajuste manual. */
+  async painel(tenantId: string, customerId: string) {
+    const [c, ultimo] = await Promise.all([
+      this.prisma.customer.findFirstOrThrow({
+        where: { id: customerId, tenantId },
+        select: { faixaAtual: true, riscoManual: true, riscoManualMotivo: true, riscoManualEm: true, riscoManualPorId: true },
+      }),
+      this.latest(tenantId, customerId),
+    ]);
+    const por = c.riscoManualPorId
+      ? await this.prisma.user.findUnique({ where: { id: c.riscoManualPorId }, select: { nome: true } })
+      : null;
+    return {
+      faixa: c.faixaAtual,
+      score: ultimo?.score ?? null,
+      faixaCalculada: ultimo?.faixa ?? null,
+      fatores: ultimo?.fatores ?? [],
+      historico: ultimo?.historico ?? [],
+      calculadoEm: ultimo?.calculadoEm ?? null,
+      modelo: ultimo?.modeloVersao ?? null,
+      manual: c.riscoManual ? { faixa: c.riscoManual, motivo: c.riscoManualMotivo, em: c.riscoManualEm, por: por?.nome ?? null } : null,
+    };
   }
 
   async latest(tenantId: string, customerId: string) {

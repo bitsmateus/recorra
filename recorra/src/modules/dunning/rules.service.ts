@@ -35,6 +35,8 @@ export interface AndamentoCard {
   alertaSerasa?: boolean; // atraso já passou do dia configurado para envio ao Serasa (só sinaliza — nada é acionado)
   carteira?: string | null; // nome da carteira dona desta faixa de atraso (null = nenhuma carteira assumiu ainda)
   responsavel?: string | null; // operador atribuído manualmente ao cliente (independente da carteira)
+  promessaAte?: Date | null;
+  promessaSituacao?: 'PAUSADA' | 'VENCIDA' | null;
 }
 
 /** Teto de cards lidos pela esteira — acima disso a tela avisa que está truncada. */
@@ -205,17 +207,22 @@ export class RulesService {
       && carteirasTenant.find((c) => c.id === carteiraVisivel!.id)?.distribuicao !== 'MANUAL';
     const carteiraInfo = { visivel: carteiraVisivel, todas: carteiras, alertas, somenteMeus };
 
-    // Régua alvo: a escolhida; senão a padrão (modo simples); senão a 1ª ativa.
-    const regua =
-      (ruleId ? reguas.find((r) => r.id === ruleId) : undefined) ??
-      (usarFaixaRisco ? undefined : selecionarRegua(reguas, false, null, tenant?.reguaPadraoId) ?? undefined) ??
-      reguas[0];
-    if (!regua) return { regua: null, reguas: opcoesReguas, usarFaixaRisco, colunas: [], carteira: carteiraInfo };
+    // Régua escolhida no filtro; SEM escolha = todas as réguas (padrão da tela): cada
+    // fatura anda na régua que de fato cobra o cliente dela (pela faixa de risco ou a padrão).
+    const escolhida = ruleId ? reguas.find((r) => r.id === ruleId) : undefined;
+    if (!reguas.length) return { regua: null, reguas: opcoesReguas, usarFaixaRisco, colunas: [], carteira: carteiraInfo };
+    const todas = !escolhida;
+    const passosVisiveis = todas ? reguas.flatMap((r) => r.steps) : escolhida.steps;
+    const regua = todas
+      ? { id: '', nome: 'Todas as réguas', faixaRisco: null, steps: [...passosVisiveis].sort((a, b) => a.offsetDias - b.offsetDias) }
+      : escolhida;
+    const reguaDoCliente = (faixaCliente: string | null) =>
+      todas ? selecionarRegua(reguas, usarFaixaRisco, faixaCliente, tenant?.reguaPadraoId) : escolhida;
 
     // Passos distintos por offset — cada fatura entra no offset da etapa atual.
-    const offsets = [...new Set(regua.steps.map((s) => s.offsetDias))].sort((a, b) => a - b);
+    const offsets = [...new Set(passosVisiveis.map((s) => s.offsetDias))].sort((a, b) => a - b);
     // No modo faixa, filtra pela faixa da régua (régua "de todas as faixas" = sem filtro).
-    const faixa = usarFaixaRisco ? regua.faixaRisco : null;
+    const faixa = usarFaixaRisco && !todas ? regua.faixaRisco : null;
     const filtroCliente = { ativo: true, ...(faixa ? { faixaAtual: faixa } : {}), ...(somenteMeus ? { responsavelId: viewer!.id } : {}) };
 
     const seteDias = new Date(Date.now() - 7 * 86400000);
@@ -250,7 +257,7 @@ export class RulesService {
     const [abertas, encerradas, totalAbertas, pausadasOcultas] = await Promise.all([
       this.prisma.invoice.findMany({
         where: whereAbertas,
-        include: { customer: { select: { id: true, nome: true, telefone: true, email: true, statusContrato: true, tags: true, responsavel: { select: { nome: true } } } } },
+        include: { customer: { select: { id: true, nome: true, telefone: true, email: true, statusContrato: true, tags: true, faixaAtual: true, promessaAte: true, responsavel: { select: { nome: true } } } } },
         orderBy: { vencimento: 'asc' },
         take: TETO_CARDS,
       }),
@@ -284,9 +291,13 @@ export class RulesService {
     const hojeUtc = Date.UTC(h.getUTCFullYear(), h.getUTCMonth(), h.getUTCDate());
     const diffDe = (v: Date) => Math.round((hojeUtc - Date.UTC(v.getUTCFullYear(), v.getUTCMonth(), v.getUTCDate())) / 86400000);
 
-    // Canal de cada offset (o do primeiro passo naquele dia) — usado no card e no filtro.
-    const canalDoOffset = new Map<number, string>();
-    for (const s of regua.steps) if (!canalDoOffset.has(s.offsetDias)) canalDoOffset.set(s.offsetDias, s.canal);
+    // Canal de cada offset (o do primeiro passo naquele dia) — usado no card e no filtro. Por régua.
+    const canalDoOffset = new Map<string, Map<number, string>>();
+    for (const r of reguas) {
+      const m = new Map<number, string>();
+      for (const s of r.steps) if (!m.has(s.offsetDias)) m.set(s.offsetDias, s.canal);
+      canalDoOffset.set(r.id, m);
+    }
 
     const colunas: { key: string; label: string; cards: AndamentoCard[] }[] = [
       { key: 'aguardando', label: 'Aguardando início', cards: [] },
@@ -304,12 +315,13 @@ export class RulesService {
       // Carteira: operador só vê a faixa da própria equipe (admin/financeiro veem tudo).
       if (carteiraVisivel && carteiraDoCard?.id !== carteiraVisivel.id) continue;
       const d = ultimo.get(inv.id);
-      const atual = offsets.filter((o) => o <= diffDias).pop();
+      const reguaCard = reguaDoCliente(c.faixaAtual) ?? escolhida ?? reguas[0];
+      const atual = [...new Set(reguaCard.steps.map((s) => s.offsetDias))].sort((a, b) => a - b).filter((o) => o <= diffDias).pop();
       const card: AndamentoCard = {
         invoiceId: inv.id, customerId: c.id, nome: c.nome, valor: Number(inv.valor),
         vencimento: inv.vencimento, diffDias,
         ultimoDisparo: d ? { status: d.status, canal: d.canal, quando: d.enviadoEm ?? d.agendadoPara ?? d.createdAt } : null,
-        canal: d?.canal ?? (atual !== undefined ? canalDoOffset.get(atual) : undefined),
+        canal: d?.canal ?? (atual !== undefined ? canalDoOffset.get(reguaCard.id)?.get(atual) : undefined),
         pausada: inv.gestaoCobranca === 'PAUSADA',
         statusContrato: c.statusContrato,
         tags: c.tags,
@@ -317,6 +329,11 @@ export class RulesService {
         alertaSerasa: diffDias >= alertas.diasSerasa,
         carteira: carteiraDoCard?.nome ?? null,
         responsavel: c.responsavel?.nome ?? null,
+        // Promessa: em vigor = régua pausada até a data; vencida há até 7 dias = promessa não cumprida.
+        promessaAte: c.promessaAte,
+        promessaSituacao: !c.promessaAte ? null
+          : c.promessaAte.getTime() >= hojeUtc ? 'PAUSADA'
+          : hojeUtc - c.promessaAte.getTime() <= 7 * 86400000 ? 'VENCIDA' : null,
       };
       if (!c.telefone?.trim() && !c.email?.trim()) { col('sem-contato').cards.push(card); continue; }
       // Último disparo falhou → coluna "Falharam" (destaca o problema em vez de esconder na etapa).

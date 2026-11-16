@@ -12,6 +12,7 @@ import { venceuAntesDeHoje } from '@/modules/connectors/source-connector.interfa
 import { CampaignsService } from '@/modules/campaigns/campaigns.service';
 import { SyncService } from '@/modules/connectors/sync.service';
 import { AtribuicaoService } from '@/modules/recuperacao/atribuicao.service';
+import { RiskScoringService } from '@/modules/risk/risk-scoring.service';
 import { DistribuicaoService } from '@/modules/recuperacao/distribuicao.service';
 
 @Injectable()
@@ -53,6 +54,21 @@ export class SchedulerService implements OnApplicationBootstrap {
    * automático). Antes da rodada da régua das 9h, para o atendimento que a régua
    * gerar já cair na responsável certa.
    */
+  /**
+   * Risco de todos os clientes, de madrugada: a fatura que venceu ontem e não foi
+   * paga muda a faixa (e a régua) do cliente antes da rodada das 9h.
+   */
+  @Cron('30 4 * * *', { timeZone: 'America/Sao_Paulo' })
+  async runRisco() {
+    const risco = new RiskScoringService(this.prisma);
+    const clientes = await this.prisma.customer.findMany({ where: { ativo: true, tenant: { ativo: true } }, select: { id: true, tenantId: true } });
+    let n = 0;
+    for (const c of clientes) {
+      try { await risco.scoreCustomer(c.tenantId, c.id); n++; } catch { /* segue os demais */ }
+    }
+    this.logger.log(`Risco recalculado: ${n} cliente(s)`);
+  }
+
   @Cron('30 8 * * *', { timeZone: 'America/Sao_Paulo' })
   async runDistribuicao() {
     await this.distribuicao.distribuirTodos();

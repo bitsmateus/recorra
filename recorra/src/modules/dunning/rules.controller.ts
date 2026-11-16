@@ -5,13 +5,14 @@ import { Roles } from '@/common/auth/roles.decorator';
 import { CurrentUser, TenantId } from '@/common/auth/current-user.decorator';
 import { AuthUser } from '@/common/auth/jwt.types';
 import { RulesService } from './rules.service';
+import { DunningService } from './dunning.service';
 import { SaveRuleDto, SetDefaultRuleDto, SetRiskModeDto } from './dto/rule.dto';
 import { SaveCarteiraDto } from './dto/carteira.dto';
 
 @Controller('reguas')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class RulesController {
-  constructor(private readonly rules: RulesService) {}
+  constructor(private readonly rules: RulesService, private readonly dunning: DunningService) {}
 
   @Get()
   list(@TenantId() tenantId: string) {
@@ -46,6 +47,21 @@ export class RulesController {
   @Roles('OWNER', 'ADMIN', 'FINANCEIRO', 'OPERADOR')
   disparar(@TenantId() tenantId: string, @CurrentUser() user: AuthUser, @Body('invoiceIds') invoiceIds?: string[]) {
     return this.rules.dispararLote(tenantId, invoiceIds ?? [], user.id);
+  }
+
+  /** Mensagem escrita pelo operador (texto livre) para as faturas selecionadas. Todo operador pode. */
+  @Post('andamento/mensagem')
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO', 'OPERADOR')
+  mensagem(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthUser,
+    @Body('invoiceIds') invoiceIds?: string[],
+    @Body('texto') texto?: string,
+    @Body('channelAccountId') channelAccountId?: string,
+    @Body('assunto') assunto?: string,
+  ) {
+    if (!channelAccountId) throw new BadRequestException('Escolha a conta/número que envia');
+    return this.dunning.enviarMensagemLivre(tenantId, invoiceIds ?? [], texto ?? '', channelAccountId, user.id, assunto);
   }
 
   /** Templates disponíveis pra escolher manualmente no disparo (todo passo de toda régua ativa). */

@@ -25,6 +25,7 @@ import { encryptWith } from '../src/common/crypto/aes';
 import { AtribuicaoService } from '../src/modules/recuperacao/atribuicao.service';
 import { DistribuicaoService } from '../src/modules/recuperacao/distribuicao.service';
 import { carteiraDaFaixa } from '../src/modules/dunning/carteiras';
+import { RiskScoringService } from '../src/modules/risk/risk-scoring.service';
 
 const prisma = new PrismaClient();
 const TENANT_ID = 'demo-microrcim';
@@ -263,6 +264,30 @@ async function main() {
     }
     await atrib.atribuirFaturas(TENANT_ID, [p.id]);
   }
+  // ---------------- Risco (mesmo cálculo da aplicação: últimas cobranças pagas) ----------------
+  const risco = new RiskScoringService(prisma as never);
+  for (const c of await prisma.customer.findMany({ where: { tenantId: TENANT_ID }, select: { id: true } })) {
+    await risco.scoreCustomer(TENANT_ID, c.id);
+  }
+
+  // ---------------- Promessas em vigor: régua pausada até a data ----------------
+  // Alguns clientes com fatura vencida prometeram pagar nos próximos dias.
+  const prometeram = await prisma.customer.findMany({
+    where: { tenantId: TENANT_ID, invoices: { some: { status: 'VENCIDA' } } },
+    select: { id: true, responsavelId: true }, take: 12, skip: 40,
+  });
+  for (const [k, c] of prometeram.entries()) {
+    const ate = new Date(hoje.getTime() + (1 + (k % 5)) * DIA);
+    await prisma.customer.update({ where: { id: c.id }, data: { promessaAte: ate } });
+    await prisma.customerNote.create({
+      data: {
+        tenantId: TENANT_ID, customerId: c.id, userId: c.responsavelId ?? lais.id, tipo: 'PROMESSA',
+        texto: `Cliente prometeu pagar até ${ate.toLocaleDateString('pt-BR', { timeZone: 'UTC' })}.`, dataPromessa: ate,
+        createdAt: new Date(agora.getTime() - 2 * 3_600_000),
+      },
+    });
+  }
+
   // ---------------- Distribuição automática dos vencidos de hoje ----------------
   const dist = await new DistribuicaoService(prisma as never).distribuirTenant(TENANT_ID);
 

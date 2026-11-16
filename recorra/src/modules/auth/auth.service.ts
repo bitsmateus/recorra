@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
+import * as QRCode from 'qrcode';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { MailService } from '@/common/mail/mail.service';
 import { env } from '@/config/env';
@@ -220,7 +221,10 @@ export class AuthService {
   async setup2fa(userId: string, email: string) {
     const secret = generateTotpSecret();
     await this.prisma.user.update({ where: { id: userId }, data: { twoFaSecret: secret, twoFaEnabled: false } });
-    return { secret, otpauthUrl: totpAuthUrl(email, secret) };
+    const otpauthUrl = totpAuthUrl(email, secret);
+    // QR pronto para o app autenticador (o painel não precisa de biblioteca de QR).
+    const qr = await QRCode.toDataURL(otpauthUrl, { margin: 1, width: 220 }).catch(() => null);
+    return { secret, otpauthUrl, qr };
   }
 
   async enable2fa(userId: string, codigo: string) {

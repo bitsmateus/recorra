@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, Users, Plug, LogOut, CreditCard, GitBranch, UserCog, Send, BarChart3, Gauge, HelpCircle, ChevronDown, Megaphone, Wallet, SlidersHorizontal, Radio, Menu, X, Mail, MessageSquare, PanelLeftClose, PanelLeftOpen, Eraser, Moon, Sun, Columns3, KeyRound } from 'lucide-react';
+import { LayoutDashboard, Users, Plug, LogOut, CreditCard, GitBranch, UserCog, Send, BarChart3, Gauge, HelpCircle, ChevronDown, Megaphone, Wallet, SlidersHorizontal, Radio, Menu, X, Mail, MessageSquare, PanelLeftClose, PanelLeftOpen, Eraser, Moon, Sun, Columns3, KeyRound, CircleUserRound } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Logo } from '@/components/Logo';
 import { getToken, logout, papelAtual } from '@/lib/api';
@@ -12,13 +12,17 @@ import { APP_VERSION } from '@/lib/version';
 type Item = { href: string; label: string; icon: LucideIcon; papeis?: string[] };
 type Grupo = { label: string; icon: LucideIcon; items: Item[] };
 
+/** Quem administra a operação. OPERADOR/LEITURA (atendentes de cobrança) não veem
+ *  Cobranças nem Configurações — trabalham pela Esteira, Clientes e Disparos. */
+const GESTAO = ['OWNER', 'ADMIN', 'FINANCEIRO'];
+
 const grupos: Grupo[] = [
   { label: 'Início', icon: LayoutDashboard, items: [
     { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   ] },
   { label: 'Cobrança', icon: Wallet, items: [
     { href: '/clientes', label: 'Clientes', icon: Users },
-    { href: '/cobrancas', label: 'Cobranças', icon: CreditCard },
+    { href: '/cobrancas', label: 'Cobranças', icon: CreditCard, papeis: GESTAO },
   ] },
   { label: 'Comunicação', icon: Megaphone, items: [
     { href: '/campanhas', label: 'Campanhas', icon: Megaphone },
@@ -31,13 +35,13 @@ const grupos: Grupo[] = [
     { href: '/relatorios', label: 'Relatórios', icon: BarChart3, papeis: ['OWNER', 'ADMIN', 'FINANCEIRO'] },
   ] },
   { label: 'Configurações', icon: SlidersHorizontal, items: [
-    { href: '/integracoes', label: 'Integrações', icon: Plug },
-    { href: '/canais', label: 'Canais', icon: Radio },
-    { href: '/templates', label: 'Templates WhatsApp', icon: MessageSquare },
-    { href: '/modelos-email', label: 'Modelos de e-mail', icon: Mail },
-    { href: '/equipe', label: 'Equipe', icon: UserCog },
-    { href: '/api-tokens', label: 'API', icon: KeyRound },
-    { href: '/plano', label: 'Plano', icon: Gauge },
+    { href: '/integracoes', label: 'Integrações', icon: Plug, papeis: GESTAO },
+    { href: '/canais', label: 'Canais', icon: Radio, papeis: GESTAO },
+    { href: '/templates', label: 'Templates WhatsApp', icon: MessageSquare, papeis: GESTAO },
+    { href: '/modelos-email', label: 'Modelos de e-mail', icon: Mail, papeis: GESTAO },
+    { href: '/equipe', label: 'Equipe', icon: UserCog, papeis: GESTAO },
+    { href: '/api-tokens', label: 'API', icon: KeyRound, papeis: GESTAO },
+    { href: '/plano', label: 'Plano', icon: Gauge, papeis: GESTAO },
   ] },
   { label: 'Ajuda', icon: HelpCircle, items: [
     { href: '/ajuda', label: 'Central de Ajuda', icon: HelpCircle },
@@ -66,6 +70,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       setReady(true);
     }
   }, [router]);
+
+  // Rota restrita digitada direto na barra: leva para a Esteira em vez de mostrar a tela.
+  useEffect(() => {
+    if (!ready || !papel) return;
+    const item = grupos.flatMap((g) => g.items).find((it) => pathname.startsWith(it.href));
+    if (item?.papeis && !item.papeis.includes(papel)) router.replace('/andamento');
+  }, [ready, papel, pathname, router]);
 
   // Fecha o menu mobile ao navegar e abre o grupo da rota ativa.
   useEffect(() => {
@@ -172,6 +183,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <div className={`shrink-0 border-t border-line bg-surface ${compacto ? 'p-2' : 'p-3'}`}>
         <button onClick={alternarTema} title={compacto ? (escuro ? 'Modo claro' : 'Modo escuro') : undefined} aria-label={escuro ? 'Ativar modo claro' : 'Ativar modo escuro'} className={`mb-1 flex w-full items-center rounded py-2 text-sm text-muted transition hover:bg-canvas ${compacto ? 'justify-center px-2' : 'gap-3 px-3'}`}>{escuro ? <Sun size={18} /> : <Moon size={18} />}{!compacto && (escuro ? 'Modo claro' : 'Modo escuro')}</button>
         <button onClick={limparCache} title={compacto ? 'Limpar cache' : undefined} className={`mb-1 flex w-full items-center rounded py-2 text-sm text-muted transition hover:bg-canvas ${compacto ? 'justify-center px-2' : 'gap-3 px-3'}`}><Eraser size={18} />{!compacto && 'Limpar cache'}</button>
+        <Link href="/perfil" title={compacto ? 'Meu perfil' : undefined} className={`mb-1 flex w-full items-center rounded py-2 text-sm transition ${pathname.startsWith('/perfil') ? 'bg-primary-tint font-medium text-primary' : 'text-muted hover:bg-canvas'} ${compacto ? 'justify-center px-2' : 'gap-3 px-3'}`}><CircleUserRound size={18} />{!compacto && 'Meu perfil'}</Link>
         <button onClick={sair} title={compacto ? 'Sair' : undefined} className={`flex w-full items-center rounded py-2 text-sm text-muted transition hover:bg-canvas ${compacto ? 'justify-center px-2' : 'gap-3 px-3'}`}><LogOut size={18} />{!compacto && 'Sair'}</button>
       </div>
     </>

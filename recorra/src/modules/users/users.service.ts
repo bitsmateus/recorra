@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { PrismaService } from '@/common/prisma/prisma.service';
@@ -120,6 +120,48 @@ export class UsersService {
       antes: { carteiraId: alvo.carteiraId }, depois: { carteiraId },
     });
     return upd;
+  }
+
+  async meuPerfil(tenantId: string, userId: string) {
+    const u = await this.prisma.user.findFirst({
+      where: { id: userId, tenantId },
+      select: {
+        id: true, nome: true, email: true, role: true, emailVerify: true, twoFaEnabled: true, createdAt: true, provider: true,
+        carteira: { select: { nome: true, diaMinimo: true } }, nxUserId: true, nxQueueId: true,
+        tenant: { select: { nome: true } },
+      },
+    });
+    if (!u) throw new NotFoundException('Usuário não encontrado');
+    const [clientes, vencidos] = await Promise.all([
+      this.prisma.customer.count({ where: { tenantId, responsavelId: userId, ativo: true } }),
+      this.prisma.customer.count({ where: { tenantId, responsavelId: userId, ativo: true, invoices: { some: { status: 'VENCIDA' } } } }),
+    ]);
+    return { ...u, empresa: u.tenant.nome, tenant: undefined, clientesResponsavel: clientes, clientesVencidos: vencidos };
+  }
+
+  async editarMeuPerfil(tenantId: string, userId: string, nome?: string) {
+    const n = (nome ?? '').trim();
+    if (n.length < 2 || n.length > 80) throw new BadRequestException('Informe um nome entre 2 e 80 caracteres');
+    await this.assertTenant(tenantId, userId);
+    await this.prisma.user.update({ where: { id: userId }, data: { nome: n } });
+    await this.audit.record({ tenantId, userId, acao: 'user.perfil.update', entidade: 'User', entidadeId: userId, depois: { nome: n } });
+    return this.meuPerfil(tenantId, userId);
+  }
+
+  async trocarMinhaSenha(tenantId: string, userId: string, senhaAtual: string, novaSenha: string) {
+    const u = await this.assertTenant(tenantId, userId);
+    const completo = await this.prisma.user.findUniqueOrThrow({ where: { id: u.id }, select: { senhaHash: true } });
+    if (completo.senhaHash && !(await argon2.verify(completo.senhaHash, senhaAtual).catch(() => false))) {
+      throw new BadRequestException('Senha atual incorreta');
+    }
+    if (novaSenha.length < 8) throw new BadRequestException('A nova senha precisa ter pelo menos 8 caracteres');
+    if (novaSenha === senhaAtual) throw new BadRequestException('A nova senha precisa ser diferente da atual');
+    const senhaHash = await argon2.hash(novaSenha, { type: argon2.argon2id });
+    await this.prisma.user.update({ where: { id: userId }, data: { senhaHash, resetToken: null, resetTokenExp: null } });
+    // Encerra todas as sessões (inclusive em outros aparelhos): entra de novo com a senha nova.
+    await this.prisma.refreshToken.deleteMany({ where: { userId } }).catch(() => undefined);
+    await this.audit.record({ tenantId, userId, acao: 'user.senha.propria', entidade: 'User', entidadeId: userId });
+    return { ok: true };
   }
 
   /** Vínculo com o NX: id do usuário lá (contato manual no chat) e fila pessoal (respostas dos clientes dele). */

@@ -351,7 +351,16 @@ model Customer {
 
   // Faixa de risco atual, desnormalizada do último RiskScore — permite filtrar/
   // paginar por risco no banco (segmentação e público de campanha) sem pós-filtro.
-  faixaAtual RiskBand?
+  faixaAtual        RiskBand?
+  // Faixa definida À MÃO por um usuário (sobrepõe a calculada até alguém voltar ao
+  // automático). Com ela preenchida, faixaAtual = riscoManual.
+  riscoManual       RiskBand?
+  riscoManualMotivo String?
+  riscoManualPorId  String?
+  riscoManualEm     DateTime?
+  // Promessa de pagamento: a cobrança AUTOMÁTICA (régua) fica pausada até esta data
+  // (inclusive). Passou a data sem pagar, a régua volta sozinha.
+  promessaAte       DateTime?
 
   sourceSystem SourceSystem?
   externalId   String?
@@ -825,6 +834,8 @@ model RiskScore {
   score        Int
   faixa        RiskBand
   fatores      Json
+  // Últimas faturas pagas usadas no cálculo (vencimento, pagamento, dias de atraso).
+  historico    Json?
   modeloVersao String   @default("regras-v1")
   calculadoEm  DateTime @default(now())
 
