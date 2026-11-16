@@ -1,4 +1,4 @@
-import { IsInt, IsString, Max, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 /** Carteira/equipe de cobrança configurável por tenant (model Carteira). */
 export class SaveCarteiraDto {
@@ -10,4 +10,9 @@ export class SaveCarteiraDto {
   @Min(0)
   @Max(3650)
   diaMinimo!: number;
+
+  // Como os clientes vencidos desta carteira são divididos entre os operadores.
+  @IsOptional()
+  @IsIn(['MANUAL', 'BALANCEADA', 'SEQUENCIAL'])
+  distribuicao?: 'MANUAL' | 'BALANCEADA' | 'SEQUENCIAL';
 }

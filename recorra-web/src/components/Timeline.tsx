@@ -17,6 +17,16 @@ interface TimelineItem {
   erpErro?: string | null;
   canal?: string;
   status?: string;
+  origem?: string | null; // disparo: REGUA | MANUAL | CAMPANHA | CONFIRMACAO
+  regua?: string | null;
+}
+
+/** Quem originou o disparo: régua (automático) ou o operador que enviou (manual). */
+function origemDisparo(it: TimelineItem): string {
+  if (it.origem === 'MANUAL') return `Manual · ${it.autor ?? 'operador removido'}`;
+  if (it.origem === 'CAMPANHA') return 'Campanha';
+  if (it.origem === 'CONFIRMACAO') return 'Confirmação de pagamento';
+  return it.regua ? `Automático · ${it.regua}` : 'Automático (régua)';
 }
 
 const canalLabel: Record<string, string> = {
@@ -202,6 +212,7 @@ export function Timeline({ customerId, onChange }: { customerId: string; onChang
             return (
               <div key={it.id} className="mb-1.5 border-b border-line px-2 py-1.5 text-xs last:border-0">
                 <span className="text-muted">{dataHora(it.data)} · {canalLabel[it.canal ?? ''] ?? it.canal} · {statusLabel[it.status ?? ''] ?? it.status}</span>
+                <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${it.origem === 'MANUAL' ? 'text-white' : 'bg-canvas text-muted'}`} style={it.origem === 'MANUAL' ? { background: 'var(--serie-manual)' } : undefined}>{origemDisparo(it)}</span>
                 {it.texto && <div className="mt-0.5 line-clamp-1 text-ink">{it.texto}</div>}
               </div>
             );

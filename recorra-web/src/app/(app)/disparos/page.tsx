@@ -15,6 +15,7 @@ const EXPORT_MAX = 20000;
 
 interface Row {
   id: string; canal: string; canalNome?: string | null; campanha?: string | null; regua?: string | null; origem?: string | null;
+  tipoOrigem?: string | null; operador?: string | null;
   conteudo?: string | null; conteudoTruncado?: boolean; status: string; erro?: string | null; createdAt: string; enviadoEm?: string | null;
   cliente?: string | null; telefone?: string | null;
 }
@@ -108,6 +109,7 @@ function DisparosConteudo() {
   const campanhaId = sp.get('campanha') || '';
   const origem = sp.get('origem') || '';
   const reguaId = sp.get('regua') || '';
+  const operadorId = sp.get('operador') || '';
   const periodo = sp.get('periodo') || '30d';
   const { de, ate } = intervalo(periodo, sp.get('de') || '', sp.get('ate') || '');
 
@@ -122,6 +124,7 @@ function DisparosConteudo() {
   const [canais, setCanais] = useState<{ id: string; apelido: string; canal: string }[]>([]);
   const [campanhas, setCampanhas] = useState<{ id: string; nome: string }[]>([]);
   const [reguas, setReguas] = useState<{ id: string; nome: string }[]>([]);
+  const [operadores, setOperadores] = useState<{ id: string; nome: string }[]>([]);
   const req = useRef(0);
 
   /** Toda mudança de filtro vai para a URL (F5 e link compartilhável preservam a
@@ -149,10 +152,11 @@ function DisparosConteudo() {
     if (campanhaId) p.set('campanhaId', campanhaId);
     if (origem) p.set('origem', origem);
     if (reguaId) p.set('reguaId', reguaId);
+    if (operadorId) p.set('userId', operadorId);
     if (de) p.set('de', de);
     if (ate) p.set('ate', ate);
     return p.toString();
-  }, [q, tipoCanal, channelAccountId, campanhaId, origem, reguaId, de, ate]);
+  }, [q, tipoCanal, channelAccountId, campanhaId, origem, reguaId, operadorId, de, ate]);
 
   const cursor = cursores[cursores.length - 1];
 
@@ -185,6 +189,7 @@ function DisparosConteudo() {
     api<{ id: string; apelido: string; canal: string }[]>('/canais').then(setCanais).catch(() => setCanais([]));
     api<{ id: string; nome: string }[]>('/campanhas').then(setCampanhas).catch(() => setCampanhas([]));
     api<{ id: string; nome: string }[]>('/reguas').then(setReguas).catch(() => setReguas([]));
+    api<{ id: string; nome: string }[]>('/usuarios').then((u) => setOperadores(Array.isArray(u) ? u : [])).catch(() => setOperadores([]));
   }, []);
 
   function limparFiltros() {
@@ -227,7 +232,7 @@ function DisparosConteudo() {
   const pagina = cursores.length + 1;
   const inicio = cursores.length * POR_PAGINA + 1;
   const fim = cursores.length * POR_PAGINA + rows.length;
-  const filtrosAtivos = [q, status, tipoCanal, channelAccountId, campanhaId, origem, reguaId].filter(Boolean).length + (periodo === '30d' ? 0 : 1);
+  const filtrosAtivos = [q, status, tipoCanal, channelAccountId, campanhaId, origem, reguaId, operadorId].filter(Boolean).length + (periodo === '30d' ? 0 : 1);
 
   return (
     <div>
@@ -271,7 +276,8 @@ function DisparosConteudo() {
         </div>
         <div className="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-5">
           <input placeholder="Cliente / telefone" value={busca} onChange={(e) => setBusca(e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary lg:col-span-2" />
-          <select value={origem} onChange={(e) => setParam({ origem: e.target.value || null })} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Origem: todas</option><option value="AUTOMATICA">Cobrança automática</option><option value="CAMPANHA">Campanha</option><option value="AVULSO">Outros envios</option></select>
+          <select value={origem} onChange={(e) => setParam({ origem: e.target.value || null })} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Origem: todas</option><option value="REGUA">Automático (régua)</option><option value="MANUAL">Manual (operador)</option><option value="CAMPANHA">Campanha</option><option value="CONFIRMACAO">Confirmação de pagamento</option></select>
+          <select value={operadorId} onChange={(e) => setParam({ operador: e.target.value || null })} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Enviado por: todos</option>{operadores.map((o) => <option key={o.id} value={o.id}>{o.nome}</option>)}</select>
           <select value={campanhaId} onChange={(e) => setParam({ campanha: e.target.value || null })} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Campanha: todas</option>{campanhas.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}</select>
           <select value={reguaId} onChange={(e) => setParam({ regua: e.target.value || null })} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Régua: todas</option>{reguas.map((r) => <option key={r.id} value={r.id}>{r.nome}</option>)}</select>
           <select value={tipoCanal} onChange={(e) => setParam({ tipo: e.target.value || null })} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary"><option value="">Tipo: todos</option><option value="WHATSAPP">WhatsApp</option><option value="EMAIL">E-mail</option><option value="SMS">SMS</option></select>
@@ -306,6 +312,8 @@ function DisparosConteudo() {
                   <td className="px-4 py-3 text-muted">
                     {d.campanha
                       ? <span>{d.campanha}</span>
+                      : d.tipoOrigem === 'MANUAL'
+                        ? <span><span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium text-white" style={{ background: 'var(--serie-manual)' }}>Manual</span><br /><span className="text-xs text-muted">por {d.operador ?? '—'}</span></span>
                       : d.regua
                         ? <span>Cobrança automática<br /><span className="text-xs text-muted">régua: {d.regua}</span></span>
                         : <span className="text-xs">{d.origem || '—'}</span>}

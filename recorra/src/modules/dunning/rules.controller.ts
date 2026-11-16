@@ -44,8 +44,8 @@ export class RulesController {
   /** Dispara agora a etapa atual da régua para as faturas selecionadas. */
   @Post('andamento/disparar')
   @Roles('OWNER', 'ADMIN', 'FINANCEIRO', 'OPERADOR')
-  disparar(@TenantId() tenantId: string, @Body('invoiceIds') invoiceIds?: string[]) {
-    return this.rules.dispararLote(tenantId, invoiceIds ?? []);
+  disparar(@TenantId() tenantId: string, @CurrentUser() user: AuthUser, @Body('invoiceIds') invoiceIds?: string[]) {
+    return this.rules.dispararLote(tenantId, invoiceIds ?? [], user.id);
   }
 
   /** Templates disponíveis pra escolher manualmente no disparo (todo passo de toda régua ativa). */
@@ -59,12 +59,13 @@ export class RulesController {
   @Roles('OWNER', 'ADMIN', 'FINANCEIRO', 'OPERADOR')
   dispararComTemplate(
     @TenantId() tenantId: string,
+    @CurrentUser() user: AuthUser,
     @Body('invoiceIds') invoiceIds?: string[],
     @Body('stepId') stepId?: string,
     @Body('channelAccountId') channelAccountId?: string,
   ) {
     if (!stepId || !channelAccountId) throw new BadRequestException('Escolha o template e a conta de canal');
-    return this.rules.dispararComTemplate(tenantId, invoiceIds ?? [], stepId, channelAccountId);
+    return this.rules.dispararComTemplate(tenantId, invoiceIds ?? [], stepId, channelAccountId, user.id);
   }
 
   // Carteiras (equipes de cobrança) — configuráveis por tenant. Antes de :id.

@@ -56,6 +56,13 @@ export class ConnectionsController {
     return this.connections.definirTokenWaba(tenantId, id, dto);
   }
 
+  /** Número/identificação exibida da conta (ex.: linha 1000) — aparece nos disparos e relatórios. */
+  @Put(':id/numero')
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
+  numero(@TenantId() tenantId: string, @Param('id') id: string, @Body('numero') numero?: string) {
+    return this.connections.definirNumero(tenantId, id, numero);
+  }
+
   @Get(':id/qrcode')
   qrcode(@TenantId() tenantId: string, @Param('id') id: string) {
     return this.connections.qrcode(tenantId, id);

@@ -62,6 +62,7 @@ export class PaymentNotifyService {
         canal: conta.canal,
         channelAccountId: conta.id,
         template: 'confirmacao_pagamento',
+        origem: 'CONFIRMACAO',
         ...(pref.templateName.trim() ? { templateName: pref.templateName.trim(), templateParams } : {}),
         ...(conta.canal === 'EMAIL' && pref.assunto.trim() ? { assunto: pref.assunto.trim() } : {}),
         conteudo,

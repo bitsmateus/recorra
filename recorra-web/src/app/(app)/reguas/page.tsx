@@ -1176,7 +1176,17 @@ function NichoGallery({ onClone }: { onClone: () => void }) {
   );
 }
 
-interface Carteira { id: string; nome: string; diaMinimo: number }
+type ModoDistribuicao = 'MANUAL' | 'BALANCEADA' | 'SEQUENCIAL';
+interface Carteira { id: string; nome: string; diaMinimo: number; distribuicao?: ModoDistribuicao }
+interface ResumoDistribuicao {
+  carteira: string; modo: ModoDistribuicao; clientes: number; atribuidos: number; mantidos: number;
+  operadores: { nome: string; clientes: number }[]; aviso?: string;
+}
+const MODOS: { valor: ModoDistribuicao; label: string; ajuda: string }[] = [
+  { valor: 'MANUAL', label: 'Manual', ajuda: 'o responsável é definido à mão no cliente' },
+  { valor: 'BALANCEADA', label: 'Automática balanceada', ajuda: 'cada cliente novo vai para quem está com menos' },
+  { valor: 'SEQUENCIAL', label: 'Automática sequencial', ajuda: 'rodízio: um para cada, na ordem' },
+];
 
 /**
  * Carteiras (equipes de cobrança) configuráveis por tenant: cada cliente cria
@@ -1190,6 +1200,7 @@ function CarteirasCard() {
   const [editando, setEditando] = useState<Carteira | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  const [resumo, setResumo] = useState<ResumoDistribuicao[] | null>(null);
 
   const carregar = useCallback(() => { api<Carteira[]>('/reguas/carteiras').then(setCarteiras).catch(() => {}); }, []);
   useEffect(carregar, [carregar]);
@@ -1212,6 +1223,25 @@ function CarteirasCard() {
       await api(`/reguas/carteiras/${editando.id}`, { method: 'PUT', body: { nome: editando.nome.trim(), diaMinimo: editando.diaMinimo } });
       setEditando(null);
       carregar();
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro'); }
+    finally { setBusy(false); }
+  }
+
+  async function mudarDistribuicao(c: Carteira, distribuicao: ModoDistribuicao) {
+    setBusy(true); setMsg('');
+    try {
+      await api(`/reguas/carteiras/${c.id}`, { method: 'PUT', body: { nome: c.nome, diaMinimo: c.diaMinimo, distribuicao } });
+      carregar();
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro'); }
+    finally { setBusy(false); }
+  }
+
+  async function distribuirAgora() {
+    setBusy(true); setMsg(''); setResumo(null);
+    try {
+      const r = await api<ResumoDistribuicao[]>('/recuperacao/distribuir', { method: 'POST' });
+      if (!r.length) setMsg('Nenhuma carteira com distribuição automática.');
+      setResumo(r);
     } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro'); }
     finally { setBusy(false); }
   }
@@ -1252,6 +1282,11 @@ function CarteirasCard() {
                 <>
                   <span className="font-medium text-ink">{c.nome}</span>
                   <span className="text-xs text-muted">a partir de D+{c.diaMinimo}</span>
+                  <select value={c.distribuicao ?? 'MANUAL'} onChange={(e) => mudarDistribuicao(c, e.target.value as ModoDistribuicao)} disabled={busy}
+                    title={MODOS.find((m) => m.valor === (c.distribuicao ?? 'MANUAL'))?.ajuda}
+                    className="rounded border border-line px-2 py-1 text-xs outline-none focus:border-primary" aria-label={`Distribuição da carteira ${c.nome}`}>
+                    {MODOS.map((m) => <option key={m.valor} value={m.valor}>Distribuição: {m.label}</option>)}
+                  </select>
                   <button onClick={() => setEditando(c)} className="ml-auto rounded border border-line px-3 py-1 text-xs hover:bg-canvas">Editar</button>
                   <button onClick={() => excluir(c)} disabled={busy} className="rounded border border-line px-3 py-1 text-xs text-danger hover:bg-danger-tint disabled:opacity-60">Excluir</button>
                 </>
@@ -1261,6 +1296,29 @@ function CarteirasCard() {
         </div>
       )}
       {ordenadas.length === 0 && <p className="mb-3 text-sm text-muted">Nenhuma carteira criada ainda — sem elas, todo mundo vê a esteira inteira.</p>}
+      {ordenadas.some((c) => c.distribuicao && c.distribuicao !== 'MANUAL') && (
+        <div className="mb-3 rounded border border-line bg-canvas p-3 text-xs text-muted">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="flex-1">
+              <b className="text-ink">Distribuição automática:</b> todo dia às 8h30 os clientes vencidos sem dono são divididos entre os operadores da carteira
+              (vincule em <Link href="/equipe" className="text-primary underline">Equipe</Link>). Quem já tem responsável na carteira continua com ele; ao mudar de faixa, passa para a próxima equipe.
+              Na Esteira, cada operadora vê só os clientes dela.
+            </span>
+            <button onClick={distribuirAgora} disabled={busy} className="rounded bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary-hover disabled:opacity-60">Distribuir agora</button>
+          </div>
+          {resumo && resumo.length > 0 && (
+            <div className="mt-2 space-y-1">
+              {resumo.map((r) => (
+                <div key={r.carteira} className="text-ink">
+                  <b>{r.carteira}</b>: {r.clientes} vencido(s) · {r.atribuidos} distribuído(s) agora · {r.mantidos} já tinham dono
+                  {r.operadores.length > 0 && <> — {r.operadores.map((o) => `${o.nome}: ${o.clientes}`).join(' · ')}</>}
+                  {r.aviso && <span className="text-danger"> — {r.aviso}</span>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="flex flex-wrap items-end gap-2">
         <label className="text-sm"><span className="mb-1 block text-xs text-muted">Nome da carteira</span>

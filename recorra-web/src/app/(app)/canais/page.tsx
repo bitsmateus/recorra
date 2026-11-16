@@ -8,7 +8,7 @@ import PlataformasEnvio from '@/components/PlataformasEnvio';
 import ConfirmacaoPagamento from '@/components/ConfirmacaoPagamento';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 
-interface Conexao { id: string; canal: string; apelido: string; ativo: boolean; status: string; instance?: string | null; origem?: string; oficial?: boolean; nxType?: string; wabaId?: string; temTokenWaba?: boolean }
+interface Conexao { id: string; canal: string; apelido: string; numero?: string | null; ativo: boolean; status: string; instance?: string | null; origem?: string; oficial?: boolean; nxType?: string; wabaId?: string; temTokenWaba?: boolean }
 
 // Opções para criar um novo canal. A Recorrai envia só por API oficial: WhatsApp
 // não oficial (Evolution/uazapi) foi removido — sem QR code, sem texto livre no WhatsApp.
@@ -162,6 +162,7 @@ function CanalCard({ c, onExcluir, onQr, onToken }: { c: Conexao; onExcluir: (c:
         <div className="flex min-w-0 items-center gap-2"><TIcon size={18} className="shrink-0 text-muted" /><span className="truncate font-medium text-ink">{c.apelido}</span></div>
         <button onClick={() => onExcluir(c)} title={c.origem === 'nx' ? 'Remover da Recorrai (mantém no NX)' : 'Remover'} className="shrink-0 rounded p-1 text-muted hover:bg-danger-tint hover:text-danger"><Trash2 size={14} /></button>
       </div>
+      <NumeroConta c={c} />
       <div className="mb-3 flex flex-wrap items-center gap-1.5 text-xs text-muted">
         <span>{tipo?.label || c.canal}</span>
         {c.origem === 'nx' && <span className="rounded-full bg-primary-tint px-1.5 py-0.5 font-medium text-primary">NX</span>}
@@ -435,5 +436,31 @@ function QrModal({ conn, onClose }: { conn: Conexao; onClose: () => void }) {
         )}
       </div>
     </div>
+  );
+}
+
+/** Número/identificação da conta (ex.: linha 1000): aparece nos disparos e no relatório por número. */
+function NumeroConta({ c }: { c: Conexao }) {
+  const [editando, setEditando] = useState(false);
+  const [valor, setValor] = useState(c.numero ?? '');
+  const [salvo, setSalvo] = useState(c.numero ?? '');
+  async function salvar() {
+    const r = await api<{ numero: string | null }>(`/canais/${c.id}/numero`, { method: 'PUT', body: { numero: valor } }).catch(() => null);
+    if (r) setSalvo(r.numero ?? '');
+    setEditando(false);
+  }
+  if (editando) {
+    return (
+      <div className="mb-2 flex items-center gap-1.5">
+        <input autoFocus value={valor} onChange={(e) => setValor(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') salvar(); if (e.key === 'Escape') setEditando(false); }}
+          placeholder="Ex.: 1000 ou (11) 3000-0000" aria-label="Número da conta" className="w-full rounded border border-line px-2 py-1 text-xs outline-none focus:border-primary" />
+        <button onClick={salvar} className="rounded bg-primary px-2 py-1 text-xs font-medium text-white">OK</button>
+      </div>
+    );
+  }
+  return (
+    <button onClick={() => { setValor(salvo); setEditando(true); }} className="mb-2 block text-left text-xs text-muted hover:text-primary" title="Número exibido nos disparos e relatórios">
+      {salvo ? <>Número: <b className="text-ink">{salvo}</b></> : '+ informar número'}
+    </button>
   );
 }

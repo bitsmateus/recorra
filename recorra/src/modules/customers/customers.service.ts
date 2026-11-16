@@ -330,7 +330,10 @@ export class CustomersService {
       this.prisma.riskScore.findFirst({ where: { tenantId, customerId: id }, orderBy: { calculadoEm: "desc" } }),
       this.prisma.paymentHistoryFeature.findUnique({ where: { customerId: id } }),
       this.prisma.invoice.findMany({ where: { tenantId, customerId: id }, orderBy: { vencimento: "desc" }, take: 100 }),
-      this.prisma.messageDispatch.findMany({ where: { tenantId, customerId: id }, orderBy: { createdAt: "desc" }, take: 100 }),
+      this.prisma.messageDispatch.findMany({
+        where: { tenantId, customerId: id }, orderBy: { createdAt: "desc" }, take: 100,
+        include: { user: { select: { nome: true } }, channelAccount: { select: { apelido: true, numero: true } } },
+      }),
       this.prisma.agreement.findMany({ where: { tenantId, customerId: id }, include: { installments: { orderBy: { numero: "asc" } } }, orderBy: { createdAt: "desc" } }),
       this.prisma.subscription.findMany({ where: { tenantId, customerId: id }, orderBy: { createdAt: "desc" } }),
       this.listNotas(tenantId, id),
@@ -432,7 +435,7 @@ export class CustomersService {
         where: { tenantId, customerId, status: { not: 'FILA' } },
         orderBy: { createdAt: 'desc' },
         take: 150,
-        select: { id: true, canal: true, status: true, conteudo: true, enviadoEm: true, createdAt: true },
+        select: { id: true, canal: true, status: true, conteudo: true, enviadoEm: true, createdAt: true, origem: true, ruleNome: true, user: { select: { nome: true } } },
       }),
     ]);
     const itens = [
@@ -454,6 +457,10 @@ export class CustomersService {
         texto: d.conteudo ?? '',
         canal: d.canal as string | undefined,
         status: d.status as string | undefined,
+        // Automático (régua) x manual (com o operador que enviou).
+        origem: d.origem as string | null,
+        autor: d.origem === 'MANUAL' ? d.user?.nome ?? null : null,
+        regua: d.ruleNome,
       })),
     ];
     return itens.sort((a, b) => b.data.getTime() - a.data.getTime()).slice(0, 200);

@@ -29,6 +29,18 @@ export function statusContratoDoPerson(r: any): string | undefined {
 }
 
 /**
+ * Data de pagamento do título, quando a API devolve. Mesmo cuidado de
+ * `statusContratoDoPerson`: nomes candidatos, **validar com a documentação/resposta
+ * real**. Sem data válida, a baixa usa o momento da sincronização.
+ */
+export function dataPagamento(r: any): Date | undefined {
+  const bruto = r.paymentDate ?? r.paidDate ?? r.payDate ?? r.dataPagamento ?? r.settlementDate;
+  if (!bruto) return undefined;
+  const d = new Date(bruto);
+  return Number.isNaN(d.getTime()) ? undefined : d;
+}
+
+/**
  * Conector Voalle (ERP Grupo Voalle).
  * API REST com OAuth2 (client_credentials). `extra` deve conter
  * client_id, client_secret e syndata (subdomínio/tenant do Voalle).
@@ -96,6 +108,7 @@ export class VoalleConnector implements SourceConnector {
       valor: Number(r.value ?? r.amount ?? 0),
       vencimento: new Date(r.dueDate),
       status: r.paid ? 'PAGA' : venceuAntesDeHoje(new Date(r.dueDate)) ? 'VENCIDA' : 'PENDENTE',
+      pagoEm: dataPagamento(r),
       pixCopiaCola: r.pixEmv ?? r.pixCopiaCola ?? undefined,
       boletoLinha: r.digitableLine ?? undefined,
       boletoUrl: r.bankSlipUrl ?? undefined,

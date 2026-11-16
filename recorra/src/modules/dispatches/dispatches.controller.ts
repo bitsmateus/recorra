@@ -19,8 +19,22 @@ const EXPORT_LOTE = 2_000;
 
 const INCLUDE = {
   customer: { select: { nome: true, telefone: true } },
-  channelAccount: { select: { apelido: true } },
+  channelAccount: { select: { apelido: true, numero: true } },
+  user: { select: { nome: true } },
 };
+
+/** Rótulo da origem para a tela/CSV. Disparos antigos sem `origem` caem na regra antiga. */
+export function rotuloOrigem(r: { origem?: string | null; campaignId: string | null; ruleId: string | null; ruleNome: string | null; template: string | null; user?: { nome: string } | null }): string | null {
+  const origem = r.origem
+    ?? (r.campaignId ? 'CAMPANHA' : r.ruleId || r.ruleNome ? 'REGUA' : r.template === 'confirmacao_pagamento' ? 'CONFIRMACAO' : null);
+  switch (origem) {
+    case 'MANUAL': return r.user?.nome ? `Manual · ${r.user.nome}` : 'Manual';
+    case 'REGUA': return 'Cobrança automática';
+    case 'CAMPANHA': return 'Campanha';
+    case 'CONFIRMACAO': return 'Confirmação de pagamento';
+    default: return null;
+  }
+}
 
 interface FiltrosQuery {
   status?: string;
@@ -29,6 +43,7 @@ interface FiltrosQuery {
   campanhaId?: string;
   origem?: string;
   reguaId?: string;
+  userId?: string;
   q?: string;
   de?: string;
   ate?: string;
@@ -41,6 +56,8 @@ interface LinhaBanco {
   campaignId: string | null;
   ruleId: string | null;
   ruleNome: string | null;
+  origem?: string | null;
+  userId?: string | null;
   template: string | null;
   conteudo: string | null;
   status: string;
@@ -49,7 +66,8 @@ interface LinhaBanco {
   agendadoPara: Date | null;
   createdAt: Date;
   customer?: { nome: string; telefone: string | null } | null;
-  channelAccount?: { apelido: string | null } | null;
+  channelAccount?: { apelido: string | null; numero?: string | null } | null;
+  user?: { nome: string } | null;
 }
 
 /** Cursor opaco = (createdAt, id) da última linha da página. Ver `pagina()`. */
@@ -99,9 +117,13 @@ export class DispatchesController {
     // automática" é só o liga/desliga do motor, e quem cria o disparo é a régua
     // (ruleId/ruleNome). Por isso a origem precisa ser filtro próprio — procurá-la
     // na lista de campanhas não acha nada, e a lista sequer a inclui.
+    // MANUAL x automática vem do campo `origem` (gravado desde a atribuição por
+    // operador). AUTOMATICA/AVULSO seguem aceitos para links antigos do painel.
     if (f.origem === 'CAMPANHA') and.push({ campaignId: { not: null } });
-    else if (f.origem === 'AUTOMATICA') and.push({ OR: [{ ruleId: { not: null } }, { ruleNome: { not: null } }] });
-    else if (f.origem === 'AVULSO') and.push({ campaignId: null, ruleId: null, ruleNome: null });
+    else if (f.origem === 'REGUA' || f.origem === 'AUTOMATICA') and.push({ origem: 'REGUA' });
+    else if (f.origem === 'MANUAL') and.push({ origem: 'MANUAL' });
+    else if (f.origem === 'CONFIRMACAO' || f.origem === 'AVULSO') and.push({ origem: 'CONFIRMACAO' });
+    if (f.userId) and.push({ userId: f.userId });
 
     const termo = f.q?.trim();
     if (termo) {
@@ -192,18 +214,14 @@ export class DispatchesController {
       return {
         id: r.id,
         canal: r.canal,
-        canalNome: r.channelAccount?.apelido ?? null,
+        canalNome: r.channelAccount
+          ? [r.channelAccount.apelido, r.channelAccount.numero].filter(Boolean).join(' · ') || null
+          : null,
         campanha: r.campaignId ? cmap.get(r.campaignId) ?? null : null,
         regua: r.ruleNome ?? (r.ruleId ? rmap.get(r.ruleId) ?? null : null),
-        // Sem campanha e sem régua sobra o envio avulso — hoje só a confirmação
-        // de pagamento. Nomear em vez de mostrar "—" evita a dúvida de sempre.
-        origem: r.campaignId
-          ? 'Campanha'
-          : r.ruleId || r.ruleNome
-            ? 'Cobrança automática'
-            : r.template === 'confirmacao_pagamento'
-              ? 'Confirmação de pagamento'
-              : null,
+        origem: rotuloOrigem(r),
+        tipoOrigem: r.origem ?? null,
+        operador: r.user?.nome ?? null,
         conteudo: cortar ? texto!.slice(0, PREVIA) : texto,
         conteudoTruncado: cortar,
         status: r.status,
@@ -294,6 +312,7 @@ export class DispatchesController {
           canal: d.canal,
           canalNome: d.canalNome ?? '',
           origem: d.origem ?? '',
+          operador: d.operador ?? '',
           campanha: d.campanha ?? '',
           regua: d.regua ?? '',
           status: d.status,
@@ -314,6 +333,7 @@ export class DispatchesController {
         { key: 'canal', label: 'Canal' },
         { key: 'canalNome', label: 'Conta do canal' },
         { key: 'origem', label: 'Origem' },
+        { key: 'operador', label: 'Operador' },
         { key: 'campanha', label: 'Campanha' },
         { key: 'regua', label: 'Régua' },
         { key: 'status', label: 'Status' },

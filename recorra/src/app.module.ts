@@ -27,6 +27,7 @@ import { DispatchesModule } from '@/modules/dispatches/dispatches.module';
 import { TutorialsModule } from '@/modules/tutorials/tutorials.module';
 import { CampaignsModule } from '@/modules/campaigns/campaigns.module';
 import { AiModule } from '@/modules/ai/ai.module';
+import { RecuperacaoModule } from '@/modules/recuperacao/recuperacao.module';
 import { HealthController } from '@/health.controller';
 
 @Module({
@@ -82,6 +83,7 @@ import { HealthController } from '@/health.controller';
     PublicApiModule,
     PlatformModule,
     DispatchesModule,
+    RecuperacaoModule,
     TutorialsModule,
     CampaignsModule,
     AiModule,

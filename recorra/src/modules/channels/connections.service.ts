@@ -61,7 +61,7 @@ export class ConnectionsService {
       if (r.canal === 'WHATSAPP_UAZAPI' && c.instance) status = await this.statusUazapi(c.instance).catch(() => 'DESCONECTADO');
       if (r.canal === 'NX_SYSTEMS' && c.nxStatus) status = c.nxStatus === 'CONNECTED' ? 'CONECTADO' : 'DESCONECTADO';
       return {
-        id: r.id, canal: r.canal, apelido: r.apelido, ativo: r.ativo, status,
+        id: r.id, canal: r.canal, apelido: r.apelido, numero: r.numero, ativo: r.ativo, status,
         instance: c.instance ?? null, createdAt: r.createdAt,
         // Metadados dos canais NX importados (para exibir organizado em Canais).
         origem: c.nxChannelId ? 'nx' : undefined,
@@ -179,6 +179,14 @@ export class ConnectionsService {
   }
 
   // ---------- criação por tipo ----------
+
+  async definirNumero(tenantId: string, id: string, numero?: string) {
+    const conta = await this.prisma.channelAccount.findFirst({ where: { id, tenantId }, select: { id: true } });
+    if (!conta) throw new NotFoundException('Conexão não encontrada');
+    const valor = (numero ?? '').trim().slice(0, 40) || null;
+    await this.prisma.channelAccount.update({ where: { id }, data: { numero: valor } });
+    return { id, numero: valor };
+  }
 
   async criar(tenantId: string, dto: { canal: ChannelType; apelido: string; credentials?: Record<string, unknown> }) {
     if (!dto.apelido?.trim()) throw new BadRequestException('Dê um nome para a conexão');

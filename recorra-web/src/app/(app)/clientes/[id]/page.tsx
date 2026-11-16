@@ -13,7 +13,11 @@ interface Detalhe {
   risco?: { faixa: string; score: number; fatores?: { fator: string; pontos: number; detalhe: string }[] };
   features?: { atrasosQtd: number; atrasoMedioDias: number; faturasPagas: number; faturasVencidas: number; taxaResposta: number };
   faturas: { id: string; valor: number; vencimento: string; status: string; metodo: string; origem?: string; pixCopiaCola?: string; linkPagamento?: string }[];
-  disparos: { id: string; canal: string; conteudo?: string; status: string; createdAt: string }[];
+  disparos: {
+    id: string; canal: string; conteudo?: string; status: string; createdAt: string;
+    origem?: string | null; ruleNome?: string | null; user?: { nome: string } | null;
+    channelAccount?: { apelido: string | null; numero: string | null } | null;
+  }[];
   acordos: { id: string; valorOriginal: number; valorAcordado: number; parcelas: number; status: string }[];
   assinaturas: { id: string; plano: string; valor: number; ciclo: string; status: string; proximaCobranca?: string }[];
   totais: { emAberto: number; pago: number; vencidas: number };
@@ -25,7 +29,15 @@ const statusColor: Record<string, string> = {
   CANCELADA: 'bg-canvas text-muted', ENVIADO: 'bg-success-tint text-[#0F6E56]', ENTREGUE: 'bg-success-tint text-[#0F6E56]',
   FALHA: 'bg-danger-tint text-[#A32D2D]', FILA: 'bg-warning-tint text-[#854F0B]', IGNORADO: 'bg-canvas text-muted', LIDO: 'bg-primary-tint text-primary',
 };
-const canalLabel: Record<string, string> = { WHATSAPP_CLOUD: 'WhatsApp', WHATSAPP_EVOLUTION: 'WhatsApp', WHATSAPP_UAZAPI: 'WhatsApp', EMAIL: 'E-mail', SMS: 'SMS' };
+const canalLabel: Record<string, string> = { WHATSAPP_CLOUD: 'WhatsApp', WHATSAPP_EVOLUTION: 'WhatsApp', WHATSAPP_UAZAPI: 'WhatsApp', NX_SYSTEMS: 'WhatsApp', EMAIL: 'E-mail', SMS: 'SMS' };
+
+/** Automático (régua) x manual (quem enviou) — a mesma leitura do relatório de recuperação. */
+function origemLabel(m: Detalhe['disparos'][number]): string {
+  if (m.origem === 'MANUAL') return `Manual · ${m.user?.nome ?? 'operador removido'}`;
+  if (m.origem === 'CAMPANHA') return 'Campanha';
+  if (m.origem === 'CONFIRMACAO') return 'Confirmação de pagamento';
+  return m.ruleNome ? `Automático · ${m.ruleNome}` : 'Automático';
+}
 /** Situação do contrato vem em texto livre do ERP — heurística p/ destacar contrato encerrado. */
 const contratoEncerrado = (s?: string) => !!s && /cancel|encerr|inativ|suspens/i.test(s);
 
@@ -114,7 +126,10 @@ export default function ClienteDetalhePage() {
             {d.disparos.map((m) => (
               <div key={m.id} className="border-b border-line px-2 py-2 last:border-0">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted">{canalLabel[m.canal] || m.canal} · {new Date(m.createdAt).toLocaleString('pt-BR')}</span>
+                  <span className="text-xs text-muted">
+                    {canalLabel[m.canal] || m.canal}{m.channelAccount?.numero ? ` ${m.channelAccount.numero}` : ''} · {new Date(m.createdAt).toLocaleString('pt-BR')}
+                    <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${m.origem === 'MANUAL' ? 'text-white' : 'bg-canvas text-muted'}`} style={m.origem === 'MANUAL' ? { background: 'var(--serie-manual)' } : undefined}>{origemLabel(m)}</span>
+                  </span>
                   <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${statusColor[m.status] || 'bg-canvas text-muted'}`}>{m.status}</span>
                 </div>
                 <div className="mt-0.5 line-clamp-2 text-sm text-ink">{m.conteudo}</div>

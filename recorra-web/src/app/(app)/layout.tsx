@@ -6,10 +6,10 @@ import { usePathname, useRouter } from 'next/navigation';
 import { LayoutDashboard, Users, Plug, LogOut, CreditCard, GitBranch, UserCog, Send, BarChart3, Gauge, HelpCircle, ChevronDown, Megaphone, Wallet, SlidersHorizontal, Radio, Menu, X, Mail, MessageSquare, PanelLeftClose, PanelLeftOpen, Eraser, Moon, Sun, Columns3, KeyRound } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Logo } from '@/components/Logo';
-import { getToken, logout } from '@/lib/api';
+import { getToken, logout, papelAtual } from '@/lib/api';
 import { APP_VERSION } from '@/lib/version';
 
-type Item = { href: string; label: string; icon: LucideIcon };
+type Item = { href: string; label: string; icon: LucideIcon; papeis?: string[] };
 type Grupo = { label: string; icon: LucideIcon; items: Item[] };
 
 const grupos: Grupo[] = [
@@ -27,7 +27,8 @@ const grupos: Grupo[] = [
     { href: '/andamento', label: 'Esteira', icon: Columns3 },
   ] },
   { label: 'Análises', icon: BarChart3, items: [
-    { href: '/relatorios', label: 'Relatórios', icon: BarChart3 },
+    // Dado financeiro e de remuneração: operador/leitura não veem (a API também barra).
+    { href: '/relatorios', label: 'Relatórios', icon: BarChart3, papeis: ['OWNER', 'ADMIN', 'FINANCEIRO'] },
   ] },
   { label: 'Configurações', icon: SlidersHorizontal, items: [
     { href: '/integracoes', label: 'Integrações', icon: Plug },
@@ -52,6 +53,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [menuAberto, setMenuAberto] = useState(false);
   const [menuMinimizado, setMenuMinimizado] = useState(false);
   const [escuro, setEscuro] = useState(false);
+  const [papel, setPapel] = useState<string | null>(null);
 
   useEffect(() => {
     if (!getToken()) router.replace('/login');
@@ -60,6 +62,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       // O tema já foi aplicado pelo script inline do layout raiz; aqui só espelhamos
       // o estado atual para o ícone/rótulo do botão ficarem certos.
       setEscuro(document.documentElement.classList.contains('dark'));
+      setPapel(papelAtual());
       setReady(true);
     }
   }, [router]);
@@ -123,7 +126,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const navContent = (compacto = false) => (
     <>
       <nav className={`min-h-0 flex-1 space-y-1 overflow-y-auto ${compacto ? 'p-2' : 'p-3'}`}>
-        {grupos.map((g) => {
+        {grupos
+          .map((g) => ({ ...g, items: g.items.filter((it) => !it.papeis || (papel !== null && it.papeis.includes(papel))) }))
+          .filter((g) => g.items.length > 0)
+          .map((g) => {
           const aberto = abertos[g.label];
           const GIcon = g.icon;
           const soloItem = g.items.length === 1;

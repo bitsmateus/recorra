@@ -889,7 +889,7 @@ export class CampaignsService {
             const paramsLembrete = usaTpl ? (camp.templateParams ?? []).map((tok) => this.render(tok, cliente, inv)) : [];
             const d = await this.prisma.messageDispatch.create({
               data: {
-                tenantId, customerId: cliente.id, invoiceId: inv.id, campaignId: camp.id,
+                tenantId, customerId: cliente.id, invoiceId: inv.id, campaignId: camp.id, origem: 'CAMPANHA',
                 canal: canalCampanha,
                 channelAccountId: camp.channelAccountId ?? undefined,
                 templateName: usaTpl ? camp.templateNome : undefined,
@@ -940,7 +940,7 @@ export class CampaignsService {
             : [];
           const d = await this.prisma.messageDispatch.create({
             data: {
-              tenantId, customerId: cliente.id, invoiceId: inv?.id, campaignId: camp.id,
+              tenantId, customerId: cliente.id, invoiceId: inv?.id, campaignId: camp.id, origem: 'CAMPANHA',
               canal: canalCampanha,
               channelAccountId: camp.channelAccountId ?? undefined,
               templateName: usaTemplate ? camp.templateNome : undefined,
@@ -977,7 +977,7 @@ export class CampaignsService {
             const paramsStep = usaTpl ? (step.templateParams ?? []).map((tok) => this.render(tok, cliente, invRegua)) : [];
             const d = await this.prisma.messageDispatch.create({
               data: {
-                tenantId, customerId: cliente.id, invoiceId: invRegua?.id, campaignId: camp.id,
+                tenantId, customerId: cliente.id, invoiceId: invRegua?.id, campaignId: camp.id, origem: 'CAMPANHA',
                 canal: step.canal, channelAccountId: step.channelAccountId ?? undefined,
                 // A cadeia precisa conter principal + fallbacks. O worker verifica
                 // o opt-out no envio e escolhe o primeiro canal permitido.

@@ -12,6 +12,8 @@ import { ConnectorsModule } from '@/modules/connectors/connectors.module';
 import { SchedulerService } from './scheduler.service';
 import { DispatchQueue } from '@/queue/dispatch-queue';
 import { DispatchWorker } from '@/queue/dispatch.worker';
+import { AtribuicaoService } from '@/modules/recuperacao/atribuicao.service';
+import { DistribuicaoService } from '@/modules/recuperacao/distribuicao.service';
 
 @Module({
   imports: [
@@ -26,6 +28,6 @@ import { DispatchWorker } from '@/queue/dispatch.worker';
     CampaignsModule,
     ConnectorsModule,
   ],
-  providers: [SchedulerService, DispatchQueue, DispatchWorker],
+  providers: [SchedulerService, DispatchQueue, DispatchWorker, AtribuicaoService, DistribuicaoService],
 })
 export class WorkerModule {}

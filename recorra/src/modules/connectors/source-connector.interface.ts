@@ -56,6 +56,9 @@ export interface SourceInvoice extends SourcePayment {
   valor: number;
   vencimento: Date;
   status: string; // PENDENTE | VENCIDA | PAGA
+  // Data em que o cliente pagou, quando o ERP informa. Sem ela, a baixa usa o
+  // momento da sincronização — e o relatório de recuperação perde precisão.
+  pagoEm?: Date;
 }
 
 export interface SourceCredentials {

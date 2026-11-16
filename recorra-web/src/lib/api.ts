@@ -121,3 +121,18 @@ export async function logout() {
   }).catch(() => undefined);
   clearToken();
 }
+
+/**
+ * Papel do usuário logado, lido do access token (só para esconder menus — a API
+ * é quem de fato barra o acesso). Null se não houver token legível.
+ */
+export function papelAtual(): string | null {
+  const t = getToken();
+  if (!t) return null;
+  try {
+    const payload = JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+    return typeof payload.role === 'string' ? payload.role : null;
+  } catch {
+    return null;
+  }
+}

@@ -14,6 +14,26 @@ datasource db {
 
 // ---------------- Enums ----------------
 
+enum DispatchOrigem {
+  REGUA
+  MANUAL
+  CAMPANHA
+  CONFIRMACAO
+}
+
+enum RecuperacaoOrigem {
+  REGUA
+  MANUAL
+  CAMPANHA
+  SEM_CONTATO
+}
+
+enum DistribuicaoModo {
+  MANUAL
+  BALANCEADA
+  SEQUENCIAL
+}
+
 enum UserRole {
   OWNER
   ADMIN
@@ -150,22 +170,24 @@ enum SyncType {
 // ---------------- Núcleo ----------------
 
 model Tenant {
-  id             String   @id @default(cuid())
-  nome           String
-  cnpj           String?
-  plano          PlanTier @default(TRIAL) // legado: fallback enquanto planId não é definido
-  planId         String? // plano do catálogo editável (tabela plans); null = usa `plano`
-  plan           Plan?    @relation(fields: [planId], references: [id])
-  ativo          Boolean  @default(true)
-  timezone       String   @default("America/Sao_Paulo")
+  id                   String   @id @default(cuid())
+  nome                 String
+  cnpj                 String?
+  plano                PlanTier @default(TRIAL) // legado: fallback enquanto planId não é definido
+  planId               String? // plano do catálogo editável (tabela plans); null = usa `plano`
+  plan                 Plan?    @relation(fields: [planId], references: [id])
+  ativo                Boolean  @default(true)
+  timezone             String   @default("America/Sao_Paulo")
   // Cobrança automática: true = escolhe a régua pela faixa de risco do cliente;
   // false (modo simples, padrão de novos clientes) = uma única régua para todos.
-  usarFaixaRisco Boolean  @default(false)
-  reguaPadraoId  String?
-  config         Json?
-  featureFlags   Json?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  usarFaixaRisco       Boolean  @default(false)
+  reguaPadraoId        String?
+  // Janela (dias) em que um contato antes do pagamento conta como "recuperado por ele".
+  janelaAtribuicaoDias Int      @default(7)
+  config               Json?
+  featureFlags         Json?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   users              User[]
   customers          Customer[]
@@ -240,13 +262,13 @@ model ApiKey {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  tenantId  String
-  nome      String
-  email     String
-  senhaHash String?
-  role      UserRole @default(OPERADOR)
-  ativo     Boolean  @default(true)
+  id         String   @id @default(cuid())
+  tenantId   String
+  nome       String
+  email      String
+  senhaHash  String?
+  role       UserRole @default(OPERADOR)
+  ativo      Boolean  @default(true)
   // Carteira do operador na esteira (só relevante para OPERADOR/LEITURA — quem
   // administra vê tudo). Null = sem restrição de faixa (vê a esteira inteira).
   carteiraId String?
@@ -270,14 +292,16 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  tenant             Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  refreshTokens      RefreshToken[]
-  customerNotes      CustomerNote[]
-  carteira           Carteira?      @relation(fields: [carteiraId], references: [id], onDelete: SetNull)
-  clientesResponsavel Customer[]    @relation("ClienteResponsavel")
+  tenant              Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  refreshTokens       RefreshToken[]
+  customerNotes       CustomerNote[]
+  carteira            Carteira?         @relation(fields: [carteiraId], references: [id], onDelete: SetNull)
+  clientesResponsavel Customer[]        @relation("ClienteResponsavel")
+  disparos            MessageDispatch[] @relation("DisparosDoUsuario")
+  recuperacoes        Invoice[]         @relation("RecuperacoesDoUsuario")
 
-  @@index([carteiraId])
   @@unique([tenantId, email])
+  @@index([carteiraId])
   @@index([tenantId])
   @@map("users")
 }
@@ -297,22 +321,22 @@ model RefreshToken {
 }
 
 model Customer {
-  id       String   @id @default(cuid())
-  tenantId String
-  nome     String
-  doc      String
-  email    String?
-  telefone String?
-  contrato String?
+  id             String   @id @default(cuid())
+  tenantId       String
+  nome           String
+  doc            String
+  email          String?
+  telefone       String?
+  contrato       String?
   // Situação cadastral do contrato no ERP de origem (ex.: "ativo", "cancelado",
   // "suspenso"). Texto livre normalizado pelo conector — cada ERP usa termos
   // próprios; não é enum porque nem todo conector preenche/conhece os mesmos valores.
   statusContrato String?
-  tags     String[] @default([])
+  tags           String[] @default([])
   // Operador responsável por este cliente — atribuição manual, independente da
   // carteira (que é automática pela faixa de dias de atraso). Usado como filtro
   // na esteira ("por pessoa"); não restringe quem pode ver o cliente.
-  responsavelId String?
+  responsavelId  String?
 
   plano      String?
   valorPlano Decimal? @db.Decimal(12, 2)
@@ -360,12 +384,15 @@ model Customer {
 // dali pra frente. Fatura mais nova que a menor diaMinimo cadastrada não cai
 // em nenhuma carteira — só quem não tem restrição (OWNER/ADMIN/FINANCEIRO) a vê.
 model Carteira {
-  id        String   @id @default(cuid())
-  tenantId  String
-  nome      String
-  diaMinimo Int // a partir deste dia de atraso (inclusive) a carteira assume o cliente
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                 String           @id @default(cuid())
+  tenantId           String
+  nome               String
+  diaMinimo          Int // a partir deste dia de atraso (inclusive) a carteira assume o cliente
+  // Como os clientes vencidos desta carteira são divididos entre os operadores dela.
+  distribuicao       DistribuicaoModo @default(MANUAL)
+  distribuicaoCursor Int              @default(0) // próximo operador no modo SEQUENCIAL
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   users  User[]
@@ -398,8 +425,8 @@ model CustomerNote {
   createdAt  DateTime @default(now())
 
   // Só para tipo = PROMESSA:
-  dataPromessa   DateTime?
-  valorPrometido Decimal?  @db.Decimal(12, 2)
+  dataPromessa    DateTime?
+  valorPrometido  Decimal?  @db.Decimal(12, 2)
   // Resultado do envio ao ERP (feature nativa em vários ERPs de provedor de
   // internet): null = ERP não suporta/não tentou; true = confirmado no ERP;
   // false = tentou e falhou (motivo em erpErro). Hoje nenhum conector implementa
@@ -440,6 +467,7 @@ model ChannelAccount {
   tenantId    String
   canal       ChannelType
   apelido     String?
+  numero      String? // número/identificação exibida (ex.: linha 1000) — relatórios por número
   credentials String
   ativo       Boolean     @default(true)
   createdAt   DateTime    @default(now())
@@ -453,19 +481,19 @@ model ChannelAccount {
 }
 
 model SourceIntegration {
-  id          String       @id @default(cuid())
-  tenantId    String
-  sistema     SourceSystem
-  urlBase     String?
-  credentials String?
-  ultimaSync  DateTime?
-  status      String       @default("pendente")
-  ativo       Boolean      @default(true)
+  id            String       @id @default(cuid())
+  tenantId      String
+  sistema       SourceSystem
+  urlBase       String?
+  credentials   String?
+  ultimaSync    DateTime?
+  status        String       @default("pendente")
+  ativo         Boolean      @default(true)
   // Janela de importação: só cria cobrança para faturas vencidas nos últimos N
   // dias. null = sem limite (traz o passivo histórico inteiro do ERP).
   diasHistorico Int?
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 
   tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   syncLogs SyncLog[]
@@ -493,41 +521,53 @@ model SyncLog {
 }
 
 model Invoice {
-  id                String                  @id @default(cuid())
-  tenantId          String
-  customerId        String
-  providerAccountId String?
-  provider          PaymentProviderType?
-  externalId        String?
-  sourceSystem      SourceSystem?
-  sourceExternalId  String?
-  descricao         String?
-  placa             String? // placa da moto (locadoras) — vem do sistema de origem
-  valor             Decimal                 @db.Decimal(12, 2)
-  vencimento        DateTime
-  status            InvoiceStatus           @default(PENDENTE)
-  gestaoCobranca    InvoiceCollectionStatus @default(ATIVA)
-  metodo            ChargeMethod            @default(PIX)
-  pixCopiaCola      String?
-  boletoLinha       String?
-  boletoUrl         String?
-  linkPagamento     String?
-  splitConfig       Json?
-  origem            String?
-  contestada        Boolean                 @default(false)
-  pagoEm            DateTime?
-  createdAt         DateTime                @default(now())
-  updatedAt         DateTime                @updatedAt
+  id                   String                  @id @default(cuid())
+  tenantId             String
+  customerId           String
+  providerAccountId    String?
+  provider             PaymentProviderType?
+  externalId           String?
+  sourceSystem         SourceSystem?
+  sourceExternalId     String?
+  descricao            String?
+  placa                String? // placa da moto (locadoras) — vem do sistema de origem
+  valor                Decimal                 @db.Decimal(12, 2)
+  vencimento           DateTime
+  status               InvoiceStatus           @default(PENDENTE)
+  gestaoCobranca       InvoiceCollectionStatus @default(ATIVA)
+  metodo               ChargeMethod            @default(PIX)
+  pixCopiaCola         String?
+  boletoLinha          String?
+  boletoUrl            String?
+  linkPagamento        String?
+  splitConfig          Json?
+  origem               String?
+  contestada           Boolean                 @default(false)
+  pagoEm               DateTime?
+  // Atribuição da recuperação (preenchida pelo worker quando a fatura vira PAGA):
+  // o crédito é do operador RESPONSÁVEL pelo cliente no momento do pagamento, seja
+  // o contato que antecedeu o pagamento automático (régua) ou manual. Ver atribuicao.ts.
+  atribuidoEm          DateTime?
+  recuperadoOrigem     RecuperacaoOrigem?
+  recuperadoPorId      String?
+  recuperadoDispatchId String? // último contato (disparo) antes do pagamento, se houver
+  recuperadoCarteira   String? // snapshot do nome da carteira pelos dias de atraso no pagamento
+  diasAtrasoPagamento  Int?
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
 
   tenant          Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   customer        Customer                @relation(fields: [customerId], references: [id], onDelete: Cascade)
   providerAccount PaymentProviderAccount? @relation(fields: [providerAccountId], references: [id])
+  recuperadoPor   User?                   @relation("RecuperacoesDoUsuario", fields: [recuperadoPorId], references: [id], onDelete: SetNull)
   dispatches      MessageDispatch[]
 
   @@unique([tenantId, provider, externalId])
   @@index([tenantId, status])
   @@index([tenantId, gestaoCobranca])
   @@index([tenantId, vencimento])
+  @@index([tenantId, pagoEm])
+  @@index([tenantId, recuperadoPorId, pagoEm])
   @@map("invoices")
 }
 
@@ -660,7 +700,7 @@ model DunningStep {
 }
 
 model MessageDispatch {
-  id                String         @id @default(cuid())
+  id                String          @id @default(cuid())
   tenantId          String
   customerId        String
   invoiceId         String?
@@ -668,13 +708,18 @@ model MessageDispatch {
   campaignId        String?
   ruleId            String? // régua que gerou o disparo (cobrança automática) — p/ rastreio
   ruleNome          String? // snapshot histórico: preserva o nome após renomear/excluir a régua
+  // Quem originou o disparo: régua automática, envio manual de um operador (esteira/
+  // cliente), campanha ou confirmação de pagamento. Base do relatório automático x manual.
+  origem            DispatchOrigem?
+  // Operador que disparou (só envios MANUAL). Null nos automáticos.
+  userId            String?
   canal             ChannelType
-  cadeiaCanais      ChannelType[]  @default([])
+  cadeiaCanais      ChannelType[]   @default([])
   template          String?
   conteudo          String?
   assunto           String? // assunto do e-mail já resolvido para este cliente
   templateName      String? // template aprovado a enviar (canal oficial)
-  templateParams    String[]       @default([]) // parâmetros já resolvidos p/ este cliente
+  templateParams    String[]        @default([]) // parâmetros já resolvidos p/ este cliente
   // Botões dinâmicos já resolvidos p/ este cliente: [{index, subType, text}].
   templateBotoes    Json?
   // Canal WEBHOOK: chave estável do passo (régua:dia:endpoint) + endpoint. (invoiceId, stepId)
@@ -683,20 +728,21 @@ model MessageDispatch {
   stepId            String?
   webhookUrl        String?
   variante          String?
-  tentativaFallback Int            @default(0)
-  status            DispatchStatus @default(FILA)
-  custo             Decimal?       @db.Decimal(10, 4)
+  tentativaFallback Int             @default(0)
+  status            DispatchStatus  @default(FILA)
+  custo             Decimal?        @db.Decimal(10, 4)
   providerMsgId     String?
   erro              String?
   agendadoPara      DateTime?
   enviadoEm         DateTime?
-  createdAt         DateTime       @default(now())
+  createdAt         DateTime        @default(now())
 
   tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   customer       Customer        @relation(fields: [customerId], references: [id], onDelete: Cascade)
   invoice        Invoice?        @relation(fields: [invoiceId], references: [id])
   channelAccount ChannelAccount? @relation(fields: [channelAccountId], references: [id])
   rule           DunningRule?    @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+  user           User?           @relation("DisparosDoUsuario", fields: [userId], references: [id], onDelete: SetNull)
 
   // Todo filtro da tela de Disparos combina com a ordenação por data, então
   // `createdAt` fecha cada índice: sem ele o Postgres acha as linhas do filtro e
@@ -709,6 +755,8 @@ model MessageDispatch {
   @@index([tenantId, ruleId, createdAt])
   @@index([tenantId, channelAccountId, createdAt])
   @@index([tenantId, customerId, createdAt])
+  @@index([tenantId, origem, createdAt])
+  @@index([tenantId, userId, createdAt])
   @@map("message_dispatches")
 }
 

@@ -11,6 +11,8 @@ import { DispatchQueue } from '@/queue/dispatch-queue';
 import { venceuAntesDeHoje } from '@/modules/connectors/source-connector.interface';
 import { CampaignsService } from '@/modules/campaigns/campaigns.service';
 import { SyncService } from '@/modules/connectors/sync.service';
+import { AtribuicaoService } from '@/modules/recuperacao/atribuicao.service';
+import { DistribuicaoService } from '@/modules/recuperacao/distribuicao.service';
 
 @Injectable()
 export class SchedulerService implements OnApplicationBootstrap {
@@ -27,7 +29,34 @@ export class SchedulerService implements OnApplicationBootstrap {
     private readonly dispatchQueue: DispatchQueue,
     private readonly campaigns: CampaignsService,
     private readonly sync: SyncService,
+    private readonly atribuicao: AtribuicaoService,
+    private readonly distribuicao: DistribuicaoService,
   ) {}
+
+  /**
+   * Atribuição da recuperação: toda fatura que virou PAGA (por qualquer caminho —
+   * webhook, conciliação, sync de ERP, import, baixa manual) ganha origem do último
+   * contato e o operador responsável que leva o crédito. Ciclo curto para o
+   * relatório ficar em dia sem ninguém clicar em nada.
+   */
+  @Cron('*/10 * * * *')
+  async runAtribuicao() {
+    try {
+      await this.atribuicao.processar();
+    } catch (e) {
+      this.logger.error(`Falha na atribuição da recuperação: ${String(e)}`);
+    }
+  }
+
+  /**
+   * Distribuição diária dos vencidos entre as operadoras (carteiras com modo
+   * automático). Antes da rodada da régua das 9h, para o atendimento que a régua
+   * gerar já cair na responsável certa.
+   */
+  @Cron('30 8 * * *', { timeZone: 'America/Sao_Paulo' })
+  async runDistribuicao() {
+    await this.distribuicao.distribuirTodos();
+  }
 
   /** Ao subir o worker, zera o acúmulo de faturas vencidas de uma vez (não espera as 3h). */
   async onApplicationBootstrap() {

@@ -5,6 +5,7 @@ import { Download, FileSpreadsheet, FileText, Filter } from 'lucide-react';
 import { api, getToken } from '@/lib/api';
 import { PageTitle, Metric, brl } from '@/components/ui';
 import { PERIODOS, PeriodoChave, intervaloDe, rotuloPeriodo } from '@/lib/periodo';
+import { RecuperacaoOperadores } from '@/components/RecuperacaoOperadores';
 
 interface Bucket { chave: string; enviados: number; pagos: number; taxa: number }
 interface Funnel { porCanal: Bucket[]; porPasso: Bucket[] }
@@ -15,7 +16,24 @@ interface MesRec { mes: string; label: string; recebido: number; faturas: number
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
 const num = (n: number) => n.toLocaleString('pt-BR');
 
+type Aba = 'operadores' | 'geral';
+
 export default function RelatoriosPage() {
+  const [aba, setAba] = useState<Aba>('operadores');
+  return (
+    <div>
+      <PageTitle title="Relatórios" subtitle="Recuperação por operadora e origem, ROI da comunicação e extrato por gateway" />
+      <div className="mb-5 flex gap-1 border-b border-line print:hidden">
+        {([['operadores', 'Recuperação por operadora'], ['geral', 'Visão geral']] as [Aba, string][]).map(([k, label]) => (
+          <button key={k} onClick={() => setAba(k)} className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium transition ${aba === k ? 'border-primary text-primary' : 'border-transparent text-muted hover:text-ink'}`}>{label}</button>
+        ))}
+      </div>
+      {aba === 'operadores' ? <RecuperacaoOperadores /> : <VisaoGeral />}
+    </div>
+  );
+}
+
+function VisaoGeral() {
   const [funnel, setFunnel] = useState<Funnel | null>(null);
   const [roi, setRoi] = useState<Roi | null>(null);
   const [extrato, setExtrato] = useState<Extrato[]>([]);
@@ -61,7 +79,7 @@ export default function RelatoriosPage() {
   return (
     <div>
       <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
-        <PageTitle title="Relatórios" subtitle={`Recuperação, ROI da comunicação e extrato por gateway · ${rotulo}`} />
+        <p className="text-sm text-muted">Recuperação, ROI da comunicação e extrato por gateway · {rotulo}</p>
         <div className="flex flex-wrap gap-2 print:hidden">
           <button onClick={exportarCsv} className="flex items-center gap-2 rounded border border-line px-3 py-1.5 text-xs hover:bg-canvas"><Download size={14} /> CSV</button>
           <button onClick={exportarExcel} className="flex items-center gap-2 rounded border border-line px-3 py-1.5 text-xs hover:bg-canvas"><FileSpreadsheet size={14} /> Excel</button>

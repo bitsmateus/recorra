@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { ChannelType, DunningRule, DunningStep, SourceSystem } from '@prisma/client';
+import { ChannelType, DispatchOrigem, DunningRule, DunningStep, SourceSystem } from '@prisma/client';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { ChannelFactory } from '@/modules/channels/channel.factory';
 import { ConnectorFactory } from '@/modules/connectors/connector.factory';
@@ -183,6 +183,7 @@ export class DunningService {
           invoiceId: invoice.id,
           ruleId: rule.id,
           ruleNome: rule.nome,
+          origem: 'REGUA',
           canal: 'WEBHOOK',
           cadeiaCanais: ['WEBHOOK'],
           template: step.template,
@@ -207,8 +208,10 @@ export class DunningService {
     invoice: { id: string; customerId: string; valor: unknown; vencimento: Date; pixCopiaCola: string | null; boletoLinha?: string | null; boletoUrl?: string | null; linkPagamento: string | null; externalId?: string | null; providerAccountId?: string | null; sourceSystem?: SourceSystem | null; sourceExternalId?: string | null; customer: { nome: string; contrato: string | null } },
     step: DunningStep,
     rule: RuleWithSteps,
-    opts?: { imediato?: boolean; agendadoPara?: Date },
+    opts?: { imediato?: boolean; agendadoPara?: Date; userId?: string | null },
   ) {
+    // Com operador = envio manual (esteira/cliente); sem = rodada automática da régua.
+    const origem: DispatchOrigem = opts?.userId ? 'MANUAL' : 'REGUA';
     let variante: string | null = null;
     let template = step.template;
     if (step.abTest && step.templateB) {
@@ -270,6 +273,8 @@ export class DunningService {
         invoiceId: invoice.id,
         ruleId: rule.id,
         ruleNome: rule.nome,
+        origem,
+        userId: opts?.userId ?? null,
         canal: canalEfetivo,
         channelAccountId,
         cadeiaCanais: cadeia,
@@ -414,9 +419,9 @@ export class DunningService {
     return { tenant, invoice, rule, step };
   }
 
-  async dispararManual(tenantId: string, invoiceId: string) {
+  async dispararManual(tenantId: string, invoiceId: string, userId: string) {
     const { tenant, invoice, rule, step } = await this.prepararDisparo(tenantId, invoiceId);
-    await this.enqueueDispatch(tenantId, tenant.timezone, invoice, step, rule, { imediato: true });
+    await this.enqueueDispatch(tenantId, tenant.timezone, invoice, step, rule, { imediato: true, userId });
     return { ok: true, canal: step.canal };
   }
 
@@ -427,7 +432,7 @@ export class DunningService {
    * Um único item sai praticamente na hora; N itens saem espaçados. Cursor por
    * régua (faixas diferentes têm ritmos próprios). Não trava se uma fatura falhar.
    */
-  async dispararEmLote(tenantId: string, invoiceIds: string[]) {
+  async dispararEmLote(tenantId: string, invoiceIds: string[], userId: string) {
     const cursor = new Map<string, Date>();
     let enfileirados = 0;
     const erros: { id: string; erro: string }[] = [];
@@ -435,7 +440,7 @@ export class DunningService {
       try {
         const { tenant, invoice, rule, step } = await this.prepararDisparo(tenantId, id);
         const quando = this.proximoEspacado(cursor, tenant.timezone, rule);
-        await this.enqueueDispatch(tenantId, tenant.timezone, invoice, step, rule, { agendadoPara: quando });
+        await this.enqueueDispatch(tenantId, tenant.timezone, invoice, step, rule, { agendadoPara: quando, userId });
         enfileirados++;
       } catch (e) {
         erros.push({ id, erro: e instanceof Error ? e.message : String(e) });
@@ -452,7 +457,7 @@ export class DunningService {
    * escolhida decide o canal efetivo (`resolverContaEnvio` prioriza a conta
    * amarrada ao passo, então sobrepor `channelAccountId` já basta).
    */
-  async dispararEmLoteComTemplate(tenantId: string, invoiceIds: string[], stepId: string, channelAccountId: string) {
+  async dispararEmLoteComTemplate(tenantId: string, invoiceIds: string[], stepId: string, channelAccountId: string, userId: string) {
     const [step, conta, tenant] = await Promise.all([
       this.prisma.dunningStep.findFirst({ where: { id: stepId, rule: { tenantId } }, include: { rule: true } }),
       this.prisma.channelAccount.findFirst({ where: { id: channelAccountId, tenantId, ativo: true } }),
@@ -473,7 +478,7 @@ export class DunningService {
         if (invoice.status === 'PAGA' || invoice.status === 'CANCELADA') throw new BadRequestException('Fatura não está em aberto.');
         if (invoice.gestaoCobranca === 'PAUSADA') throw new BadRequestException('Cobrança pausada para esta fatura — retome antes de disparar.');
         const quando = this.proximoEspacado(cursor, tenant.timezone, rule);
-        await this.enqueueDispatch(tenantId, tenant.timezone, invoice, stepComConta, rule, { agendadoPara: quando });
+        await this.enqueueDispatch(tenantId, tenant.timezone, invoice, stepComConta, rule, { agendadoPara: quando, userId });
         enfileirados++;
       } catch (e) {
         erros.push({ id, erro: e instanceof Error ? e.message : String(e) });

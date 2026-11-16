@@ -81,16 +81,16 @@ export class RulesService {
    * escalonados (ex.: 30s → ~120/hora), continuando no próximo dia útil se não
    * couber na janela.
    */
-  async dispararLote(tenantId: string, invoiceIds: string[]) {
+  async dispararLote(tenantId: string, invoiceIds: string[], userId: string) {
     const ids = [...new Set(invoiceIds)].filter(Boolean);
-    const r = await this.dunning.dispararEmLote(tenantId, ids);
+    const r = await this.dunning.dispararEmLote(tenantId, ids, userId);
     return { enfileirados: r.enfileirados, falhas: r.falhas, erros: r.erros.slice(0, 5) };
   }
 
   /** Dispara escolhendo manualmente o template (passo de qualquer régua) e a conta/canal, em vez da etapa atual. */
-  async dispararComTemplate(tenantId: string, invoiceIds: string[], stepId: string, channelAccountId: string) {
+  async dispararComTemplate(tenantId: string, invoiceIds: string[], stepId: string, channelAccountId: string, userId: string) {
     const ids = [...new Set(invoiceIds)].filter(Boolean);
-    const r = await this.dunning.dispararEmLoteComTemplate(tenantId, ids, stepId, channelAccountId);
+    const r = await this.dunning.dispararEmLoteComTemplate(tenantId, ids, stepId, channelAccountId, userId);
     return { enfileirados: r.enfileirados, falhas: r.falhas, erros: r.erros.slice(0, 5) };
   }
 
@@ -199,7 +199,11 @@ export class RulesService {
       const u = await this.prisma.user.findUnique({ where: { id: viewer.id }, select: { carteiraId: true } });
       carteiraVisivel = carteiras.find((c) => c.id === u?.carteiraId) ?? null;
     }
-    const carteiraInfo = { visivel: carteiraVisivel, todas: carteiras, alertas };
+    // Carteira com distribuição automática: cada operadora trabalha só os clientes
+    // que foram distribuídos para ela (não vê os da colega). Leitura continua vendo a faixa toda.
+    const somenteMeus = !!viewer && viewer.role === 'OPERADOR' && !!carteiraVisivel
+      && carteirasTenant.find((c) => c.id === carteiraVisivel!.id)?.distribuicao !== 'MANUAL';
+    const carteiraInfo = { visivel: carteiraVisivel, todas: carteiras, alertas, somenteMeus };
 
     // Régua alvo: a escolhida; senão a padrão (modo simples); senão a 1ª ativa.
     const regua =
@@ -212,7 +216,7 @@ export class RulesService {
     const offsets = [...new Set(regua.steps.map((s) => s.offsetDias))].sort((a, b) => a - b);
     // No modo faixa, filtra pela faixa da régua (régua "de todas as faixas" = sem filtro).
     const faixa = usarFaixaRisco ? regua.faixaRisco : null;
-    const filtroCliente = { ativo: true, ...(faixa ? { faixaAtual: faixa } : {}) };
+    const filtroCliente = { ativo: true, ...(faixa ? { faixaAtual: faixa } : {}), ...(somenteMeus ? { responsavelId: viewer!.id } : {}) };
 
     const seteDias = new Date(Date.now() - 7 * 86400000);
     // Corte de vencimento equivalente à faixa de dias da carteira do operador (mesma
@@ -351,13 +355,13 @@ export class RulesService {
 
   async createCarteira(tenantId: string, dto: SaveCarteiraDto) {
     await this.assertDiaMinimoLivre(tenantId, dto.diaMinimo);
-    return this.prisma.carteira.create({ data: { tenantId, nome: dto.nome.trim(), diaMinimo: dto.diaMinimo } });
+    return this.prisma.carteira.create({ data: { tenantId, nome: dto.nome.trim(), diaMinimo: dto.diaMinimo, ...(dto.distribuicao ? { distribuicao: dto.distribuicao } : {}) } });
   }
 
   async updateCarteira(tenantId: string, id: string, dto: SaveCarteiraDto) {
     await this.prisma.carteira.findFirstOrThrow({ where: { id, tenantId } });
     await this.assertDiaMinimoLivre(tenantId, dto.diaMinimo, id);
-    return this.prisma.carteira.update({ where: { id }, data: { nome: dto.nome.trim(), diaMinimo: dto.diaMinimo } });
+    return this.prisma.carteira.update({ where: { id }, data: { nome: dto.nome.trim(), diaMinimo: dto.diaMinimo, ...(dto.distribuicao ? { distribuicao: dto.distribuicao } : {}) } });
   }
 
   /** Remove a carteira; operadores nela ficam sem restrição (User.carteiraId vira null, ON DELETE SET NULL). */

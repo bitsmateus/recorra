@@ -28,6 +28,7 @@ interface Andamento {
   incluirPausadas?: boolean;
   carteira?: {
     visivel: { id: string; nome: string; diaMinimo: number } | null;
+    somenteMeus?: boolean; // carteira com distribuição automática: operadora vê só os clientes dela
     todas: { id: string; nome: string; diaMinimo: number }[];
     alertas: { diasRescisao: number; diasSerasa: number };
   };
@@ -330,6 +331,7 @@ export default function AndamentoPage() {
               Régua <b className="text-ink">{dados.regua.nome}</b> · <b className="text-ink">{totalAbertas}</b> fatura(s) em aberto.
               {!!dados.pausadasOcultas && <> · <b className="text-ink">{dados.pausadasOcultas}</b> pausada(s) fora da esteira.</>}
               {dados.carteira?.visivel && <> · carteira: <b className="text-ink">{dados.carteira.visivel.nome}</b></>}
+              {dados.carteira?.somenteMeus && <> · <b className="text-ink">somente os seus clientes</b></>}
             </p>
             <div className="flex shrink-0 items-center gap-2">
               <button

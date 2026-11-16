@@ -2,10 +2,14 @@ import { Controller, Get, Header, Query, Res, UseGuards } from '@nestjs/common';
 import { Response } from 'express';
 import { JwtAuthGuard } from '@/common/auth/jwt-auth.guard';
 import { TenantId } from '@/common/auth/current-user.decorator';
+import { RolesGuard } from '@/common/auth/roles.guard';
+import { Roles } from '@/common/auth/roles.decorator';
 import { ReportsService } from './reports.service';
 
+// Valores recebidos, ROI e extrato são dado financeiro: operador e leitura não veem.
 @Controller('relatorios')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles('OWNER', 'ADMIN', 'FINANCEIRO')
 export class ReportsController {
   constructor(private readonly reports: ReportsService) {}
 

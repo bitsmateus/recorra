@@ -25,6 +25,10 @@
   --success-tint: #e4f4ea;
   --warning-tint: #fcf0de;
   --danger-tint: #fcebeb;
+  /* Séries do relatório de recuperação (validadas p/ daltonismo e contraste). */
+  --serie-regua: #0e8f84;
+  --serie-manual: #7c5cd6;
+  --serie-campanha: #c26b12;
 }
 
 /* Tema escuro: ativado pela classe .dark no <html> (script anti-flash no layout raiz). */
@@ -40,6 +44,9 @@ html.dark {
   --success-tint: #14301f;
   --warning-tint: #33280f;
   --danger-tint: #33191a;
+  --serie-regua: #1fa196;
+  --serie-manual: #8e73e3;
+  --serie-campanha: #c9762c;
 }
 
 html,

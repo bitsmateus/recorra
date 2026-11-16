@@ -224,7 +224,7 @@ export class SyncService {
             // fatura PAGA/CANCELADA porque o ERP ainda a reporta de outro jeito.
             if (novoStatus !== existing.status && canTransition(existing.status, novoStatus)) {
               data.status = novoStatus;
-              if (novoStatus === 'PAGA') data.pagoEm = existing.pagoEm ?? new Date();
+              if (novoStatus === 'PAGA') data.pagoEm = existing.pagoEm ?? f.pagoEm ?? new Date();
             }
             await this.prisma.invoice.update({ where: { id: existing.id }, data });
             if (data.status === 'PAGA') await this.pararDunning(tenantId, existing.id);
@@ -238,7 +238,7 @@ export class SyncService {
                 valor: f.valor,
                 vencimento: f.vencimento,
                 status: novoStatus,
-                pagoEm: novoStatus === 'PAGA' ? new Date() : null,
+                pagoEm: novoStatus === 'PAGA' ? f.pagoEm ?? new Date() : null,
                 pixCopiaCola: f.pixCopiaCola,
                 boletoLinha: f.boletoLinha,
                 boletoUrl: f.boletoUrl,

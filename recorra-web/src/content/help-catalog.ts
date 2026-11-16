@@ -16,8 +16,8 @@ export interface HelpTopic {
  * vigente do produto. Mudanças funcionais precisam atualizar este arquivo ou o
  * changelog da Central de Ajuda; o CI valida essa obrigação por commit.
  */
-export const HELP_CATALOG_VERSION = '2026.08.11';
-export const HELP_CATALOG_UPDATED_AT = '11/08/2026';
+export const HELP_CATALOG_VERSION = '2026.11.16';
+export const HELP_CATALOG_UPDATED_AT = '16/11/2026';
 
 export const HELP_TOPICS: HelpTopic[] = [
   {
@@ -62,7 +62,8 @@ export const HELP_TOPICS: HelpTopic[] = [
       'Notas são um registro livre da equipe (não alteram fatura/cadastro) e mostram quem escreveu e quando.',
       'Promessa de pagamento é uma nota com data (e valor opcional): fica destacada na linha do tempo e o Recorrai tenta registrá-la também no ERP do cliente — hoje nenhum ERP suportado tem esse envio implementado, então ela fica só no Recorrai até isso existir.',
       'Etiquetas do cliente são as mesmas criadas em Clientes > Etiquetas — ligar/desligar na linha do tempo (ou no card da Esteira) não cria uma etiqueta nova, só marca/desmarca o cliente numa já existente.',
-      'Responsável é o operador atribuído ao cliente (definido na linha do tempo) — usado só como filtro "por pessoa" na Esteira, não restringe quem pode ver ou mexer no cliente.',
+      'Responsável é o operador atribuído ao cliente (na linha do tempo ou pela distribuição automática da carteira). Ele leva o crédito pelos pagamentos do cliente no relatório de recuperação; em carteira com distribuição automática, só ele vê o cliente na Esteira.',
+      'O histórico de disparos e a linha do tempo mostram a origem de cada envio: Automático (régua), Manual (com o nome de quem enviou), Campanha ou Confirmação de pagamento.',
     ],
   },
   {
@@ -184,7 +185,7 @@ export const HELP_TOPICS: HelpTopic[] = [
   {
     id: 'reguas', section: 'Automação', title: 'Réguas de cobrança',
     summary: 'Fluxos automáticos disparados em dias específicos antes ou depois do vencimento, e as faixas de dias da carteira da Esteira.',
-    steps: ['Abra Comunicação > Réguas.', 'Crie uma régua ou clone um modelo.', 'Defina janela de horário, dias úteis e limite diário.', 'Adicione passos com deslocamento, canal, conta e mensagem.', 'Configure templates oficiais quando o canal exigir.', 'Revise variáveis e ative a régua.', 'Em "Carteiras da esteira", crie as equipes com nome próprio e o dia de atraso em que cada uma assume o cliente.', 'Em "Alertas da esteira", ajuste os dias de aviso de rescisão e envio ao Serasa.'],
+    steps: ['Abra Comunicação > Réguas.', 'Crie uma régua ou clone um modelo.', 'Defina janela de horário, dias úteis e limite diário.', 'Adicione passos com deslocamento, canal, conta e mensagem.', 'Configure templates oficiais quando o canal exigir.', 'Revise variáveis e ative a régua.', 'Em "Carteiras da esteira", crie as equipes com nome próprio e o dia de atraso em que cada uma assume o cliente.', 'Em cada carteira, escolha a distribuição: Manual, Automática balanceada ou Automática sequencial — e use "Distribuir agora" para dividir os vencidos na hora.', 'Em "Alertas da esteira", ajuste os dias de aviso de rescisão e envio ao Serasa.'],
     rules: [
       'Offset negativo envia antes do vencimento, zero no vencimento e positivo depois.',
       'O motor exige correspondência exata: um passo D+7 executa quando a fatura completa sete dias de atraso.',
@@ -193,6 +194,8 @@ export const HELP_TOPICS: HelpTopic[] = [
       'Variáveis disponíveis incluem nome, valor, vencimento, Pix, link e contrato.',
       'Se uma variável obrigatória estiver vazia, especialmente em template oficial, o envio pode falhar ou ser bloqueado.',
       'A faixa de risco pode direcionar clientes para réguas diferentes.',
+      'Distribuição automática: todo dia às 8h30 (antes da régua das 9h) os clientes com fatura vencida são colocados na carteira do atraso mais antigo e, se ainda não têm responsável dessa carteira, recebem um operador dela (Configurações > Equipe). Balanceada = vai para quem está com menos clientes; Sequencial = rodízio, continuando de onde parou.',
+      'Quem já tem responsável dentro da carteira continua com ele. Quando o atraso passa para a faixa da próxima carteira, o cliente é redistribuído para a equipe dela. Carteira em modo Manual não é alterada.',
     ],
   },
   {
@@ -218,7 +221,9 @@ export const HELP_TOPICS: HelpTopic[] = [
       'Nos disparos automáticos, se a régua criar a mensagem fora da janela de horário/dias úteis, ela fica na fila agendada para a próxima janela válida — por isso um card pode mostrar "na fila" mesmo depois do horário do passo.',
       'Clientes sem telefone e sem e-mail caem em Sem contato e não recebem mensagem até completar o cadastro.',
       'Operador com carteira definida (Configurações > Equipe) só vê a faixa de dias da própria carteira; OWNER/ADMIN/FINANCEIRO sempre veem a esteira inteira. As carteiras (equipes, com nome e dia próprios) e os alertas de rescisão/Serasa ficam em Réguas.',
-      'Responsável é uma atribuição manual (definida na linha do tempo do cliente ou no perfil), independente da carteira — não restringe quem vê o cliente, só ajuda a filtrar "por pessoa" na esteira.',
+      'Responsável é o operador dono do cliente: definido à mão (linha do tempo/perfil) ou pela distribuição automática da carteira. É dele o crédito pelos pagamentos no relatório de recuperação.',
+      'Em carteira com distribuição automática, o OPERADOR vê na esteira só os clientes que são dele (aparece "somente os seus clientes"); LEITURA continua vendo a faixa inteira da carteira.',
+      'Todo disparo feito pela esteira (Disparar agora, Reenviar, Disparar com...) é gravado como MANUAL, com o nome de quem disparou — separado dos disparos automáticos da régua.',
       'O aviso de rescisão/Serasa no card é só um sinal visual pela idade da fatura — nenhuma ação é enviada automaticamente ao Serasa nem contrato é rescindido sozinho.',
       'Se o cliente vem de um ERP que informa a situação do contrato (ex.: Voalle), um contrato cancelado/suspenso aparece destacado no card e no perfil do cliente.',
       '"Disparar com..." lista só contas de canal compatíveis com o template escolhido (ex.: um template de WhatsApp só mostra contas de WhatsApp) e envia IMEDIATAMENTE, com o mesmo espaçamento do reenvio em lote.',
@@ -248,6 +253,7 @@ export const HELP_TOPICS: HelpTopic[] = [
       'E-mail depende de endereço válido; WhatsApp/SMS dependem de telefone normalizado.',
       'Fallback pode tentar canais alternativos quando configurado e quando a falha permitir.',
       'Credenciais são cifradas e não são exibidas novamente.',
+      'Informe o número de cada conta (ex.: 1000, 2000) clicando em "+ informar número" no card: ele aparece nos disparos e no relatório de recuperação por canal e número.',
     ],
   },
   {
@@ -280,10 +286,11 @@ export const HELP_TOPICS: HelpTopic[] = [
   {
     id: 'disparos', section: 'Comunicação', title: 'Disparos e estados de entrega',
     summary: 'Auditoria operacional das mensagens criadas pelo Recorrai.',
-    steps: ['Abra Comunicação > Disparos.', 'Filtre por status, canal, conta, campanha ou período.', 'Abra o detalhe para ler conteúdo e erro.', 'Corrija credencial, contato, template ou variável antes de uma nova tentativa.'],
+    steps: ['Abra Comunicação > Disparos.', 'Filtre por status, canal, conta, campanha, origem (Automático, Manual, Campanha, Confirmação), quem enviou ou período.', 'Abra o detalhe para ler conteúdo e erro.', 'Corrija credencial, contato, template ou variável antes de uma nova tentativa.'],
     rules: [
       'FILA significa aguardando o horário e o processamento.', 'ENVIADO significa aceito pelo provedor, não necessariamente lido.', 'ENTREGUE e LIDO dependem de retorno do canal.', 'FALHA significa que não foi possível concluir.', 'IGNORADO significa que uma regra impediu o envio, por exemplo pagamento confirmado.',
       'O worker processa a fila; sem o worker ativo, mensagens permanecem em FILA.',
+      'Origem MANUAL = enviado por um usuário (esteira/cliente), com o nome dele na coluna Origem e no CSV (coluna Operador). Disparos anteriores a esta versão aparecem como automáticos, porque não guardavam quem enviou.',
     ],
   },
   {
@@ -299,9 +306,15 @@ export const HELP_TOPICS: HelpTopic[] = [
   },
   {
     id: 'relatorios', section: 'Visão e análises', title: 'Relatórios e exportações',
-    summary: 'Acompanhamento de recuperação, canais, funil e dados financeiros.',
-    steps: ['Abra Relatórios.', 'Escolha período e visão.', 'Compare recuperação, custo e desempenho por canal/passo.', 'Exporte faturas em CSV ou Excel quando necessário.'],
+    summary: 'Recuperação por operadora e origem (automático × manual), canais, funil e dados financeiros.',
+    steps: ['Abra Relatórios.', 'Na aba "Recuperação por operadora", escolha o período e leia disparos da régua × contatos manuais e quanto cada um recuperou.', 'Confira a tabela por operadora (base da remuneração variável), por carteira e por canal/número.', 'Exporte o CSV (uma linha por fatura recuperada, com responsável, origem e último contato) ou o Excel completo (resumo + abas por operadora, carteira, canal e faturas).', 'Na aba "Visão geral", compare recuperação, custo e desempenho por canal/passo e exporte faturas.'],
     rules: [
+      'Relatórios são restritos a OWNER, ADMIN e FINANCEIRO; operador e leitura não veem o menu nem acessam os dados.',
+      'Crédito: cada fatura paga é da operadora RESPONSÁVEL pelo cliente no momento do pagamento, seja o contato automático (régua) ou manual. Sem responsável, leva quem fez o último contato manual; se não houver, fica em "Sem responsável".',
+      'Origem: é o último contato até N dias antes do pagamento (padrão 7). Disparo da régua = Automático; disparo de um usuário, nota ou promessa registrada = Manual; nenhum contato na janela = Pagou sem contato (fica fora do total recuperado).',
+      'A carteira da recuperação é a da faixa de atraso no dia do pagamento; pagamentos antes da 1ª carteira aparecem em "Antes da carteira".',
+      'A atribuição roda a cada 10 minutos para toda fatura que vira PAGA (webhook, conciliação, ERP, importação ou baixa manual). Pagamentos recém-chegados podem aparecer como "em processamento" — use "Atualizar agora".',
+      'Disparos da operadora contam para quem enviou; disparos automáticos contam para a responsável pelo cliente.',
       'Relatórios de mensagens usam a data do disparo.',
       'Relatórios financeiros podem usar vencimento ou data de pagamento conforme o indicador.',
       'Exportações sem período podem trazer grande volume e possuem limites de segurança no backend.',
@@ -317,6 +330,7 @@ export const HELP_TOPICS: HelpTopic[] = [
       'ADMIN administra grande parte da operação; FINANCEIRO atua em cobranças; OPERADOR possui ações operacionais limitadas.',
       'O backend valida papel e empresa em ações protegidas; esconder um botão na interface não é a única proteção.',
       'Cada plano pode limitar a quantidade de usuários.',
+      'Operadores vinculados a uma carteira com distribuição automática recebem os clientes vencidos dela todo dia às 8h30.',
       'A carteira só se aplica a OPERADOR/LEITURA e filtra a Esteira pela faixa de dias de atraso da carteira escolhida (cada tenant cria as suas em Réguas); OWNER/ADMIN/FINANCEIRO sempre veem tudo, independente da carteira marcada.',
     ],
   },
