@@ -44,7 +44,9 @@ interface Invoice {
   sourceSystem?: string;
   /** Sufixo da URL pública de pagamento (a mesma que o cliente vê pelo botão do WhatsApp). */
   paginaToken?: string;
-  customer?: { nome: string; doc: string };
+  customer?: { nome: string; doc: string; responsavel?: { nome: string } | null };
+  /** Quem levou o crédito da recuperação (fatura paga e já atribuída). */
+  recuperadoPor?: { nome: string } | null;
 }
 
 /** Base pública da API (onde a página /pay é servida), sem o sufixo /api. */
@@ -59,7 +61,11 @@ const statusColor: Record<string, string> = {
   ESTORNADA: 'bg-canvas text-muted',
 };
 
-const emptyFiltros = { q: '', status: '', metodo: '', geracao: '', de: '', ate: '', valorMin: '', valorMax: '', etiqueta: '' };
+const emptyFiltros = { q: '', status: '', metodo: '', geracao: '', de: '', ate: '', valorMin: '', valorMax: '', etiqueta: '', cobrador: '' };
+
+/** Cobrador da fatura: quem levou o crédito (paga) ou o responsável atual pelo cliente. */
+const cobradorDe = (i: { recuperadoPor?: { nome: string } | null; customer?: { responsavel?: { nome: string } | null } }) =>
+  i.recuperadoPor?.nome ?? i.customer?.responsavel?.nome ?? null;
 
 // Intervalo do mês atual (padrão do filtro de data ao abrir a tela).
 function mesAtualISO() {
@@ -164,6 +170,7 @@ export default function CobrancasPage() {
   const [menuFiltros, setMenuFiltros] = useState(false);
   const [wizard, setWizard] = useState(false);
   const [etiquetas, setEtiquetas] = useState<{ nome: string }[]>([]);
+  const [cobradores, setCobradores] = useState<{ id: string; nome: string; ativo: boolean }[]>([]);
   const setF = (k: string, v: string) => setFiltros((s) => ({ ...s, [k]: v }));
 
   const paramsFiltros = useCallback(() => {
@@ -216,6 +223,7 @@ export default function CobrancasPage() {
     }).catch(() => setGateways([]));
     api<unknown[]>('/config/integracoes').then((l) => setTemErp((l ?? []).length > 0)).catch(() => setTemErp(false));
     api<{ nome: string }[]>('/clientes/etiquetas').then(setEtiquetas).catch(() => setEtiquetas([]));
+    api<{ id: string; nome: string; ativo: boolean }[]>('/usuarios').then((u) => setCobradores(Array.isArray(u) ? u : [])).catch(() => setCobradores([]));
   }, []);
 
   async function sincronizarFontes() {
@@ -294,7 +302,7 @@ export default function CobrancasPage() {
   }
 
   // Filtros não-data ativos (a data vive no dropdown de Período).
-  const filtrosSemData = (['q', 'status', 'metodo', 'geracao', 'etiqueta', 'valorMin', 'valorMax'] as const).filter((k) => filtros[k]).length;
+  const filtrosSemData = (['q', 'status', 'metodo', 'geracao', 'etiqueta', 'cobrador', 'valorMin', 'valorMax'] as const).filter((k) => filtros[k]).length;
   const geradasSelecionadas = invoices.filter((i) => selecionados.has(i.id) && i.externalId).length;
   const valorSelecionado = invoices.filter((i) => selecionados.has(i.id)).reduce((s, i) => s + Number(i.valor), 0);
 
@@ -314,10 +322,10 @@ export default function CobrancasPage() {
     setMsg('Preparando exportação...');
     const r = await api<{ items: Invoice[]; truncado: boolean }>(`/cobrancas/exportar?${paramsFiltros().toString()}`).catch(() => null);
     if (!r) { setMsg('Erro ao exportar.'); return; }
-    const headers = ['Cliente', 'Documento', 'Valor', 'Vencimento', 'Método', 'Status', 'Gerada no gateway'];
+    const headers = ['Cliente', 'Documento', 'Valor', 'Vencimento', 'Cobrador', 'Método', 'Status', 'Gerada no gateway'];
     const linhas = r.items.map((i) => [
       i.customer?.nome || '', i.customer?.doc || '', Number(i.valor).toFixed(2).replace('.', ','),
-      new Date(i.vencimento).toLocaleDateString('pt-BR'), i.metodo, i.status, i.externalId ? 'Sim' : 'Não',
+      new Date(i.vencimento).toLocaleDateString('pt-BR'), cobradorDe(i) ?? '', i.metodo, i.status, i.externalId ? 'Sim' : 'Não',
     ]);
     const hoje = new Date().toISOString().slice(0, 10);
     baixarArquivo(`cobrancas-${hoje}.csv`, toCsv(headers, linhas));
@@ -455,6 +463,11 @@ export default function CobrancasPage() {
                       <select value={filtros.etiqueta} onChange={(e) => setF('etiqueta', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
                         <option value="">Etiqueta: todas</option>{etiquetas.map((t) => <option key={t.nome} value={t.nome}>{t.nome}</option>)}
                       </select>
+                      <select value={filtros.cobrador} onChange={(e) => setF('cobrador', e.target.value)} aria-label="Cobrador" title="Paga: quem levou o crédito da recuperação. Em aberto: o responsável atual pelo cliente." className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
+                        <option value="">Cobrador: todos</option>
+                        {cobradores.map((u) => <option key={u.id} value={u.id}>{u.nome}{u.ativo ? '' : ' (inativo)'}</option>)}
+                        <option value="sem">Sem cobrador</option>
+                      </select>
                       <input placeholder="Valor mín" value={filtros.valorMin} onChange={(e) => setF('valorMin', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
                       <input placeholder="Valor máx" value={filtros.valorMax} onChange={(e) => setF('valorMax', e.target.value)} className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" />
                     </div>
@@ -540,6 +553,7 @@ export default function CobrancasPage() {
               <th className="px-4 py-3 font-medium">Cliente</th>
               <th className="px-4 py-3 font-medium"><button onClick={() => ordenarPor('valor')} className="flex items-center gap-1 uppercase hover:text-ink" title="Ordenar por valor">Valor {seta('valor')}</button></th>
               <th className="px-4 py-3 font-medium"><button onClick={() => ordenarPor('vencimento')} className="flex items-center gap-1 uppercase hover:text-ink" title="Ordenar por vencimento">Vencimento {seta('vencimento')}</button></th>
+              <th className="px-4 py-3 font-medium" title="Paga: quem levou o crédito. Em aberto: responsável atual pelo cliente.">Cobrador</th>
               <th className="px-4 py-3 font-medium">Método</th>
               <th className="px-4 py-3 font-medium"><span className="flex items-center gap-1">Status <AjudaStatus /></span></th>
               <th className="px-4 py-3 font-medium">Cobrança</th>
@@ -562,6 +576,7 @@ export default function CobrancasPage() {
                 </td>
                 <td className="tabular px-4 py-3">{dinheiro(Number(inv.valor))}</td>
                 <td className="px-4 py-3 text-muted">{new Date(inv.vencimento).toLocaleDateString('pt-BR')}</td>
+                <td className="px-4 py-3 text-muted">{cobradorDe(inv) ?? <span className="text-xs">—</span>}</td>
                 <td className="px-4 py-3 text-muted">{inv.metodo}</td>
                 <td className="px-4 py-3">
                   <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${statusColor[inv.status] || 'bg-canvas text-muted'}`}>{inv.status}</span>
@@ -583,7 +598,7 @@ export default function CobrancasPage() {
                 </td>
               </tr>
             ))}
-            {invoices.length === 0 && <tr><td colSpan={8} className="px-4 py-8 text-center text-muted">Nenhuma fatura.</td></tr>}
+            {invoices.length === 0 && <tr><td colSpan={9} className="px-4 py-8 text-center text-muted">Nenhuma fatura.</td></tr>}
           </tbody>
         </table></div>
       </div>

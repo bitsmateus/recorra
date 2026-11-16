@@ -145,6 +145,7 @@ export const HELP_TOPICS: HelpTopic[] = [
       'PENDENTE: criada e ainda no prazo.', 'VENCIDA: passou do vencimento sem confirmação de pagamento.', 'PAGA: pagamento confirmado.', 'CANCELADA: não deve mais ser cobrada.', 'ESTORNADA: pagamento devolvido.',
       'ATIVA, LEGADO e PAUSADA são estados de gestão; não substituem o status financeiro.',
       '"Atualizar pagamentos" também recalcula PENDENTE↔VENCIDA pela data (com carência de fim de semana), sem alterar pagas ou canceladas — antes isso era o botão separado "Reavaliar status", agora unificado.',
+      'Filtro e coluna "Cobrador": numa fatura paga (já atribuída) é quem levou o crédito da recuperação; numa em aberto, o responsável atual pelo cliente. "Sem cobrador" mostra as que não têm nenhum dos dois. Os cartões de situação e o CSV seguem o filtro.',
       '"Ocultar valores" mascara todos os valores em R$ da tela de Cobranças — cartões, linha de totais (valor total e em aberto), lista e janelas — para apresentar sem expor o faturamento. A preferência fica salva no navegador.',
     ],
   },

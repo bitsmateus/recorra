@@ -27,6 +27,8 @@ export interface InvoiceFiltros {
   valorMin?: string;
   valorMax?: string;
   etiqueta?: string;
+  /** Cobrador: id do usuário, ou "sem" para quem não tem. Ver buildInvoiceWhere. */
+  cobrador?: string;
   page?: string | number;
   pageSize?: string | number;
   sortCampo?: string;
@@ -467,6 +469,19 @@ export class ChargesService {
     if (filtros.etiqueta) {
       where.customer = { ...(where.customer ?? {}), tags: { has: filtros.etiqueta.toLowerCase() } };
     }
+    // Cobrador da fatura: quem levou o crédito da recuperação (fatura paga e já
+    // atribuída) ou, enquanto não há atribuição, o responsável atual pelo cliente.
+    if (filtros.cobrador) {
+      const and = (where.AND ??= []) as Prisma.InvoiceWhereInput[];
+      if (filtros.cobrador === 'sem') {
+        and.push({ recuperadoPorId: null, customer: { responsavelId: null } });
+      } else {
+        and.push({ OR: [
+          { recuperadoPorId: filtros.cobrador },
+          { recuperadoPorId: null, customer: { responsavelId: filtros.cobrador } },
+        ] });
+      }
+    }
     const de = parseDateFilter(filtros.de);
     const ate = parseDateFilter(filtros.ate ? filtros.ate + 'T23:59:59' : undefined);
     // Busca por nome/documento ignora o período: procurar um cliente tem que achá-lo
@@ -494,7 +509,10 @@ export class ChargesService {
         where,
         // telefone/e-mail entram para marcar na linha quem não tem como ser
         // avisado — a cobrança aparecia normal e nunca saía mensagem nenhuma.
-        include: { customer: { select: { nome: true, doc: true, telefone: true, email: true } } },
+        include: {
+          customer: { select: { nome: true, doc: true, telefone: true, email: true, responsavel: { select: { nome: true } } } },
+          recuperadoPor: { select: { nome: true } },
+        },
         // Desempate por id: ordenar só por valor/vencimento (não únicos) não é
         // determinístico entre páginas — o id estabiliza e evita pular/repetir.
         orderBy: [{ [campo]: dir }, { id: dir }],
@@ -570,7 +588,7 @@ export class ChargesService {
     // Busca CAP+1 para saber se REALMENTE truncou (exatamente CAP não é truncamento).
     const rows = await this.prisma.invoice.findMany({
       where,
-      include: { customer: { select: { nome: true, doc: true } } },
+      include: { customer: { select: { nome: true, doc: true, responsavel: { select: { nome: true } } } }, recuperadoPor: { select: { nome: true } } },
       orderBy: [{ vencimento: 'asc' }, { id: 'asc' }],
       take: CAP + 1,
     });
