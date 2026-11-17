@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Header, Post, Put, Query, Res, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Header, Param, Post, Put, Query, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { JwtAuthGuard } from '@/common/auth/jwt-auth.guard';
 import { RolesGuard } from '@/common/auth/roles.guard';
@@ -30,6 +30,20 @@ export class RecuperacaoController {
   @RequerTela('relatorios')
   relatorio(@TenantId() tenantId: string, @Query('de') de?: string, @Query('ate') ate?: string) {
     return this.relatorios.relatorio(tenantId, de, ate);
+  }
+
+  /** Quem está por trás de um número da tabela "Por operadora" (clique na célula). */
+  @Get('relatorio/operador/:id/detalhe')
+  @RequerTela('relatorios')
+  detalheOperador(@TenantId() tenantId: string, @Param('id') id: string, @Query('tipo') tipo: string, @Query('de') de?: string, @Query('ate') ate?: string) {
+    return this.relatorios.detalheOperador(tenantId, id, tipo, de, ate);
+  }
+
+  /** Resumo dia a dia (todas ou uma operadora: ?operador=<id>|sem). */
+  @Get('relatorio/diario')
+  @RequerTela('relatorios')
+  resumoDiario(@TenantId() tenantId: string, @Query('operador') operador?: string, @Query('de') de?: string, @Query('ate') ate?: string) {
+    return this.relatorios.resumoDiario(tenantId, de, ate, operador);
   }
 
   @Get('relatorio/export.csv')

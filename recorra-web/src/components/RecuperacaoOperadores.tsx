@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Download, FileSpreadsheet, Filter, Info, RefreshCw } from 'lucide-react';
+import Link from 'next/link';
+import { Download, FileSpreadsheet, Filter, Info, RefreshCw, X, ExternalLink, Search } from 'lucide-react';
 import { api, getToken } from '@/lib/api';
 import { brl } from '@/components/ui';
 import { PERIODOS, PeriodoChave, intervaloDe, rotuloPeriodo } from '@/lib/periodo';
@@ -54,6 +55,13 @@ export function RecuperacaoOperadores() {
   const [de, setDe] = useState('');
   const [ate, setAte] = useState('');
   const [atualizando, setAtualizando] = useState(false);
+  // Filtros da tabela e do resumo diário
+  const [fOperador, setFOperador] = useState('');
+  const [fCarteira, setFCarteira] = useState('');
+  const [fBusca, setFBusca] = useState('');
+  const [fAtividade, setFAtividade] = useState(''); // '' | 'ativas' | 'sem-manual' | 'sem-recuperacao'
+  // Quem está por trás de um número (clique na célula)
+  const [det, setDet] = useState<{ operador: string; nome: string; tipo: string; rotulo: string } | null>(null);
 
   const query = useMemo(() => {
     const r = periodo === 'custom' ? { de, ate } : intervaloDe(periodo)!;
@@ -95,6 +103,22 @@ export function RecuperacaoOperadores() {
   }
 
   const t = rel?.totais;
+  const opsFiltrados = useMemo(() => (rel?.operadores ?? []).filter((o) => {
+    if (fOperador && (o.id ?? 'sem') !== fOperador) return false;
+    if (fCarteira && (o.carteira ?? '') !== fCarteira) return false;
+    if (fBusca.trim() && !o.nome.toLowerCase().includes(fBusca.trim().toLowerCase())) return false;
+    if (fAtividade === 'ativas' && !o.ativo) return false;
+    if (fAtividade === 'sem-manual' && o.disparosManuais > 0) return false;
+    if (fAtividade === 'sem-recuperacao' && o.recuperadoComContato.faturas > 0) return false;
+    return true;
+  }), [rel, fOperador, fCarteira, fBusca, fAtividade]);
+  const soma = useMemo(() => opsFiltrados.reduce((a, o) => ({
+    clientes: a.clientes + o.clientesNaCarteira, auto: a.auto + o.disparosAutomaticos, manual: a.manual + o.disparosManuais, contatados: a.contatados + o.clientesContatados,
+    regua: a.regua + o.recuperado.REGUA.valor + o.recuperado.CAMPANHA.valor, manualV: a.manualV + o.recuperado.MANUAL.valor, total: a.total + o.recuperadoComContato.valor, sem: a.sem + o.recuperado.SEM_CONTATO.valor,
+  }), { clientes: 0, auto: 0, manual: 0, contatados: 0, regua: 0, manualV: 0, total: 0, sem: 0 }), [opsFiltrados]);
+  const filtroAtivo = !!(fOperador || fCarteira || fBusca.trim() || fAtividade);
+  const carteirasLista = useMemo(() => [...new Set((rel?.operadores ?? []).map((o) => o.carteira).filter(Boolean) as string[])], [rel]);
+  const abrir = (o: Operador, tipo: string, rotulo: string) => setDet({ operador: o.id ?? 'sem', nome: o.nome, tipo, rotulo });
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -120,6 +144,35 @@ export function RecuperacaoOperadores() {
           )}
         </div>
       </div>
+
+      {rel && (
+        <div className="mb-4 flex flex-wrap items-end gap-3 rounded-lg border border-line bg-surface p-3 print:hidden">
+          <label className="text-xs text-muted">Operadora
+            <select value={fOperador} onChange={(e) => setFOperador(e.target.value)} className="mt-1 block rounded border border-line bg-surface px-3 py-1.5 text-sm text-ink outline-none focus:border-primary">
+              <option value="">Todas</option>
+              {rel.operadores.map((o) => <option key={o.id ?? 'sem'} value={o.id ?? 'sem'}>{o.nome}</option>)}
+            </select>
+          </label>
+          <label className="text-xs text-muted">Carteira
+            <select value={fCarteira} onChange={(e) => setFCarteira(e.target.value)} className="mt-1 block rounded border border-line bg-surface px-3 py-1.5 text-sm text-ink outline-none focus:border-primary">
+              <option value="">Todas</option>
+              {carteirasLista.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </label>
+          <label className="text-xs text-muted">Situação
+            <select value={fAtividade} onChange={(e) => setFAtividade(e.target.value)} className="mt-1 block rounded border border-line bg-surface px-3 py-1.5 text-sm text-ink outline-none focus:border-primary">
+              <option value="">Todas</option>
+              <option value="ativas">Só ativas</option>
+              <option value="sem-manual">Sem contato manual no período</option>
+              <option value="sem-recuperacao">Sem recuperação no período</option>
+            </select>
+          </label>
+          <label className="text-xs text-muted">Buscar nome
+            <span className="mt-1 flex items-center gap-1 rounded border border-line bg-surface px-2 py-1.5 focus-within:border-primary"><Search size={13} className="text-muted" /><input value={fBusca} onChange={(e) => setFBusca(e.target.value)} placeholder="Nome da operadora" className="w-40 bg-transparent text-sm text-ink outline-none" /></span>
+          </label>
+          {filtroAtivo && <button onClick={() => { setFOperador(''); setFCarteira(''); setFBusca(''); setFAtividade(''); }} className="flex items-center gap-1 rounded border border-line px-3 py-1.5 text-xs text-muted hover:bg-canvas"><X size={12} /> Limpar filtros</button>}
+        </div>
+      )}
 
       {erro && <p className="mb-4 rounded border border-line bg-danger-tint p-3 text-sm text-danger">{erro}</p>}
 
@@ -149,7 +202,7 @@ export function RecuperacaoOperadores() {
             <Kpi label="Pagou sem contato" valor={brl(t.recuperado.SEM_CONTATO.valor)} detalhe={`${num(t.recuperado.SEM_CONTATO.faturas)} faturas · fora da conta`} />
           </div>
 
-          <Secao titulo="Por operadora" sub="Crédito pela responsável do cliente. Disparos automáticos = régua para os clientes dela; manuais = enviados por ela.">
+          <Secao titulo="Por operadora" sub="Crédito pela responsável do cliente. Disparos automáticos = régua para os clientes dela; manuais = enviados por ela. Clique em qualquer número para ver quem são os clientes por trás dele.">
             <table className="w-full min-w-[920px] text-sm">
               <thead className="border-b border-line text-left text-xs uppercase text-muted">
                 <tr>
@@ -166,24 +219,37 @@ export function RecuperacaoOperadores() {
                 </tr>
               </thead>
               <tbody>
-                {rel.operadores.map((o) => (
+                {opsFiltrados.map((o) => (
                   <tr key={o.id ?? 'sem'} className="border-b border-line last:border-0">
-                    <td className="py-2 font-medium text-ink">{o.nome}{!o.ativo && <span className="ml-1 text-xs text-muted">(inativo)</span>}</td>
+                    <td className="py-2 font-medium text-ink">{o.nome}{!o.ativo && <span className="ml-1 text-xs text-muted">(inativo)</span>}
+                      <button onClick={() => setFOperador(o.id ?? 'sem')} title="Ver o resumo dia a dia só desta pessoa" className="ml-2 text-[11px] font-normal text-primary hover:underline">dia a dia</button>
+                    </td>
                     <td className="py-2 text-muted">{o.carteira ?? '—'}</td>
-                    <td className="tabular py-2 text-right">{num(o.clientesNaCarteira)}</td>
-                    <td className="tabular py-2 text-right">{num(o.disparosAutomaticos)}</td>
-                    <td className="tabular py-2 text-right">{num(o.disparosManuais)}</td>
-                    <td className="tabular py-2 text-right">{num(o.clientesContatados)}</td>
-                    <td className="tabular py-2 text-right">{brl(o.recuperado.REGUA.valor + o.recuperado.CAMPANHA.valor)}<span className="block text-[11px] text-muted">{num(o.recuperado.REGUA.faturas + o.recuperado.CAMPANHA.faturas)} fat.</span></td>
-                    <td className="tabular py-2 text-right">{brl(o.recuperado.MANUAL.valor)}<span className="block text-[11px] text-muted">{num(o.recuperado.MANUAL.faturas)} fat.</span></td>
-                    <td className="tabular py-2 text-right font-semibold text-ink">{brl(o.recuperadoComContato.valor)}<span className="block text-[11px] font-normal text-muted">{num(o.recuperadoComContato.faturas)} fat.</span></td>
-                    <td className="tabular py-2 text-right text-muted">{brl(o.recuperado.SEM_CONTATO.valor)}</td>
+                    <Cel onClick={() => abrir(o, 'clientes', 'Clientes vencidos')}>{num(o.clientesNaCarteira)}</Cel>
+                    <Cel onClick={() => abrir(o, 'automaticos', 'Disparos da régua')}>{num(o.disparosAutomaticos)}</Cel>
+                    <Cel onClick={() => abrir(o, 'manuais', 'Disparos manuais')}>{num(o.disparosManuais)}</Cel>
+                    <Cel onClick={() => abrir(o, 'contatados', 'Clientes contatados')}>{num(o.clientesContatados)}</Cel>
+                    <Cel onClick={() => abrir(o, 'recuperado-regua', 'Recuperado pela régua')}>{brl(o.recuperado.REGUA.valor + o.recuperado.CAMPANHA.valor)}<span className="block text-[11px] text-muted">{num(o.recuperado.REGUA.faturas + o.recuperado.CAMPANHA.faturas)} fat.</span></Cel>
+                    <Cel onClick={() => abrir(o, 'recuperado-manual', 'Recuperado no manual')}>{brl(o.recuperado.MANUAL.valor)}<span className="block text-[11px] text-muted">{num(o.recuperado.MANUAL.faturas)} fat.</span></Cel>
+                    <Cel onClick={() => abrir(o, 'recuperado-total', 'Total recuperado')} forte>{brl(o.recuperadoComContato.valor)}<span className="block text-[11px] font-normal text-muted">{num(o.recuperadoComContato.faturas)} fat.</span></Cel>
+                    <Cel onClick={() => abrir(o, 'sem-contato', 'Pagou sem contato')} suave>{brl(o.recuperado.SEM_CONTATO.valor)}</Cel>
                   </tr>
                 ))}
-                {rel.operadores.length === 0 && <tr><td colSpan={10} className="py-6 text-center text-muted">Nenhuma operadora vinculada a carteiras. Vincule em Configurações → Equipe.</td></tr>}
+                {opsFiltrados.length === 0 && <tr><td colSpan={10} className="py-6 text-center text-muted">{rel.operadores.length === 0 ? 'Nenhuma operadora vinculada a carteiras. Vincule em Configurações → Equipe.' : 'Nenhuma operadora com esses filtros.'}</td></tr>}
               </tbody>
+              {opsFiltrados.length > 1 && (
+                <tfoot className="border-t border-line text-sm font-semibold text-ink">
+                  <tr>
+                    <td className="py-2" colSpan={2}>Total{filtroAtivo ? ' do filtro' : ''}</td>
+                    <td className="tabular py-2 text-right">{num(soma.clientes)}</td><td className="tabular py-2 text-right">{num(soma.auto)}</td><td className="tabular py-2 text-right">{num(soma.manual)}</td><td className="tabular py-2 text-right">{num(soma.contatados)}</td>
+                    <td className="tabular py-2 text-right">{brl(soma.regua)}</td><td className="tabular py-2 text-right">{brl(soma.manualV)}</td><td className="tabular py-2 text-right">{brl(soma.total)}</td><td className="tabular py-2 text-right text-muted">{brl(soma.sem)}</td>
+                  </tr>
+                </tfoot>
+              )}
             </table>
           </Secao>
+
+          <ResumoDiario query={query} operador={fOperador} nomeOperador={rel.operadores.find((o) => (o.id ?? 'sem') === fOperador)?.nome} />
 
           <div className="mb-6">
             <GraficoDiario serie={rel.serie} />
@@ -230,7 +296,123 @@ export function RecuperacaoOperadores() {
           </div>
         </>
       )}
+      {det && <DetalheOperador det={det} query={query} onClose={() => setDet(null)} />}
     </div>
+  );
+}
+
+/** Célula numérica clicável da tabela "Por operadora". */
+function Cel({ children, onClick, forte, suave }: { children: React.ReactNode; onClick: () => void; forte?: boolean; suave?: boolean }) {
+  return (
+    <td className={`tabular py-2 text-right ${forte ? 'font-semibold text-ink' : suave ? 'text-muted' : ''}`}>
+      <button type="button" onClick={onClick} title="Ver quem são" className="rounded px-1 text-right decoration-dotted underline-offset-2 hover:bg-primary-tint hover:text-primary hover:underline">{children}</button>
+    </td>
+  );
+}
+
+interface LinhaDet { customerId: string; cliente: string; telefone: string | null; canal?: string; quando?: string; origem?: string; valor?: number; detalhe?: string }
+/** Lista de clientes/faturas/envios por trás de um número da tabela. */
+function DetalheOperador({ det, query, onClose }: { det: { operador: string; nome: string; tipo: string; rotulo: string }; query: string; onClose: () => void }) {
+  const [d, setD] = useState<{ titulo: string; total: number; limitado: boolean; linhas: LinhaDet[] } | null | undefined>(undefined);
+  const [q, setQ] = useState('');
+  useEffect(() => {
+    let vivo = true;
+    setD(undefined);
+    const p = new URLSearchParams(query); p.set('tipo', det.tipo);
+    api<{ titulo: string; total: number; limitado: boolean; linhas: LinhaDet[] }>(`/recuperacao/relatorio/operador/${det.operador}/detalhe?${p}`).then((r) => { if (vivo) setD(r); }).catch(() => { if (vivo) setD(null); });
+    return () => { vivo = false; };
+  }, [det, query]);
+  useEffect(() => { const f = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', f); return () => window.removeEventListener('keydown', f); }, [onClose]);
+  const linhas = (d?.linhas ?? []).filter((l) => !q.trim() || `${l.cliente} ${l.telefone ?? ''}`.toLowerCase().includes(q.trim().toLowerCase()));
+  const temValor = linhas.some((l) => l.valor !== undefined);
+  const temCanal = linhas.some((l) => l.canal);
+  const totalValor = linhas.reduce((t, l) => t + (l.valor ?? 0), 0);
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onClick={onClose}>
+      <div role="dialog" aria-label={det.rotulo} className="flex h-full w-full max-w-3xl flex-col bg-surface shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-3 border-b border-line p-4">
+          <div>
+            <h3 className="text-base font-semibold text-ink">{det.nome} · {det.rotulo}</h3>
+            <p className="text-xs text-muted">{d ? `${d.titulo} · ${d.total}${d.limitado ? '+' : ''} registro(s)` : 'Carregando…'}{temValor && d ? ` · ${brl(totalValor)}` : ''}</p>
+          </div>
+          <button onClick={onClose} aria-label="Fechar" className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>
+        </div>
+        <div className="border-b border-line p-3">
+          <span className="flex items-center gap-1 rounded border border-line px-2 py-1.5 focus-within:border-primary"><Search size={13} className="text-muted" /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar cliente ou telefone" className="w-full bg-transparent text-sm outline-none" /></span>
+        </div>
+        <div className="flex-1 overflow-auto p-3">
+          {d === undefined && <p className="py-8 text-center text-sm text-muted">Carregando…</p>}
+          {d === null && <p className="py-8 text-center text-sm text-danger">Não foi possível carregar.</p>}
+          {d && linhas.length === 0 && <p className="py-8 text-center text-sm text-muted">Nenhum registro.</p>}
+          {d && linhas.length > 0 && (
+            <table className="w-full min-w-[560px] text-sm">
+              <thead className="border-b border-line text-left text-xs uppercase text-muted">
+                <tr><th className="py-2 font-medium">Cliente</th>{temCanal && <th className="py-2 font-medium">Canal</th>}<th className="py-2 font-medium">Quando</th>{temValor && <th className="py-2 text-right font-medium">Valor</th>}<th className="py-2 pl-3 font-medium">Detalhe</th></tr>
+              </thead>
+              <tbody>
+                {linhas.map((l, i) => (
+                  <tr key={`${l.customerId}-${i}`} className="border-b border-line align-top last:border-0">
+                    <td className="py-2"><Link href={`/clientes/${l.customerId}`} className="inline-flex items-center gap-1 font-medium text-ink hover:text-primary hover:underline">{l.cliente}<ExternalLink size={11} className="text-muted" /></Link><span className="block text-[11px] text-muted">{l.telefone ?? 'sem telefone'}</span></td>
+                    {temCanal && <td className="py-2 text-muted">{l.canal ?? ''}</td>}
+                    <td className="whitespace-nowrap py-2 text-muted">{l.quando ?? ''}{l.origem && <span className="block text-[11px]">{l.origem}</span>}</td>
+                    {temValor && <td className="tabular py-2 text-right">{l.valor !== undefined ? brl(l.valor) : ''}</td>}
+                    <td className="py-2 pl-3 text-xs text-muted">{l.detalhe}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {d?.limitado && <p className="mt-2 text-center text-xs text-muted">Mostrando os 1.000 mais recentes. Use o CSV/Excel completo para a lista inteira.</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface DiaResumo { dia: string; automaticos: number; manuais: number; contatados: number; promessas: number; valorPrometido: number; recuperadoRegua: number; faturasRegua: number; recuperadoManual: number; faturasManual: number }
+/** Resumo dia a dia (toda a equipe ou só a operadora filtrada). */
+function ResumoDiario({ query, operador, nomeOperador }: { query: string; operador: string; nomeOperador?: string }) {
+  const [dias, setDias] = useState<DiaResumo[] | null | undefined>(undefined);
+  useEffect(() => {
+    let vivo = true;
+    setDias(undefined);
+    const p = new URLSearchParams(query); if (operador) p.set('operador', operador);
+    api<{ dias: DiaResumo[] }>(`/recuperacao/relatorio/diario?${p}`).then((r) => { if (vivo) setDias(r.dias); }).catch(() => { if (vivo) setDias(null); });
+    return () => { vivo = false; };
+  }, [query, operador]);
+  const tot = (dias ?? []).reduce((a, d) => ({ auto: a.auto + d.automaticos, man: a.man + d.manuais, prom: a.prom + d.promessas, rr: a.rr + d.recuperadoRegua, rm: a.rm + d.recuperadoManual }), { auto: 0, man: 0, prom: 0, rr: 0, rm: 0 });
+  return (
+    <Secao titulo={`Resumo diário${nomeOperador ? ` · ${nomeOperador}` : ' · toda a equipe'}`} sub="Dia a dia no período: o que foi disparado, quantos clientes foram contatados, promessas registradas e o que foi recuperado. Use o filtro de operadora acima para ver só uma pessoa.">
+      {dias === undefined && <p className="py-6 text-center text-sm text-muted">Carregando…</p>}
+      {dias === null && <p className="py-6 text-center text-sm text-danger">Não foi possível carregar o resumo diário.</p>}
+      {dias && (
+        <table className="w-full min-w-[820px] text-sm">
+          <thead className="border-b border-line text-left text-xs uppercase text-muted">
+            <tr><th className="py-2 font-medium">Dia</th><th className="py-2 text-right font-medium">Disp. régua</th><th className="py-2 text-right font-medium">Disp. manuais</th><th className="py-2 text-right font-medium">Clientes contatados</th><th className="py-2 text-right font-medium">Promessas</th><th className="py-2 text-right font-medium">Rec. régua</th><th className="py-2 text-right font-medium">Rec. manual</th><th className="py-2 text-right font-medium">Total do dia</th></tr>
+          </thead>
+          <tbody>
+            {dias.map((d) => (
+              <tr key={d.dia} className="border-b border-line last:border-0">
+                <td className="py-2 font-medium text-ink">{d.dia.split('-').reverse().join('/')}</td>
+                <td className="tabular py-2 text-right">{num(d.automaticos)}</td>
+                <td className="tabular py-2 text-right">{num(d.manuais)}</td>
+                <td className="tabular py-2 text-right">{num(d.contatados)}</td>
+                <td className="tabular py-2 text-right">{num(d.promessas)}{d.valorPrometido > 0 && <span className="block text-[11px] text-muted">{brl(d.valorPrometido)}</span>}</td>
+                <td className="tabular py-2 text-right">{brl(d.recuperadoRegua)}<span className="block text-[11px] text-muted">{num(d.faturasRegua)} fat.</span></td>
+                <td className="tabular py-2 text-right">{brl(d.recuperadoManual)}<span className="block text-[11px] text-muted">{num(d.faturasManual)} fat.</span></td>
+                <td className="tabular py-2 text-right font-semibold text-ink">{brl(d.recuperadoRegua + d.recuperadoManual)}</td>
+              </tr>
+            ))}
+            {dias.length === 0 && <tr><td colSpan={8} className="py-6 text-center text-muted">Sem movimento no período.</td></tr>}
+          </tbody>
+          {dias.length > 1 && (
+            <tfoot className="border-t border-line text-sm font-semibold text-ink">
+              <tr><td className="py-2">Total</td><td className="tabular py-2 text-right">{num(tot.auto)}</td><td className="tabular py-2 text-right">{num(tot.man)}</td><td className="py-2" /><td className="tabular py-2 text-right">{num(tot.prom)}</td><td className="tabular py-2 text-right">{brl(tot.rr)}</td><td className="tabular py-2 text-right">{brl(tot.rm)}</td><td className="tabular py-2 text-right">{brl(tot.rr + tot.rm)}</td></tr>
+            </tfoot>
+          )}
+        </table>
+      )}
+    </Secao>
   );
 }
 
