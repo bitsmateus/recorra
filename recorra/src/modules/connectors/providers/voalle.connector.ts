@@ -4,6 +4,7 @@ import {
   SourceConnector,
   SourceCustomer,
   SourceInvoice,
+  SourcePayment,
   SourceCredentials,
   venceuAntesDeHoje,
 } from '../source-connector.interface';
@@ -29,27 +30,88 @@ export function statusContratoDoPerson(r: any): string | undefined {
 }
 
 /**
- * Data de pagamento do título, quando a API devolve. Mesmo cuidado de
- * `statusContratoDoPerson`: nomes candidatos, **validar com a documentação/resposta
- * real**. Sem data válida, a baixa usa o momento da sincronização.
+ * Conector Voalle (ERP Grupo Voalle) — API "para Terceiros" (coleção oficial no Postman,
+ * documenter.getpostman.com/view/16282829/TzzBqFw1).
+ *
+ *  - Autenticação: POST {host}:45700/connect/token (OAuth2 client_credentials, form-urlencoded,
+ *    scope `syngw`) com client_id/client_secret do usuário "Integrador" e o `syndata` do cliente.
+ *  - Dados: {host}:45715/external/integrations/thirdparty/... — resposta no envelope
+ *    { success, messages, response }.
+ *  - Clientes: getclient (paginado, só page/pageSize).
+ *  - Cobranças em aberto: getopentitlesbyexpirationdate (por faixa de vencimento, pageSize ≤ 200).
+ *    Só boleto/carnê e SEM pagamento parcial; cada título traz o CPF/CNPJ do cliente (`client.txId`)
+ *    e, quando existe, o `contractNumber`.
+ *  - Pagamentos: a lista de abertas não traz quem pagou. O motor de sync chama `fetchTitlesByDoc`
+ *    (gettitlesbytxid) para as faturas locais que sumiram da lista; ali o título vem com
+ *    `billet.status` ("Paga"…) e `billet.receipts.receiptDate` (data do recebimento).
+ *
+ * `extra`: client_id, client_secret, syndata (obrigatórios); portAuth (45700) e portApi (45715) só
+ * se o ambiente usar portas diferentes; diasHistorico (365) = quanto do passado das faturas em aberto
+ * buscar. `urlBase` é o endereço do ERP (com ou sem porta — a porta é trocada pela correta).
  */
-export function dataPagamento(r: any): Date | undefined {
-  const bruto = r.paymentDate ?? r.paidDate ?? r.payDate ?? r.dataPagamento ?? r.settlementDate;
-  if (!bruto) return undefined;
-  const d = new Date(bruto);
-  return Number.isNaN(d.getTime()) ? undefined : d;
+const PAGE = 200;
+
+/** Troca a porta do endereço-base. Aceita "erp.exemplo.com.br", "https://erp…:8080" etc. */
+export function urlComPorta(base: string, porta: string | number): string {
+  const limpo = base.trim().replace(/\/+$/, '');
+  const comEsquema = /^https?:\/\//i.test(limpo) ? limpo : `https://${limpo}`;
+  try {
+    const u = new URL(comEsquema);
+    u.port = String(porta);
+    return u.toString().replace(/\/$/, '');
+  } catch {
+    return comEsquema;
+  }
 }
 
-/**
- * Conector Voalle (ERP Grupo Voalle).
- * API REST com OAuth2 (client_credentials). `extra` deve conter
- * client_id, client_secret e syndata (subdomínio/tenant do Voalle).
- * Ref.: wiki.grupovoalle.com.br (Soluções integradas / Financeiro).
- * Ajuste endpoints/campos conforme a versão contratada.
- */
+const dia = (v: unknown): Date | undefined => {
+  if (!v) return undefined;
+  const d = new Date(String(v).length === 10 ? `${v}T00:00:00Z` : String(v));
+  return Number.isNaN(d.getTime()) ? undefined : d;
+};
+
+/** Status do título da Voalle ("Em aberto" | "Paga" | "Cancelada" | "Vencida") → status do Recorra. */
+export function statusDoTitulo(statusErp: unknown, vencimento: Date): string {
+  const st = String(statusErp ?? '').trim().toLowerCase();
+  if (st === 'paga' || st === 'pago' || st === 'liquidada') return 'PAGA';
+  if (st === 'cancelada' || st === 'cancelado') return 'CANCELADA';
+  return venceuAntesDeHoje(vencimento) ? 'VENCIDA' : 'PENDENTE';
+}
+
+/** Data do recebimento: `receipts` é objeto em gettitlesbytxid e lista nas demais consultas. */
+export function dataPagamento(r: any): Date | undefined {
+  const rec = r?.billet?.receipts;
+  const lista = Array.isArray(rec) ? rec : rec ? [rec] : [];
+  const datas = lista.map((x: any) => dia(x?.receiptDate ?? x?.paymentDate)).filter(Boolean) as Date[];
+  return datas.length ? new Date(Math.max(...datas.map((x) => x.getTime()))) : undefined;
+}
+
+/** Um título da Voalle → fatura normalizada. Puro e testável. */
+export function tituloParaFatura(r: any): SourceInvoice | null {
+  const b = r?.billet;
+  const vencimento = dia(b?.expirationDate);
+  if (r?.id === undefined || r?.id === null || !vencimento) return null;
+  const valor = Number(b?.amount?.finalValue ?? b?.amount?.value ?? b?.amount?.originalValue ?? 0);
+  const status = statusDoTitulo(b?.status, vencimento);
+  return {
+    externalId: String(r.id),
+    customerExternalId: onlyDigits(r?.client?.txId ?? ''),
+    customerDoc: onlyDigits(r?.client?.txId ?? ''),
+    contrato: r?.contractNumber ? String(r.contractNumber) : undefined,
+    valor,
+    vencimento,
+    status,
+    pagoEm: status === 'PAGA' ? dataPagamento(r) : undefined,
+    pixCopiaCola: b?.pixQRCode ?? b?.pixQrCode ?? undefined,
+    boletoLinha: b?.typefulLine ?? undefined,
+  };
+}
+
 export class VoalleConnector implements SourceConnector {
   readonly system = 'VOALLE';
-  // Chamada única sem paginação confirmada — conciliação por ausência desligada até validar.
+  // A lista de abertas é por faixa de vencimento e só traz boleto/carnê sem pagamento parcial:
+  // sumir dela NÃO prova pagamento (pode ser parcial, outra forma de cobrança, fora da faixa).
+  // Por isso a baixa é confirmada título a título em `fetchTitlesByDoc`.
   readonly snapshotCompleto = false;
   private readonly http: AxiosInstance;
   private readonly creds: SourceCredentials;
@@ -57,18 +119,19 @@ export class VoalleConnector implements SourceConnector {
 
   constructor(creds: SourceCredentials) {
     this.creds = creds;
-    this.http = axios.create({ ...safeHttpAgents(), baseURL: creds.urlBase.replace(/\/$/, ''), timeout: 20000 });
+    const portApi = creds.extra?.portApi || 45715;
+    this.http = axios.create({ ...safeHttpAgents(), baseURL: `${urlComPorta(creds.urlBase, portApi)}/external/integrations/thirdparty`, timeout: 30000 });
   }
 
   private async ensureToken(): Promise<void> {
     if (this.accessToken) return;
     const e = this.creds.extra ?? {};
-    const { data } = await this.http.post('/security/openid/token', {
-      grant_type: 'client_credentials',
-      client_id: e.client_id,
-      client_secret: e.client_secret,
-      scope: 'syngw',
-      syndata: e.syndata,
+    const corpo = new URLSearchParams({
+      grant_type: 'client_credentials', scope: 'syngw',
+      client_id: e.client_id ?? '', client_secret: e.client_secret ?? '', syndata: e.syndata ?? '',
+    });
+    const { data } = await axios.post(`${urlComPorta(this.creds.urlBase, e.portAuth || 45700)}/connect/token`, corpo.toString(), {
+      ...safeHttpAgents(), timeout: 20000, headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     });
     this.accessToken = data.access_token;
     this.http.defaults.headers.common.Authorization = `Bearer ${this.accessToken}`;
@@ -77,6 +140,7 @@ export class VoalleConnector implements SourceConnector {
   async testConnection(): Promise<boolean> {
     try {
       await this.ensureToken();
+      await this.http.get('/getclient', { params: { page: 1, pageSize: 1 } });
       return true;
     } catch {
       return false;
@@ -85,33 +149,57 @@ export class VoalleConnector implements SourceConnector {
 
   async fetchCustomers(): Promise<SourceCustomer[]> {
     await this.ensureToken();
-    const { data } = await this.http.get('/api/v1/persons', { params: { active: true } });
-    const rows: any[] = data?.data ?? data?.persons ?? [];
-    return rows.map((r) => ({
-      externalId: String(r.id),
-      nome: r.name ?? r.socialName ?? '',
-      doc: onlyDigits(r.cpfCnpj ?? r.document ?? ''),
-      email: r.email || undefined,
-      telefone: normalizePhoneBR(r.cellphone ?? r.phone ?? ''),
-      contrato: r.contractId ? String(r.contractId) : undefined,
-      statusContrato: statusContratoDoPerson(r),
-    }));
+    const out: SourceCustomer[] = [];
+    for (let page = 1; page <= 1000; page++) {
+      const { data } = await this.http.get('/getclient', { params: { page, pageSize: PAGE } });
+      if (data?.success === false) throw new Error(`Voalle recusou a lista de clientes: ${data?.messages?.[0]?.message ?? 'erro desconhecido'}`);
+      const rows: any[] = data?.response?.data ?? [];
+      for (const r of rows) {
+        out.push({
+          externalId: String(r.id),
+          nome: r.name ?? r.name2 ?? '',
+          doc: onlyDigits(r.txId ?? ''),
+          email: r.email || undefined,
+          telefone: normalizePhoneBR(r.cellPhone1 ?? r.cellPhone2 ?? r.phone ?? ''),
+        });
+      }
+      const totalPages = Number(data?.response?.totalPages ?? 0);
+      if (rows.length < PAGE || (totalPages && page >= totalPages)) break;
+    }
+    return out;
   }
 
   async fetchOpenInvoices(): Promise<SourceInvoice[]> {
     await this.ensureToken();
-    const { data } = await this.http.get('/api/v1/receivables', { params: { status: 'open' } });
-    const rows: any[] = data?.data ?? data?.receivables ?? [];
-    return rows.map((r) => ({
-      externalId: String(r.id),
-      customerExternalId: String(r.personId ?? r.customerId),
-      valor: Number(r.value ?? r.amount ?? 0),
-      vencimento: new Date(r.dueDate),
-      status: r.paid ? 'PAGA' : venceuAntesDeHoje(new Date(r.dueDate)) ? 'VENCIDA' : 'PENDENTE',
-      pagoEm: dataPagamento(r),
-      pixCopiaCola: r.pixEmv ?? r.pixCopiaCola ?? undefined,
-      boletoLinha: r.digitableLine ?? undefined,
-      boletoUrl: r.bankSlipUrl ?? undefined,
-    }));
+    const dias = Math.max(30, Number(this.creds.extra?.diasHistorico) || 365);
+    const de = new Date(Date.now() - dias * 86_400_000).toISOString().slice(0, 10);
+    const ate = new Date(Date.now() + 120 * 86_400_000).toISOString().slice(0, 10);
+    const out: SourceInvoice[] = [];
+    for (let page = 1; page <= 1000; page++) {
+      const { data } = await this.http.get('/getopentitlesbyexpirationdate', { params: { expirationDateFrom: de, expirationDateTo: ate, page, pageSize: PAGE } });
+      if (data?.success === false) throw new Error(`Voalle recusou a lista de faturas: ${data?.messages?.[0]?.message ?? 'erro desconhecido'}`);
+      const rows: any[] = data?.response?.data ?? [];
+      for (const r of rows) { const f = tituloParaFatura(r); if (f && f.customerDoc) out.push(f); }
+      const totalPages = Number(data?.response?.totalPages ?? 0);
+      if (rows.length < PAGE || (totalPages && page >= totalPages)) break;
+    }
+    return out;
+  }
+
+  /** Todos os títulos de um cliente (inclusive pagos, com a data do recebimento) — confirma baixas. */
+  async fetchTitlesByDoc(doc: string): Promise<SourceInvoice[]> {
+    await this.ensureToken();
+    const { data } = await this.http.get(`/gettitlesbytxid/${onlyDigits(doc)}`);
+    if (data?.success === false) return []; // "Registro não encontrado."
+    const rows: any[] = Array.isArray(data?.response) ? data.response : [];
+    return rows.map(tituloParaFatura).filter(Boolean) as SourceInvoice[];
+  }
+
+  /** 2ª via: link público do boleto (portal do cliente). O Pix já vem na lista de títulos. */
+  async fetchInvoicePayment(sourceExternalId: string): Promise<SourcePayment | null> {
+    await this.ensureToken();
+    const { data } = await this.http.get(`/GetBilletLink/${sourceExternalId}`);
+    const link = data?.response?.link;
+    return link ? { boletoUrl: link, linkPagamento: link } : null;
   }
 }

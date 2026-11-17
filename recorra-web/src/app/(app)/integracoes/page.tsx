@@ -23,7 +23,7 @@ const ERPS: { id: string; nome: string; desc: string; campos: CampoCred[] }[] = 
     { key: 'username', label: 'Usuário', extra: true },
     { key: 'password', label: 'Senha', extra: true },
   ] },
-  { id: 'VOALLE', nome: 'Voalle', desc: 'API do ERP com OAuth2 (client_credentials).', campos: [
+  { id: 'VOALLE', nome: 'Voalle', desc: 'API para Terceiros da Voalle (OAuth2). Informe o endereço do ERP; as portas 45700/45715 são aplicadas sozinhas.', campos: [
     { key: 'client_id', label: 'Client ID', extra: true },
     { key: 'client_secret', label: 'Client Secret', extra: true },
     { key: 'syndata', label: 'Syndata', extra: true },

@@ -1,3 +1,4 @@
+import type { SourceConnector } from './source-connector.interface';
 import { Injectable, Logger, UnprocessableEntityException } from '@nestjs/common';
 import { InvoiceStatus, SourceSystem } from '@prisma/client';
 import { PrismaService } from '@/common/prisma/prisma.service';
@@ -196,10 +197,13 @@ export class SyncService {
           // se a janela o encolhesse, quitaria por engano todo o histórico que
           // já está na base. A janela decide o que ENTRA, nunca o que sai.
           presentes.add(f.externalId);
-          const customer = await this.prisma.customer.findFirst({
+          let customer = await this.prisma.customer.findFirst({
             where: { tenantId, externalId: f.customerExternalId, sourceSystem: integ.sistema },
           });
+          // ERPs que não devolvem o id da pessoa na fatura (Voalle) identificam o cliente pelo CPF/CNPJ.
+          if (!customer && f.customerDoc) customer = await this.prisma.customer.findFirst({ where: { tenantId, doc: f.customerDoc } });
           if (!customer) continue; // cliente ainda não sincronizado
+          if (f.contrato && !customer.contrato) await this.prisma.customer.update({ where: { id: customer.id }, data: { contrato: f.contrato } });
 
           const existing = await this.prisma.invoice.findFirst({
             where: { tenantId, sourceSystem: integ.sistema, sourceExternalId: f.externalId },
@@ -269,6 +273,11 @@ export class SyncService {
         }
         if (quitadas > 0) this.logger.log(`Conciliação por ausência (${integ.sistema}): ${quitadas} fatura(s) quitada(s)`);
       }
+      // ERPs em que sumir da lista de abertas não prova pagamento (Voalle: só boleto/carnê sem
+      // pagamento parcial): confirma a baixa pelo histórico do cliente, com a data real do recebimento.
+      if (!connector.snapshotCompleto && connector.fetchTitlesByDoc && faturas.length > 0) {
+        quitadas += await this.confirmarBaixasPorCliente(tenantId, integ.sistema, connector, presentes);
+      }
       // Sem erro, o `detalhe` vira o aviso da janela — é o que a tela mostra para
       // o usuário entender por que veio menos fatura do que o ERP tem.
       if (ignoradas > 0 && corte) {
@@ -284,6 +293,41 @@ export class SyncService {
       });
     }
     return { sincronizadas: count, quitadas, ignoradas };
+  }
+
+  /**
+   * Para as faturas locais em aberto que sumiram da lista de abertas do ERP, consulta os títulos do
+   * cliente (CPF/CNPJ) e baixa só as que o ERP marca explicitamente como PAGA — usando a data do
+   * recebimento. Cancelada no ERP vira CANCELADA. Lotes limitados por rodada; o resto fica para a próxima.
+   */
+  private async confirmarBaixasPorCliente(tenantId: string, sistema: SourceSystem, connector: SourceConnector, presentes: Set<string>): Promise<number> {
+    const LIMITE_CLIENTES = 150;
+    const locais = await this.prisma.invoice.findMany({
+      where: { tenantId, sourceSystem: sistema, status: { in: ['PENDENTE', 'VENCIDA'] }, sourceExternalId: { not: null }, customer: { doc: { not: '' } } },
+      select: { id: true, sourceExternalId: true, customer: { select: { doc: true } } },
+    });
+    const sumidas = locais.filter((l) => l.sourceExternalId && !presentes.has(l.sourceExternalId));
+    const porDoc = new Map<string, typeof sumidas>();
+    for (const l of sumidas) porDoc.set(l.customer.doc, [...(porDoc.get(l.customer.doc) ?? []), l]);
+    let baixadas = 0;
+    for (const [doc, faturas] of [...porDoc].slice(0, LIMITE_CLIENTES)) {
+      let titulos: Awaited<ReturnType<NonNullable<SourceConnector['fetchTitlesByDoc']>>>;
+      try { titulos = await connector.fetchTitlesByDoc!(doc); } catch (e) { this.logger.warn(`Títulos do cliente ${doc} não consultados: ${String(e)}`); continue; }
+      const porId = new Map(titulos.map((t) => [t.externalId, t]));
+      for (const l of faturas) {
+        const t = porId.get(l.sourceExternalId!);
+        if (!t) continue;
+        if (t.status === 'PAGA') {
+          const r = await this.prisma.invoice.updateMany({ where: { id: l.id, status: { in: ['PENDENTE', 'VENCIDA'] } }, data: { status: 'PAGA', pagoEm: t.pagoEm ?? new Date() } });
+          if (r.count) { await this.pararDunning(tenantId, l.id); baixadas++; }
+        } else if (t.status === 'CANCELADA') {
+          await this.prisma.invoice.updateMany({ where: { id: l.id, status: { in: ['PENDENTE', 'VENCIDA'] } }, data: { status: 'CANCELADA' } });
+          await this.pararDunning(tenantId, l.id);
+        }
+      }
+    }
+    if (baixadas > 0) this.logger.log(`Baixas confirmadas no ERP (${sistema}): ${baixadas} fatura(s)`);
+    return baixadas;
   }
 
   /**

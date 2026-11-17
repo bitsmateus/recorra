@@ -59,6 +59,10 @@ export interface SourceInvoice extends SourcePayment {
   // Data em que o cliente pagou, quando o ERP informa. Sem ela, a baixa usa o
   // momento da sincronização — e o relatório de recuperação perde precisão.
   pagoEm?: Date;
+  /** CPF/CNPJ do cliente, para quando o ERP não devolve o id da pessoa na fatura (ex.: Voalle). */
+  customerDoc?: string;
+  /** Número do contrato da fatura, quando o ERP informa (preenche o cliente se ainda estiver vazio). */
+  contrato?: string;
 }
 
 export interface SourceCredentials {
@@ -111,6 +115,12 @@ export interface SourceConnector {
    * Usado no envio, quando a cobrança do ERP ainda não tem Pix/link gravado.
    */
   fetchInvoicePayment?(sourceExternalId: string): Promise<SourcePayment | null>;
+
+  /**
+   * Todos os títulos de um cliente pelo CPF/CNPJ — inclusive os já pagos, com `pagoEm`. Opcional:
+   * usado quando a lista de abertas não prova pagamento (ex.: Voalle) para confirmar a baixa.
+   */
+  fetchTitlesByDoc?(doc: string): Promise<SourceInvoice[]>;
 
   /**
    * Registra no ERP uma promessa de pagamento do cliente — vários ERPs de
