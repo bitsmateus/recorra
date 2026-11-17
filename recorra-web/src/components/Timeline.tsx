@@ -7,7 +7,7 @@ import { brl } from '@/components/ui';
 
 interface TimelineItem {
   id: string;
-  tipo: 'nota' | 'promessa' | 'disparo';
+  tipo: 'nota' | 'promessa' | 'disparo' | 'acordo';
   data: string;
   texto: string;
   autor?: string | null;
@@ -17,6 +17,9 @@ interface TimelineItem {
   erpErro?: string | null;
   canal?: string;
   status?: string;
+  // acordo registrado à mão
+  acordoTipo?: string | null; acordoForma?: string | null; acordoStatus?: string; dataPrevista?: string | null;
+  valorAcordado?: number | null; parcelas?: number;
   origem?: string | null; // disparo: REGUA | MANUAL | CAMPANHA | CONFIRMACAO
   chatNx?: boolean; // conversa da atendente direto no chat do NX
   regua?: string | null;
@@ -239,6 +242,25 @@ export function Timeline({ customerId, onChange }: { customerId: string; onChang
                 <div className="mt-1 text-[11px] text-muted">{it.autor ?? 'Usuário removido'} · registrada em {dataHora(it.data)}</div>
                 {it.erpSincronizado === true && <div className="mt-0.5 text-[11px] font-medium text-[#0F6E56]">✓ sincronizada com o ERP</div>}
                 {it.erpSincronizado === false && <div className="mt-0.5 text-[11px] font-medium text-[#A32D2D]">⚠ não sincronizada com o ERP{it.erpErro ? `: ${it.erpErro}` : ''}</div>}
+              </div>
+            );
+          }
+          if (it.tipo === 'acordo') {
+            const rotulo: Record<string, string> = { ATIVO: 'em andamento', QUITADO: 'quitado', QUEBRADO: 'quebrado', CANCELADO: 'cancelado' };
+            return (
+              <div key={it.id} className="mb-1.5 border-b border-line bg-primary-tint/40 px-2 py-2 last:border-0">
+                <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                  <span className="rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Acordo</span>
+                  <b className="text-ink">{it.acordoTipo ?? 'Acordo'}</b>
+                  {it.acordoForma && <span className="text-muted">· {it.acordoForma}</span>}
+                  {it.acordoStatus && <span className="text-muted">· {rotulo[it.acordoStatus] ?? it.acordoStatus}</span>}
+                </div>
+                <div className="mt-0.5 text-xs text-muted">
+                  {it.valorAcordado ? <><b className="text-ink">{brl(it.valorAcordado)}</b>{(it.parcelas ?? 1) > 1 ? ` em ${it.parcelas}x` : ''} · </> : null}
+                  {it.dataPrevista ? <>pagar até <b className="text-ink">{dataCurta(it.dataPrevista)}</b></> : 'sem data de pagamento'}
+                </div>
+                {it.texto && <div className="mt-0.5 whitespace-pre-wrap text-sm text-ink">{it.texto}</div>}
+                <div className="text-[11px] text-muted">{it.autor ?? 'Usuário removido'} · {dataHora(it.data)}</div>
               </div>
             );
           }

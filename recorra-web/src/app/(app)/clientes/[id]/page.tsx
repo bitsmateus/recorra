@@ -7,6 +7,7 @@ import { ArrowLeft, Phone, Mail, MapPin, Plus, X, RefreshCw } from 'lucide-react
 import { api } from '@/lib/api';
 import { Metric, RiskBadge, brl } from '@/components/ui';
 import { RiscoPainel } from '@/components/RiscoPainel';
+import { AcordosCliente, type Acordo } from '@/components/AcordosCliente';
 import { Timeline, situacaoDaPromessa } from '@/components/Timeline';
 
 interface Detalhe {
@@ -19,7 +20,7 @@ interface Detalhe {
     origem?: string | null; ruleNome?: string | null; user?: { nome: string } | null; template?: string | null; assunto?: string | null;
     channelAccount?: { apelido: string | null; numero: string | null } | null;
   }[];
-  acordos: { id: string; valorOriginal: number; valorAcordado: number; parcelas: number; status: string }[];
+  acordos: Acordo[];
   assinaturas: { id: string; plano: string; valor: number; ciclo: string; status: string; proximaCobranca?: string }[];
   totais: { emAberto: number; pago: number; vencidas: number };
 }
@@ -144,14 +145,7 @@ export default function ClienteDetalhePage() {
           </div>
         </Card>
 
-        <Card title={`Acordos (${d.acordos.length})`}>
-          {d.acordos.map((a) => (
-            <div key={a.id} className="border-b border-line px-2 py-2 text-sm last:border-0">
-              {brl(Number(a.valorOriginal))} → <b className="text-primary">{brl(Number(a.valorAcordado))}</b> em {a.parcelas}x <span className="ml-2 rounded-full bg-canvas px-2 py-0.5 text-xs text-muted">{a.status}</span>
-            </div>
-          ))}
-          {d.acordos.length === 0 && <p className="px-2 py-4 text-center text-sm text-muted">Nenhum acordo.</p>}
-        </Card>
+        <AcordosCliente customerId={c.id} acordos={d.acordos} onChange={carregar} />
 
         <Card title={`Assinaturas (${d.assinaturas.length})`}>
           {d.assinaturas.map((s) => (

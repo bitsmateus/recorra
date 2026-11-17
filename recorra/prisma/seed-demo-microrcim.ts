@@ -295,6 +295,32 @@ async function main() {
     });
   }
 
+  // ---------------- Acordos anotados pelas operadoras (tipo, forma de pagamento, datas, obs) ----------------
+  const modelosAcordo = [
+    { tipo: 'Parcelamento em 3x', forma: 'PIX', parcelas: 3, obs: 'Cliente pediu para pagar a 1ª parcela após o dia 20, quando recebe o salário.' },
+    { tipo: 'Pagamento à vista com desconto', forma: 'PIX', parcelas: 1, obs: 'Aceitou pagar tudo de uma vez com 10% de desconto nos juros.' },
+    { tipo: 'Troca de vencimento', forma: 'BOLETO', parcelas: 1, obs: 'Vencimento passa do dia 5 para o dia 20, a partir do mês que vem.' },
+    { tipo: 'Pagamento parcial', forma: 'TRANSFERENCIA', parcelas: 2, obs: 'Paga metade agora e metade em 15 dias. Enviar comprovante pelo WhatsApp.' },
+    { tipo: 'Isenção de multa e juros', forma: 'CARTAO', parcelas: 1, obs: 'Quitar pelo link de pagamento no cartão até sexta.' },
+  ];
+  const comAcordo = await prisma.customer.findMany({
+    where: { tenantId: TENANT_ID, responsavelId: { not: null }, invoices: { some: { status: 'VENCIDA' } } },
+    select: { id: true, responsavelId: true, valorPlano: true }, take: 15, skip: 25,
+  });
+  for (const [k, c] of comAcordo.entries()) {
+    const m = modelosAcordo[k % modelosAcordo.length];
+    const original = Number(c.valorPlano ?? 99.9) * 2;
+    const acordado = Math.round(original * (m.tipo.includes('desconto') ? 0.9 : 1) * 100) / 100;
+    await prisma.agreement.create({
+      data: {
+        tenantId: TENANT_ID, customerId: c.id, origem: 'registro', criadoPorId: c.responsavelId, tipo: m.tipo, formaPagamento: m.forma,
+        dataAcordo: new Date(hoje.getTime() - entre(0, 6) * DIA), dataPrevista: new Date(hoje.getTime() + entre(-2, 12) * DIA),
+        valorOriginal: original, valorAcordado: acordado, descontoPct: acordado < original ? 10 : 0, parcelas: m.parcelas, observacao: m.obs,
+        status: k % 7 === 6 ? 'QUEBRADO' : k % 5 === 4 ? 'QUITADO' : 'ATIVO',
+      },
+    });
+  }
+
   // ---------------- Distribuição automática dos vencidos de hoje ----------------
   const dist = await new DistribuicaoService(prisma as never).distribuirTenant(TENANT_ID);
 

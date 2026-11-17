@@ -337,7 +337,7 @@ export class CustomersService {
         where: { tenantId, customerId: id }, orderBy: { createdAt: "desc" }, take: 100,
         include: { user: { select: { nome: true } }, channelAccount: { select: { apelido: true, numero: true } } },
       }),
-      this.prisma.agreement.findMany({ where: { tenantId, customerId: id }, include: { installments: { orderBy: { numero: "asc" } } }, orderBy: { createdAt: "desc" } }),
+      this.prisma.agreement.findMany({ where: { tenantId, customerId: id }, include: { installments: { orderBy: { numero: "asc" } }, criadoPor: { select: { nome: true } } }, orderBy: { createdAt: "desc" } }),
       this.prisma.subscription.findMany({ where: { tenantId, customerId: id }, orderBy: { createdAt: "desc" } }),
       this.listNotas(tenantId, id),
     ]);
@@ -458,7 +458,7 @@ export class CustomersService {
    */
   async getTimeline(tenantId: string, customerId: string) {
     await this.getOrThrow(tenantId, customerId);
-    const [notas, disparos] = await Promise.all([
+    const [notas, disparos, acordos] = await Promise.all([
       this.prisma.customerNote.findMany({
         where: { tenantId, customerId },
         include: { user: { select: { nome: true } } },
@@ -471,8 +471,29 @@ export class CustomersService {
         take: 150,
         select: { id: true, canal: true, status: true, conteudo: true, enviadoEm: true, createdAt: true, origem: true, ruleNome: true, template: true, assunto: true, user: { select: { nome: true } } },
       }),
+      // Acordos registrados à mão: o que foi combinado fica à vista de quem abre o cliente.
+      this.prisma.agreement.findMany({
+        where: { tenantId, customerId, origem: 'registro' },
+        include: { criadoPor: { select: { nome: true } } },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      }),
     ]);
+    const FORMAS: Record<string, string> = { PIX: 'Pix', BOLETO: 'Boleto', CARTAO: 'Cartão', DINHEIRO: 'Dinheiro', TRANSFERENCIA: 'Transferência', OUTRO: 'Outro' };
     const itens = [
+      ...acordos.map((a) => ({
+        id: a.id,
+        tipo: 'acordo' as const,
+        data: a.dataAcordo ?? a.createdAt,
+        texto: a.observacao ?? '',
+        autor: a.criadoPor?.nome ?? null,
+        acordoTipo: a.tipo,
+        acordoForma: a.formaPagamento ? FORMAS[a.formaPagamento] ?? a.formaPagamento : null,
+        acordoStatus: a.status as string,
+        dataPrevista: a.dataPrevista,
+        valorAcordado: Number(a.valorAcordado) > 0 ? Number(a.valorAcordado) : null,
+        parcelas: a.parcelas,
+      })),
       ...notas.map((n) => ({
         id: n.id,
         tipo: n.tipo === 'PROMESSA' ? ('promessa' as const) : ('nota' as const),

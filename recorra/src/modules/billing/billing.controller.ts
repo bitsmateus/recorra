@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, UseGuards } from '@nestjs/common';
 import { ChargeMethod } from '@prisma/client';
 import { JwtAuthGuard } from '@/common/auth/jwt-auth.guard';
 import { RolesGuard } from '@/common/auth/roles.guard';
@@ -8,6 +8,7 @@ import { AuthUser } from '@/common/auth/jwt.types';
 import { SubscriptionsService } from './subscriptions.service';
 import { AgreementsService } from './agreements.service';
 import { CreateAgreementDto } from './dto/create-agreement.dto';
+import { AtualizarAcordoDto, RegistrarAcordoDto } from './dto/registro-acordo.dto';
 import { Ciclo } from './recurrence';
 
 @Controller()
@@ -64,6 +65,26 @@ export class BillingController {
     @Body() dto: CreateAgreementDto,
   ) {
     return this.agreements.create(tenantId, dto, actor.id);
+  }
+
+  /** Anota o que foi combinado com o cliente (tipo, forma de pagamento, datas, obs). Todo cobrador pode. */
+  @Post('acordos/registro')
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO', 'OPERADOR')
+  registrarAcordo(@TenantId() tenantId: string, @CurrentUser() actor: AuthUser, @Body() dto: RegistrarAcordoDto) {
+    return this.agreements.registrar(tenantId, dto, actor.id);
+  }
+
+  @Put('acordos/:id')
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO', 'OPERADOR')
+  atualizarAcordo(@TenantId() tenantId: string, @CurrentUser() actor: AuthUser, @Param('id') id: string, @Body() dto: AtualizarAcordoDto) {
+    return this.agreements.atualizar(tenantId, id, dto, actor.id);
+  }
+
+  /** Exclui acordo anotado; o operador só exclui os que ele registrou (conferido no serviço). */
+  @Delete('acordos/:id')
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO', 'OPERADOR')
+  excluirAcordo(@TenantId() tenantId: string, @CurrentUser() actor: AuthUser, @Param('id') id: string) {
+    return this.agreements.excluir(tenantId, id, { id: actor.id, role: actor.role });
   }
 
   @Patch('acordos/:id/cancelar')

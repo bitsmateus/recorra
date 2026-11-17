@@ -312,6 +312,7 @@ model User {
   clientesResponsavel Customer[]        @relation("ClienteResponsavel")
   disparos            MessageDispatch[] @relation("DisparosDoUsuario")
   recuperacoes        Invoice[]         @relation("RecuperacoesDoUsuario")
+  acordosCriados      Agreement[]       @relation("AcordosCriados")
 
   @@unique([tenantId, email])
   @@index([carteiraId])
@@ -634,21 +635,31 @@ model Subscription {
 }
 
 model Agreement {
-  id            String          @id @default(cuid())
-  tenantId      String
-  customerId    String
-  valorOriginal Decimal         @db.Decimal(12, 2)
-  descontoPct   Decimal         @default(0) @db.Decimal(5, 2)
-  valorAcordado Decimal         @db.Decimal(12, 2)
-  parcelas      Int
-  status        AgreementStatus @default(ATIVO)
-  faturasOrigem String[]        @default([])
-  observacao    String?
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
+  id             String          @id @default(cuid())
+  tenantId       String
+  customerId     String
+  valorOriginal  Decimal         @db.Decimal(12, 2)
+  descontoPct    Decimal         @default(0) @db.Decimal(5, 2)
+  valorAcordado  Decimal         @db.Decimal(12, 2)
+  parcelas       Int
+  status         AgreementStatus @default(ATIVO)
+  faturasOrigem  String[]        @default([])
+  observacao     String?
+  // Registro do que foi combinado com o cliente (ligação/chat), feito à mão:
+  tipo           String? // texto livre: "Parcelamento", "Desconto à vista", "Troca de vencimento"...
+  formaPagamento String? // PIX, BOLETO, CARTAO, DINHEIRO, TRANSFERENCIA, OUTRO
+  dataAcordo     DateTime? // quando foi combinado
+  dataPrevista   DateTime? // data combinada para pagar (ou da 1ª parcela)
+  // "registro" = anotado à mão (não mexe em faturas; pode editar/excluir);
+  // "renegociacao" = gerou parcelas/faturas novas e cancelou as originais.
+  origem         String          @default("renegociacao")
+  criadoPorId    String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
 
   tenant       Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   customer     Customer               @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  criadoPor    User?                  @relation("AcordosCriados", fields: [criadoPorId], references: [id], onDelete: SetNull)
   installments AgreementInstallment[]
 
   @@index([tenantId])
