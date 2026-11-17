@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Phone, Mail, MapPin, Plus, X, RefreshCw } from 'lucide-react';
@@ -9,12 +9,13 @@ import { Metric, RiskBadge, brl } from '@/components/ui';
 import { RiscoPainel } from '@/components/RiscoPainel';
 import { AcordosCliente, type Acordo } from '@/components/AcordosCliente';
 import { Timeline, situacaoDaPromessa } from '@/components/Timeline';
+import { OrigemFatura } from '@/components/OrigemFatura';
 
 interface Detalhe {
   customer: { id: string; nome: string; doc: string; email?: string; telefone?: string; plano?: string; valorPlano?: number; cidade?: string; uf?: string; tags?: string[]; contrato?: string; statusContrato?: string; faixaAtual?: string | null; promessaAte?: string | null; cobrancaPausada?: boolean };
   risco?: { faixa: string; score: number; fatores?: { fator: string; pontos: number; detalhe: string }[] };
   features?: { atrasosQtd: number; atrasoMedioDias: number; faturasPagas: number; faturasVencidas: number; taxaResposta: number };
-  faturas: { id: string; valor: number; vencimento: string; status: string; metodo: string; origem?: string; pixCopiaCola?: string; linkPagamento?: string }[];
+  faturas: { id: string; valor: number; vencimento: string; status: string; metodo: string; origem?: string; pixCopiaCola?: string; linkPagamento?: string; sourceExternalId?: string | null; externalId?: string | null; origemAtendimento?: string | null; negociadoPorId?: string | null; negociadoPor?: { nome: string } | null }[];
   disparos: {
     id: string; canal: string; conteudo?: string; status: string; createdAt: string;
     origem?: string | null; ruleNome?: string | null; user?: { nome: string } | null; template?: string | null; assunto?: string | null;
@@ -118,12 +119,20 @@ export default function ClienteDetalhePage() {
           <div className="w-full overflow-x-auto"><table className="w-full min-w-[640px] text-sm">
             <tbody>
               {d.faturas.map((f) => (
-                <tr key={f.id} className="border-b border-line last:border-0">
-                  <td className="tabular px-2 py-2 font-medium">{brl(Number(f.valor))}</td>
-                  <td className="px-2 py-2 text-muted">{new Date(f.vencimento).toLocaleDateString('pt-BR')}</td>
-                  <td className="px-2 py-2 text-muted">{f.metodo}{f.pixCopiaCola ? ' · Pix ✓' : ''}</td>
-                  <td className="px-2 py-2 text-right"><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusColor[f.status] || 'bg-canvas text-muted'}`}>{f.status}</span></td>
+                <Fragment key={f.id}>
+                <tr className="border-b border-line/50">
+                  <td className="tabular px-2 pt-2 font-medium">{brl(Number(f.valor))}</td>
+                  <td className="px-2 pt-2 text-muted">{new Date(f.vencimento).toLocaleDateString('pt-BR')}</td>
+                  <td className="px-2 pt-2 text-muted">{f.metodo}{f.pixCopiaCola ? ' · Pix ✓' : ''}</td>
+                  <td className="px-2 pt-2 text-right"><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusColor[f.status] || 'bg-canvas text-muted'}`}>{f.status}</span></td>
                 </tr>
+                <tr className="border-b border-line last:border-0">
+                  <td colSpan={4} className="px-2 pb-2 pt-1">
+                    <div className="mb-1 text-[11px] text-muted">Fatura nº <b className="text-ink">{f.sourceExternalId ?? f.externalId ?? f.id.slice(-8)}</b>{d.customer.contrato ? <> · Contrato <b className="text-ink">{d.customer.contrato}</b></> : null}</div>
+                    <OrigemFatura invoiceId={f.id} origem={f.origemAtendimento} negociadoPorId={f.negociadoPorId} negociadoPorNome={f.negociadoPor?.nome} onSaved={carregar} />
+                  </td>
+                </tr>
+                </Fragment>
               ))}
               {d.faturas.length === 0 && <tr><td className="px-2 py-4 text-center text-muted">Nenhuma fatura.</td></tr>}
             </tbody>

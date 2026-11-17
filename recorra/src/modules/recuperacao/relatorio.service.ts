@@ -28,7 +28,7 @@ export class RelatorioRecuperacaoService {
     };
   }
 
-  async relatorio(tenantId: string, de?: string, ate?: string): Promise<Relatorio> {
+  async relatorio(tenantId: string, de?: string, ate?: string): Promise<Relatorio & { origensAtendimento: { origem: string; faturas: number; valor: number }[] }> {
     const p = await this.periodo(tenantId, de, ate);
 
     const [disparos, contatadosPorOp, contatadosTotal, recuperados, usuarios, carteiras, contas, pendentes, clientesPorOp] = await Promise.all([
@@ -84,7 +84,12 @@ export class RelatorioRecuperacaoService {
          GROUP BY 1`,
     ]);
 
-    return montarRelatorio({
+    const origensAtendimento = await this.prisma.$queryRaw<{ origem: string; faturas: number; valor: number }[]>`
+      SELECT i."origemAtendimento" AS origem, count(*)::int AS faturas, coalesce(sum(i.valor), 0)::float AS valor
+        FROM invoices i
+       WHERE i."tenantId" = ${tenantId} AND i.status = 'PAGA' AND i."origemAtendimento" IS NOT NULL AND i."pagoEm" BETWEEN ${p.gte} AND ${p.lte}
+       GROUP BY 1 ORDER BY valor DESC`;
+    const base = montarRelatorio({
       de: p.gte, ate: p.lte, janelaDias: p.janela,
       disparos, contatadosPorOp, contatadosTotal: contatadosTotal[0]?.n ?? 0, recuperados,
       usuarios: usuarios.map((u) => ({ id: u.id, nome: u.nome, role: u.role, ativo: u.ativo, carteira: u.carteira?.nome ?? null })),
@@ -92,6 +97,7 @@ export class RelatorioRecuperacaoService {
       contas, pendentesAtribuicao: pendentes,
       clientesPorOp,
     });
+    return { ...base, origensAtendimento };
   }
 
   /**
@@ -106,54 +112,54 @@ export class RelatorioRecuperacaoService {
     const fmt = (d?: Date | null) => (d ? d.toLocaleString('pt-BR', { timeZone: p.timezone, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
     const fmtDia = (d?: Date | null) => (d ? d.toLocaleDateString('pt-BR', { timeZone: p.timezone }) : '');
     const venc = (d: Date) => d.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
-    type Linha = { customerId: string; cliente: string; telefone: string | null; canal?: string; quando?: string; origem?: string; valor?: number; detalhe?: string; extra?: string };
+    type Linha = { customerId: string; cliente: string; telefone: string | null; fatura?: string; contrato?: string | null; canal?: string; quando?: string; origem?: string; valor?: number; detalhe?: string; extra?: string };
     let titulo = '';
     let linhas: Linha[] = [];
 
     if (tipo === 'manuais' || tipo === 'automaticos') {
       const manual = tipo === 'manuais';
       titulo = manual ? 'Contatos manuais enviados por esta pessoa' : 'Disparos automáticos para os clientes desta pessoa';
-      const rows = await this.prisma.$queryRaw<{ customerId: string; nome: string; telefone: string | null; canal: string; quando: Date; status: string; conteudo: string; regua: string | null }[]>`
-        SELECT d."customerId", c.nome, c.telefone, d.canal::text AS canal, coalesce(d."enviadoEm", d."createdAt") AS quando,
+      const rows = await this.prisma.$queryRaw<{ customerId: string; nome: string; telefone: string | null; contrato: string | null; fatura: string | null; canal: string; quando: Date; status: string; conteudo: string; regua: string | null }[]>`
+        SELECT d."customerId", c.nome, c.telefone, c.contrato, coalesce(i."sourceExternalId", i."externalId") AS fatura, d.canal::text AS canal, coalesce(d."enviadoEm", d."createdAt") AS quando,
                d.status::text AS status, left(coalesce(d.conteudo, ''), 140) AS conteudo, d."ruleNome" AS regua
-          FROM message_dispatches d JOIN customers c ON c.id = d."customerId"
+          FROM message_dispatches d JOIN customers c ON c.id = d."customerId" LEFT JOIN invoices i ON i.id = d."invoiceId"
          WHERE d."tenantId" = ${tenantId} AND d.status IN ('ENVIADO','ENTREGUE','LIDO') AND d.canal <> 'WEBHOOK'
            AND d."createdAt" BETWEEN ${p.gte} AND ${p.lte}
            AND (${manual} = (d.origem = 'MANUAL'))
            AND (${manual} OR d.origem IN ('REGUA','CAMPANHA'))
            AND (CASE WHEN ${manual} AND d."userId" IS NOT NULL THEN d."userId" ELSE c."responsavelId" END) IS NOT DISTINCT FROM ${opId}
          ORDER BY quando DESC LIMIT 1000`;
-      linhas = rows.map((r) => ({ customerId: r.customerId, cliente: r.nome, telefone: r.telefone, canal: nomeCanal(r.canal), quando: fmt(r.quando), origem: manual ? 'Manual' : 'Régua', detalhe: r.conteudo || r.regua || '' }));
+      linhas = rows.map((r) => ({ customerId: r.customerId, cliente: r.nome, telefone: r.telefone, fatura: r.fatura ?? undefined, contrato: r.contrato, canal: nomeCanal(r.canal), quando: fmt(r.quando), origem: manual ? 'Manual' : 'Régua', detalhe: r.conteudo || r.regua || '' }));
     } else if (tipo === 'contatados') {
       titulo = 'Clientes contatados (régua ou manual) no período';
-      const rows = await this.prisma.$queryRaw<{ customerId: string; nome: string; telefone: string | null; n: number; manuais: number; ultimo: Date }[]>`
-        SELECT d."customerId", c.nome, c.telefone, count(*)::int AS n, count(*) FILTER (WHERE d.origem = 'MANUAL')::int AS manuais,
+      const rows = await this.prisma.$queryRaw<{ customerId: string; nome: string; telefone: string | null; contrato: string | null; n: number; manuais: number; ultimo: Date }[]>`
+        SELECT d."customerId", c.nome, c.telefone, c.contrato, count(*)::int AS n, count(*) FILTER (WHERE d.origem = 'MANUAL')::int AS manuais,
                max(coalesce(d."enviadoEm", d."createdAt")) AS ultimo
           FROM message_dispatches d JOIN customers c ON c.id = d."customerId"
          WHERE d."tenantId" = ${tenantId} AND d.status IN ('ENVIADO','ENTREGUE','LIDO') AND d.canal <> 'WEBHOOK'
            AND d.origem IN ('REGUA','MANUAL','CAMPANHA') AND d."createdAt" BETWEEN ${p.gte} AND ${p.lte}
            AND (CASE WHEN d.origem = 'MANUAL' AND d."userId" IS NOT NULL THEN d."userId" ELSE c."responsavelId" END) IS NOT DISTINCT FROM ${opId}
-         GROUP BY 1,2,3 ORDER BY ultimo DESC LIMIT 1000`;
-      linhas = rows.map((r) => ({ customerId: r.customerId, cliente: r.nome, telefone: r.telefone, quando: fmt(r.ultimo), detalhe: `${r.n} mensagem(ns) · ${r.manuais} manual(is)` }));
+         GROUP BY 1,2,3,4 ORDER BY ultimo DESC LIMIT 1000`;
+      linhas = rows.map((r) => ({ customerId: r.customerId, cliente: r.nome, telefone: r.telefone, contrato: r.contrato, quando: fmt(r.ultimo), detalhe: `${r.n} mensagem(ns) · ${r.manuais} manual(is)` }));
     } else if (tipo === 'clientes') {
       titulo = 'Clientes vencidos sob responsabilidade desta pessoa';
-      const rows = await this.prisma.$queryRaw<{ customerId: string; nome: string; telefone: string | null; faturas: number; valor: number; venc: Date }[]>`
-        SELECT c.id AS "customerId", c.nome, c.telefone, count(*)::int AS faturas, coalesce(sum(i.valor), 0)::float AS valor, min(i.vencimento) AS venc
+      const rows = await this.prisma.$queryRaw<{ customerId: string; nome: string; telefone: string | null; contrato: string | null; numeros: string | null; faturas: number; valor: number; venc: Date }[]>`
+        SELECT c.id AS "customerId", c.nome, c.telefone, c.contrato, string_agg(DISTINCT coalesce(i."sourceExternalId", i."externalId"), ', ') AS numeros, count(*)::int AS faturas, coalesce(sum(i.valor), 0)::float AS valor, min(i.vencimento) AS venc
           FROM customers c JOIN invoices i ON i."customerId" = c.id
          WHERE c."tenantId" = ${tenantId} AND c.ativo AND c."responsavelId" IS NOT DISTINCT FROM ${opId}
            AND i.status IN ('PENDENTE','VENCIDA') AND i."gestaoCobranca" = 'ATIVA' AND i.vencimento < ${new Date()}
-         GROUP BY 1,2,3 ORDER BY venc ASC LIMIT 1000`;
+         GROUP BY 1,2,3,4 ORDER BY venc ASC LIMIT 1000`;
       const hoje = Date.now();
-      linhas = rows.map((r) => ({ customerId: r.customerId, cliente: r.nome, telefone: r.telefone, valor: r.valor, quando: `venc. ${venc(r.venc)}`, detalhe: `${r.faturas} fatura(s) · ${Math.max(0, Math.round((hoje - r.venc.getTime()) / 86400000))} dias de atraso` }));
+      linhas = rows.map((r) => ({ customerId: r.customerId, cliente: r.nome, telefone: r.telefone, fatura: r.numeros ?? undefined, contrato: r.contrato, valor: r.valor, quando: `venc. ${venc(r.venc)}`, detalhe: `${r.faturas} fatura(s) · ${Math.max(0, Math.round((hoje - r.venc.getTime()) / 86400000))} dias de atraso` }));
     } else if (['recuperado-regua', 'recuperado-manual', 'recuperado-total', 'sem-contato'].includes(tipo)) {
       const origens = tipo === 'recuperado-regua' ? ['REGUA', 'CAMPANHA'] : tipo === 'recuperado-manual' ? ['MANUAL'] : tipo === 'sem-contato' ? ['SEM_CONTATO'] : ['REGUA', 'CAMPANHA', 'MANUAL'];
       titulo = { 'recuperado-regua': 'Faturas recuperadas pela régua', 'recuperado-manual': 'Faturas recuperadas no manual', 'recuperado-total': 'Todas as faturas recuperadas (régua + manual)', 'sem-contato': 'Faturas pagas sem contato' }[tipo]!;
       const rows = await this.prisma.invoice.findMany({
         where: { tenantId, status: 'PAGA', atribuidoEm: { not: null }, pagoEm: { gte: p.gte, lte: p.lte }, recuperadoPorId: opId, recuperadoOrigem: { in: origens as never[] } },
         orderBy: { pagoEm: 'desc' }, take: 1000,
-        select: { valor: true, vencimento: true, pagoEm: true, recuperadoOrigem: true, customer: { select: { id: true, nome: true, telefone: true } } },
+        select: { valor: true, vencimento: true, pagoEm: true, recuperadoOrigem: true, sourceExternalId: true, externalId: true, origemAtendimento: true, customer: { select: { id: true, nome: true, telefone: true, contrato: true } } },
       });
-      linhas = rows.map((r) => ({ customerId: r.customer.id, cliente: r.customer.nome, telefone: r.customer.telefone, valor: Number(r.valor), quando: `pago ${fmtDia(r.pagoEm)}`, origem: ROTULO_ORIGEM[r.recuperadoOrigem ?? 'SEM_CONTATO'], detalhe: `venc. ${venc(r.vencimento)}` }));
+      linhas = rows.map((r) => ({ customerId: r.customer.id, cliente: r.customer.nome, telefone: r.customer.telefone, fatura: r.sourceExternalId ?? r.externalId ?? undefined, contrato: r.customer.contrato, valor: Number(r.valor), quando: `pago ${fmtDia(r.pagoEm)}`, origem: ROTULO_ORIGEM[r.recuperadoOrigem ?? 'SEM_CONTATO'], detalhe: `venc. ${venc(r.vencimento)}${r.origemAtendimento ? ` · origem: ${r.origemAtendimento}` : ''}` }));
     } else {
       throw new BadRequestException('Tipo de detalhe inválido');
     }
@@ -211,7 +217,8 @@ export class RelatorioRecuperacaoService {
       orderBy: { pagoEm: 'desc' },
       take: MAX_DETALHE,
       select: {
-        id: true, valor: true, vencimento: true, pagoEm: true, diasAtrasoPagamento: true,
+        id: true, valor: true, vencimento: true, pagoEm: true, diasAtrasoPagamento: true, sourceExternalId: true, externalId: true, descricao: true,
+        origemAtendimento: true, negociadoPor: { select: { nome: true } },
         recuperadoOrigem: true, recuperadoCarteira: true, recuperadoDispatchId: true,
         recuperadoPor: { select: { nome: true } },
         customer: { select: { nome: true, doc: true, contrato: true } },
@@ -233,6 +240,7 @@ export class RelatorioRecuperacaoService {
         Cliente: f.customer.nome,
         Documento: f.customer.doc,
         Contrato: f.customer.contrato ?? '',
+        'Nº da fatura': f.sourceExternalId ?? f.externalId ?? f.id,
         Valor: Number(f.valor),
         Vencimento: venc(f.vencimento),
         'Pago em': dt(f.pagoEm),
@@ -240,6 +248,8 @@ export class RelatorioRecuperacaoService {
         Carteira: f.recuperadoCarteira ?? 'Antes da carteira',
         'Responsável (crédito)': f.recuperadoPor?.nome ?? 'Sem responsável',
         'Origem do último contato': ROTULO_ORIGEM[f.recuperadoOrigem ?? 'SEM_CONTATO'],
+        'Origem do atendimento': f.origemAtendimento ?? '',
+        'Negociado por': f.negociadoPor?.nome ?? '',
         'Último contato em': d ? dt(d.enviadoEm ?? d.createdAt) : '',
         'Canal': d ? nomeCanal(d.canal) : f.recuperadoOrigem === 'MANUAL' ? nomeCanal('NOTA') : '',
         'Número/conta': d?.channelAccount ? [d.channelAccount.apelido, d.channelAccount.numero].filter(Boolean).join(' · ') : '',
@@ -304,7 +314,7 @@ export const ROTULO_ORIGEM: Record<string, string> = {
 };
 
 const COLUNAS_VAZIAS = {
-  Cliente: '', Documento: '', Contrato: '', Valor: '', Vencimento: '', 'Pago em': '', 'Dias de atraso': '', Carteira: '',
-  'Responsável (crédito)': '', 'Origem do último contato': '', 'Último contato em': '', Canal: '', 'Número/conta': '', 'Enviado por': '',
+  Cliente: '', Documento: '', Contrato: '', 'Nº da fatura': '', Valor: '', Vencimento: '', 'Pago em': '', 'Dias de atraso': '', Carteira: '',
+  'Responsável (crédito)': '', 'Origem do último contato': '', 'Origem do atendimento': '', 'Negociado por': '', 'Último contato em': '', Canal: '', 'Número/conta': '', 'Enviado por': '',
 };
 

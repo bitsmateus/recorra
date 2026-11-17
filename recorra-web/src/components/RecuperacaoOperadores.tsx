@@ -27,6 +27,7 @@ interface Relatorio {
     recebido: Soma;
   };
   operadores: Operador[];
+  origensAtendimento?: { origem: string; faturas: number; valor: number }[];
   carteiras: { nome: string; recuperado: PorOrigem; faturas: number; valor: number }[];
   canais: { canal: string; conta: string; disparosRegua: number; disparosManuais: number; faturas: number; valor: number }[];
   serie: ({ dia: string } & Record<Origem, number>)[];
@@ -255,6 +256,17 @@ export function RecuperacaoOperadores() {
             <GraficoDiario serie={rel.serie} />
           </div>
 
+          {!!rel.origensAtendimento?.length && (
+            <Secao titulo="Por origem do atendimento" sub="Pagamentos em que a origem foi registrada na cobrança (ligação, Omni, chamado...), com o crédito para quem negociou.">
+              <table className="w-full min-w-[420px] text-sm">
+                <thead className="border-b border-line text-left text-xs uppercase text-muted"><tr><th className="py-2 font-medium">Origem</th><th className="py-2 text-right font-medium">Faturas</th><th className="py-2 text-right font-medium">Recuperado</th></tr></thead>
+                <tbody>{rel.origensAtendimento.map((o) => (
+                  <tr key={o.origem} className="border-b border-line last:border-0"><td className="py-2 font-medium text-ink">{o.origem}</td><td className="tabular py-2 text-right">{num(o.faturas)}</td><td className="tabular py-2 text-right">{brl(o.valor)}</td></tr>
+                ))}</tbody>
+              </table>
+            </Secao>
+          )}
+
           <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
             <Secao titulo="Por carteira" sub="Pela faixa de atraso no dia do pagamento.">
               <table className="w-full min-w-[520px] text-sm">
@@ -310,7 +322,7 @@ function Cel({ children, onClick, forte, suave }: { children: React.ReactNode; o
   );
 }
 
-interface LinhaDet { customerId: string; cliente: string; telefone: string | null; canal?: string; quando?: string; origem?: string; valor?: number; detalhe?: string }
+interface LinhaDet { customerId: string; cliente: string; telefone: string | null; fatura?: string; contrato?: string | null; canal?: string; quando?: string; origem?: string; valor?: number; detalhe?: string }
 /** Lista de clientes/faturas/envios por trás de um número da tabela. */
 function DetalheOperador({ det, query, onClose }: { det: { operador: string; nome: string; tipo: string; rotulo: string }; query: string; onClose: () => void }) {
   const [d, setD] = useState<{ titulo: string; total: number; limitado: boolean; linhas: LinhaDet[] } | null | undefined>(undefined);
@@ -327,6 +339,17 @@ function DetalheOperador({ det, query, onClose }: { det: { operador: string; nom
   const temValor = linhas.some((l) => l.valor !== undefined);
   const temCanal = linhas.some((l) => l.canal);
   const totalValor = linhas.reduce((t, l) => t + (l.valor ?? 0), 0);
+  /** Exporta o que está na tela (já com a busca aplicada) em CSV pronto para o Excel. */
+  function exportar() {
+    const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const cab = ['Cliente', 'Telefone', 'Nº da fatura', 'Contrato', 'Canal', 'Quando', 'Origem', 'Valor', 'Detalhe'];
+    const linhasCsv = linhas.map((l) => [l.cliente, l.telefone, l.fatura, l.contrato, l.canal, l.quando, l.origem, l.valor !== undefined ? l.valor.toFixed(2).replace('.', ',') : '', l.detalhe].map(esc).join(';'));
+    const blob = new Blob(['\ufeff' + [cab.map(esc).join(';'), ...linhasCsv].join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${det.nome}-${det.tipo}.csv`.replace(/\s+/g, '_');
+    a.click(); URL.revokeObjectURL(a.href);
+  }
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onClick={onClose}>
       <div role="dialog" aria-label={det.rotulo} className="flex h-full w-full max-w-3xl flex-col bg-surface shadow-xl" onClick={(e) => e.stopPropagation()}>
@@ -335,7 +358,10 @@ function DetalheOperador({ det, query, onClose }: { det: { operador: string; nom
             <h3 className="text-base font-semibold text-ink">{det.nome} · {det.rotulo}</h3>
             <p className="text-xs text-muted">{d ? `${d.titulo} · ${d.total}${d.limitado ? '+' : ''} registro(s)` : 'Carregando…'}{temValor && d ? ` · ${brl(totalValor)}` : ''}</p>
           </div>
-          <button onClick={onClose} aria-label="Fechar" className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>
+          <div className="flex items-center gap-2">
+            <button onClick={exportar} disabled={!linhas.length} className="flex items-center gap-1.5 rounded border border-line px-3 py-1.5 text-xs hover:bg-canvas disabled:opacity-50"><Download size={13} /> Exportar CSV</button>
+            <button onClick={onClose} aria-label="Fechar" className="rounded p-1 text-muted hover:bg-canvas"><X size={18} /></button>
+          </div>
         </div>
         <div className="border-b border-line p-3">
           <span className="flex items-center gap-1 rounded border border-line px-2 py-1.5 focus-within:border-primary"><Search size={13} className="text-muted" /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar cliente ou telefone" className="w-full bg-transparent text-sm outline-none" /></span>
@@ -347,12 +373,13 @@ function DetalheOperador({ det, query, onClose }: { det: { operador: string; nom
           {d && linhas.length > 0 && (
             <table className="w-full min-w-[560px] text-sm">
               <thead className="border-b border-line text-left text-xs uppercase text-muted">
-                <tr><th className="py-2 font-medium">Cliente</th>{temCanal && <th className="py-2 font-medium">Canal</th>}<th className="py-2 font-medium">Quando</th>{temValor && <th className="py-2 text-right font-medium">Valor</th>}<th className="py-2 pl-3 font-medium">Detalhe</th></tr>
+                <tr><th className="py-2 font-medium">Cliente</th><th className="py-2 font-medium">Fatura / contrato</th>{temCanal && <th className="py-2 font-medium">Canal</th>}<th className="py-2 font-medium">Quando</th>{temValor && <th className="py-2 text-right font-medium">Valor</th>}<th className="py-2 pl-3 font-medium">Detalhe</th></tr>
               </thead>
               <tbody>
                 {linhas.map((l, i) => (
                   <tr key={`${l.customerId}-${i}`} className="border-b border-line align-top last:border-0">
                     <td className="py-2"><Link href={`/clientes/${l.customerId}`} className="inline-flex items-center gap-1 font-medium text-ink hover:text-primary hover:underline">{l.cliente}<ExternalLink size={11} className="text-muted" /></Link><span className="block text-[11px] text-muted">{l.telefone ?? 'sem telefone'}</span></td>
+                    <td className="py-2 text-xs text-muted">{l.fatura ? <>Fat. {l.fatura}</> : '—'}{l.contrato ? <span className="block">Contr. {l.contrato}</span> : null}</td>
                     {temCanal && <td className="py-2 text-muted">{l.canal ?? ''}</td>}
                     <td className="whitespace-nowrap py-2 text-muted">{l.quando ?? ''}{l.origem && <span className="block text-[11px]">{l.origem}</span>}</td>
                     {temValor && <td className="tabular py-2 text-right">{l.valor !== undefined ? brl(l.valor) : ''}</td>}

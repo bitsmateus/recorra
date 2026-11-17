@@ -374,7 +374,7 @@ export class CustomersService {
     const [risco, features, faturas, disparos, acordos, assinaturas, notas] = await Promise.all([
       this.prisma.riskScore.findFirst({ where: { tenantId, customerId: id }, orderBy: { calculadoEm: "desc" } }),
       this.prisma.paymentHistoryFeature.findUnique({ where: { customerId: id } }),
-      this.prisma.invoice.findMany({ where: { tenantId, customerId: id }, orderBy: { vencimento: "desc" }, take: 100 }),
+      this.prisma.invoice.findMany({ where: { tenantId, customerId: id }, orderBy: { vencimento: "desc" }, take: 100, include: { negociadoPor: { select: { nome: true } } } }),
       this.prisma.messageDispatch.findMany({
         where: { tenantId, customerId: id }, orderBy: { createdAt: "desc" }, take: 100,
         include: { user: { select: { nome: true } }, channelAccount: { select: { apelido: true, numero: true } } },

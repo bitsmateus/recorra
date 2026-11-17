@@ -60,6 +60,37 @@ export class ChargesController {
     return this.charges.exportInvoices(tenantId, filtros);
   }
 
+  /** Opções do campo "origem do atendimento" (Ligação, Omni...). */
+  @Get('origens')
+  origens(@TenantId() tenantId: string) {
+    return this.charges.listarOrigens(tenantId);
+  }
+
+  @Post('origens')
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO', 'OPERADOR')
+  criarOrigem(@TenantId() tenantId: string, @Body('nome') nome: string) {
+    return this.charges.criarOrigem(tenantId, nome);
+  }
+
+  @Delete('origens/:id')
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
+  removerOrigem(@TenantId() tenantId: string, @Param('id') id: string) {
+    return this.charges.removerOrigem(tenantId, id);
+  }
+
+  /** Origem do atendimento da cobrança + quem negociou (o crédito vai para essa pessoa). */
+  @Put(':invoiceId/origem')
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO', 'OPERADOR')
+  definirOrigem(
+    @TenantId() tenantId: string,
+    @CurrentUser() actor: AuthUser,
+    @Param('invoiceId') invoiceId: string,
+    @Body('origem') origem?: string | null,
+    @Body('negociadoPorId') negociadoPorId?: string | null,
+  ) {
+    return this.charges.definirOrigem(tenantId, invoiceId, { origem, negociadoPorId }, actor);
+  }
+
   @Put(':invoiceId')
   @Roles('OWNER', 'ADMIN', 'FINANCEIRO')
   editar(

@@ -218,6 +218,7 @@ model Tenant {
   carteiras          Carteira[]
   nxTicketRoutes     NxTicketRoute[]
   esteiraColunas     EsteiraColuna[]
+  origensAtendimento OrigemAtendimento[]
 
   @@index([reguaPadraoId])
   @@map("tenants")
@@ -312,6 +313,7 @@ model User {
   clientesResponsavel Customer[]        @relation("ClienteResponsavel")
   disparos            MessageDispatch[] @relation("DisparosDoUsuario")
   recuperacoes        Invoice[]         @relation("RecuperacoesDoUsuario")
+  negociacoes         Invoice[]         @relation("NegociacoesDoUsuario")
   acordosCriados      Agreement[]       @relation("AcordosCriados")
 
   @@unique([tenantId, email])
@@ -359,16 +361,16 @@ model Customer {
 
   // Faixa de risco atual, desnormalizada do último RiskScore — permite filtrar/
   // paginar por risco no banco (segmentação e público de campanha) sem pós-filtro.
-  faixaAtual        RiskBand?
+  faixaAtual            RiskBand?
   // Faixa definida À MÃO por um usuário (sobrepõe a calculada até alguém voltar ao
   // automático). Com ela preenchida, faixaAtual = riscoManual.
-  riscoManual       RiskBand?
-  riscoManualMotivo String?
-  riscoManualPorId  String?
-  riscoManualEm     DateTime?
+  riscoManual           RiskBand?
+  riscoManualMotivo     String?
+  riscoManualPorId      String?
+  riscoManualEm         DateTime?
   // Promessa de pagamento: a cobrança AUTOMÁTICA (régua) fica pausada até esta data
   // (inclusive). Passou a data sem pagar, a régua volta sozinha.
-  promessaAte       DateTime?
+  promessaAte           DateTime?
   // Pausa MANUAL da cobrança automática do cliente (botão na linha do tempo): a régua não
   // envia nada até alguém retomar. Independe da promessa.
   cobrancaPausada       Boolean   @default(false)
@@ -589,6 +591,12 @@ model Invoice {
   // Coluna personalizada da esteira em que alguém colocou o card À MÃO (null =
   // segue a regra de dias da coluna). Ver EsteiraColuna.
   esteiraColunaId      String?
+  // Origem do atendimento/negociação (ex.: Ligação, Omni, Chamado) e quem negociou — para
+  // pagamentos que vieram por fora da régua. Se houver "negociado por", o crédito da
+  // recuperação vai para essa pessoa (origem MANUAL). Opções configuráveis em OrigemAtendimento.
+  origemAtendimento    String?
+  negociadoPorId       String?
+  origemAtendimentoEm  DateTime?
   createdAt            DateTime                @default(now())
   updatedAt            DateTime                @updatedAt
 
@@ -597,6 +605,7 @@ model Invoice {
   providerAccount PaymentProviderAccount? @relation(fields: [providerAccountId], references: [id])
   recuperadoPor   User?                   @relation("RecuperacoesDoUsuario", fields: [recuperadoPorId], references: [id], onDelete: SetNull)
   esteiraColuna   EsteiraColuna?          @relation(fields: [esteiraColunaId], references: [id], onDelete: SetNull)
+  negociadoPor    User?                   @relation("NegociacoesDoUsuario", fields: [negociadoPorId], references: [id], onDelete: SetNull)
   dispatches      MessageDispatch[]
 
   @@unique([tenantId, provider, externalId])
@@ -606,6 +615,20 @@ model Invoice {
   @@index([tenantId, pagoEm])
   @@index([tenantId, recuperadoPorId, pagoEm])
   @@map("invoices")
+}
+
+/// Opções do campo "origem do atendimento" da cobrança (Ligação, Omni, Chamado...). Cada empresa cria as suas.
+model OrigemAtendimento {
+  id        String   @id @default(cuid())
+  tenantId  String
+  nome      String
+  ordem     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, nome])
+  @@map("origens_atendimento")
 }
 
 model Subscription {

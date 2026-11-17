@@ -58,7 +58,7 @@ export class AtribuicaoService {
       this.prisma.carteira.findMany({ where: { tenantId }, select: { id: true, nome: true, diaMinimo: true } }),
       this.prisma.invoice.findMany({
         where: { tenantId, id: { in: invoiceIds }, status: 'PAGA' },
-        select: { id: true, customerId: true, vencimento: true, pagoEm: true, updatedAt: true, customer: { select: { responsavelId: true } } },
+        select: { id: true, customerId: true, vencimento: true, pagoEm: true, updatedAt: true, origemAtendimento: true, negociadoPorId: true, customer: { select: { responsavelId: true } } },
       }),
     ]);
     if (!faturas.length) return 0;
@@ -113,6 +113,8 @@ export class AtribuicaoService {
         contatos: contatos.get(f.customerId) ?? [],
         timezone: tenant.timezone,
       });
+      // Negociação registrada à mão (ligação/Omni...): o crédito é de quem negociou, como contato manual.
+      if (f.origemAtendimento && f.negociadoPorId) { a.recuperadoOrigem = 'MANUAL'; a.recuperadoPorId = f.negociadoPorId; }
       // atribuidoEm >= pagoEm: garante que o critério "atribuidoEm < pagoEm" não reprocessa.
       const marca = pagoEm > agora ? pagoEm : agora;
       await this.prisma.invoice.update({

@@ -1,5 +1,6 @@
 import { ForbiddenException, Injectable, NotFoundException , BadRequestException } from '@nestjs/common';
 import { ChargeMethod, InvoiceStatus, Prisma } from '@prisma/client';
+import { AuthUser } from '@/common/auth/jwt.types';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { AuditService } from '@/common/audit/audit.service';
 import { PaymentProviderFactory } from './payment-provider.factory';
@@ -44,6 +45,74 @@ export class ChargesService {
     private readonly audit: AuditService,
     private readonly sync: SyncService,
   ) {}
+
+  // ── Origem do atendimento (Ligação, Omni, Chamado...) ─────────────────────────────
+  private static readonly ORIGENS_PADRAO = ['Ligação', 'Omni', 'WhatsApp (outro número)', 'Chamado', 'Presencial'];
+
+  /** Opções da empresa; na primeira vez já nasce com as mais comuns. */
+  async listarOrigens(tenantId: string) {
+    const n = await this.prisma.origemAtendimento.count({ where: { tenantId } });
+    if (n === 0) {
+      await this.prisma.origemAtendimento.createMany({
+        data: ChargesService.ORIGENS_PADRAO.map((nome, ordem) => ({ tenantId, nome, ordem })),
+        skipDuplicates: true,
+      });
+    }
+    return this.prisma.origemAtendimento.findMany({ where: { tenantId }, orderBy: [{ ordem: 'asc' }, { nome: 'asc' }], select: { id: true, nome: true } });
+  }
+
+  async criarOrigem(tenantId: string, nomeBruto: string) {
+    const nome = (nomeBruto ?? '').trim().slice(0, 40);
+    if (!nome) throw new BadRequestException('Informe o nome da origem');
+    await this.listarOrigens(tenantId); // garante as padrão antes de acrescentar
+    const max = await this.prisma.origemAtendimento.aggregate({ where: { tenantId }, _max: { ordem: true } });
+    return this.prisma.origemAtendimento.upsert({
+      where: { tenantId_nome: { tenantId, nome } },
+      update: {},
+      create: { tenantId, nome, ordem: (max._max.ordem ?? 0) + 1 },
+      select: { id: true, nome: true },
+    });
+  }
+
+  async removerOrigem(tenantId: string, id: string) {
+    const o = await this.prisma.origemAtendimento.findFirst({ where: { id, tenantId } });
+    if (!o) throw new NotFoundException('Origem não encontrada');
+    await this.prisma.origemAtendimento.delete({ where: { id } });
+    return { ok: true }; // faturas já marcadas mantêm o nome gravado
+  }
+
+  /**
+   * Registra de onde veio o atendimento/pagamento desta cobrança e quem negociou. Com "negociado
+   * por", o crédito da recuperação passa a ser dessa pessoa (contato manual) — é o caso do cliente
+   * que liga ou entra por outro canal e é atendido por quem não é a responsável. Operador só
+   * registra em seu próprio nome; gestão pode indicar qualquer pessoa.
+   */
+  async definirOrigem(tenantId: string, invoiceId: string, dto: { origem?: string | null; negociadoPorId?: string | null }, actor: AuthUser) {
+    const inv = await this.prisma.invoice.findFirst({ where: { id: invoiceId, tenantId } });
+    if (!inv) throw new NotFoundException('Fatura não encontrada');
+    const gestao = ['OWNER', 'ADMIN', 'FINANCEIRO'].includes(actor.role);
+    const origem = (dto.origem ?? '').trim().slice(0, 40) || null;
+    let negociadoPorId = origem ? (dto.negociadoPorId === undefined ? inv.negociadoPorId ?? actor.id : dto.negociadoPorId) : null;
+    if (origem && !negociadoPorId) negociadoPorId = actor.id;
+    if (negociadoPorId && negociadoPorId !== actor.id) {
+      if (!gestao) throw new ForbiddenException('Só a gestão pode indicar outra pessoa como responsável pela negociação.');
+      const u = await this.prisma.user.findFirst({ where: { id: negociadoPorId, tenantId }, select: { id: true } });
+      if (!u) throw new BadRequestException('Usuário não encontrado neste tenant');
+    }
+    if (origem) await this.criarOrigem(tenantId, origem); // uma origem digitada à mão vira opção da lista
+    const base = { origemAtendimento: origem, negociadoPorId, origemAtendimentoEm: origem ? new Date() : null };
+    // Já paga: o crédito muda na hora (negociou → manual para ela); sem origem, a atribuição é refeita pelo worker.
+    const extra: Record<string, unknown> =
+      inv.status === 'PAGA'
+        ? origem && negociadoPorId ? { recuperadoOrigem: 'MANUAL', recuperadoPorId: negociadoPorId } : { atribuidoEm: null }
+        : {};
+    await this.prisma.invoice.update({ where: { id: invoiceId }, data: { ...base, ...extra } });
+    await this.audit.record({
+      tenantId, userId: actor.id, acao: 'invoice.origem', entidade: 'Invoice', entidadeId: invoiceId,
+      antes: { origem: inv.origemAtendimento, negociadoPorId: inv.negociadoPorId }, depois: { origem, negociadoPorId },
+    });
+    return { ok: true, origem, negociadoPorId };
+  }
 
   /**
    * Busca sob demanda o Pix/boleto/link de UMA fatura, na fonte certa:
