@@ -41,12 +41,15 @@ export const HELP_TOPICS: HelpTopic[] = [
   {
     id: 'dashboard', section: 'Visão e análises', title: 'Dashboard',
     summary: 'Leitura dos principais números de cobrança e recuperação no período selecionado.',
-    steps: ['Escolha o período no topo do Dashboard.', 'Leia inadimplência, recuperado, cobranças ativas e disparos.', 'Use a composição por idade para identificar concentração de vencidas.', 'Abra Relatórios quando precisar de detalhamento ou exportação.'],
+    steps: ['Escolha o período no topo do Dashboard.', 'Leia inadimplência, recuperado, cobranças ativas e disparos.', 'Use a composição por idade para identificar concentração de vencidas.', 'Mais abaixo, em "Por operador", compare os disparos e os chamados de cada pessoa da equipe no mesmo período.', 'Abra Relatórios quando precisar de detalhamento ou exportação.'],
     rules: [
       'Inadimplência considera cobranças VENCIDAS e ATIVAS cujo vencimento está dentro do período.',
       'Recuperado considera cobranças PAGAS de acordo com o recorte usado pelo indicador.',
       'Cobranças LEGADO não compõem a inadimplência operacional atual.',
       'Disparos são recortados pela data do envio; faturas são recortadas pela data de vencimento.',
+      'Por operador — Disparos: "Régua" conta as mensagens automáticas (e de campanha) enviadas aos clientes de que a pessoa é responsável; "Manuais" são as que ela enviou; "Chat NX" são as conversas dela registradas pelo webhook do NX. Falhas = disparos que não saíram. "Sem responsável" são clientes ainda não distribuídos.',
+      'Por operador — Chamados (atendimentos): "Atendidos" = conversas da pessoa no chat do NX (uma por atendimento por dia) + conversas que ela respondeu na caixa de entrada do Recorrai. "Cliente respondeu" = clientes dela que responderam e caíram na fila dela; "Promessas" = promessas que ela registrou. O chat NX depende do webhook ligado em Canais.',
+      'A seção "Por operador" aparece só para quem vê o painel geral (administração ou Relatórios liberado); o operador vê o "Meu painel".',
     ],
   },
   {

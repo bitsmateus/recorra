@@ -315,6 +315,27 @@ async function main() {
     }),
   });
 
+  // ---------------- Conversas na caixa de entrada (clientes que responderam, operadora respondeu) ----------------
+  const conversando = await prisma.customer.findMany({
+    where: { tenantId: TENANT_ID, responsavelId: { not: null }, telefone: { not: null } },
+    select: { id: true, telefone: true, responsavelId: true }, take: 36, skip: 60,
+  });
+  for (const [k, c] of conversando.entries()) {
+    const quando = new Date(agora.getTime() - entre(1, 18) * DIA - entre(0, 8) * 3_600_000);
+    const conv = await prisma.conversation.create({
+      data: {
+        tenantId: TENANT_ID, customerId: c.id, canal: 'NX_SYSTEMS', contato: c.telefone!, status: k % 3 === 0 ? 'RESOLVIDA' : 'ABERTA',
+        channelAccountId: k % 2 ? l2000.id : l3000.id, ultimaMensagem: 'Combinado, aguardo o comprovante.', ultimaMensagemEm: quando,
+      },
+    });
+    await prisma.inboxMessage.createMany({
+      data: [
+        { tenantId: TENANT_ID, conversationId: conv.id, direcao: 'IN', texto: 'Oi, consigo pagar na sexta?', autor: 'cliente', createdAt: new Date(quando.getTime() - 20 * 60_000) },
+        { tenantId: TENANT_ID, conversationId: conv.id, direcao: 'OUT', texto: 'Combinado, aguardo o comprovante.', autor: c.responsavelId!, createdAt: quando },
+      ],
+    });
+  }
+
   const [nClientes, nFaturas, nDisp, nManuais, abertas] = await Promise.all([
     prisma.customer.count({ where: { tenantId: TENANT_ID } }),
     prisma.invoice.count({ where: { tenantId: TENANT_ID } }),

@@ -6,6 +6,7 @@ import { Check, Circle, HelpCircle, Filter, X, MessageCircle, Mail, Smartphone, 
 import { api } from '@/lib/api';
 import { PageTitle, Metric, brl } from '@/components/ui';
 import { MeuPainel } from '@/components/MeuPainel';
+import { OperadoresDashboard } from '@/components/OperadoresDashboard';
 import { PERIODOS, PeriodoChave, intervaloDe, rotuloPeriodo } from '@/lib/periodo';
 
 interface Resumo {
@@ -381,6 +382,8 @@ function DashboardGeral() {
             <CanaisCard dados={canais} rotulo={rotulo} />
             <SerieChart serie={serie} meses={meses} onMeses={setMeses} />
           </div>
+
+          <OperadoresDashboard query={query} rotulo={rotulo} />
         </>
       )}
       {!data && !erro && <p className="text-sm text-muted">Carregando...</p>}

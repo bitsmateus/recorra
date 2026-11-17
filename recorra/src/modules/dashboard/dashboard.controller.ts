@@ -167,6 +167,92 @@ export class DashboardController {
   }
 
   /** Aging: contas a receber em aberto e vencidas, agrupadas por faixa de dias. */
+  /**
+   * Disparos e chamados POR OPERADOR no período (a mesma janela do resto do painel).
+   *
+   * Disparos: quem enviou (manual) ou a responsável pelo cliente (régua/campanha).
+   * Chamados (atendimentos): o que a pessoa de fato atendeu — chat do NX (conversa
+   * registrada pelo webhook), respostas na caixa de entrada do Recorrai, clientes que
+   * responderam e caíram na fila dela, e promessas que ela registrou.
+   */
+  @Get('operadores')
+  async operadores(@TenantId() tenantId: string, @Query('de') de?: string, @Query('ate') ate?: string) {
+    const per = await this.periodo(tenantId, de, ate);
+    const gte = per.gte ?? inicioDoMes();
+    const lte = per.lte ?? new Date();
+
+    type Linha = { operadorId: string | null; [k: string]: number | string | null };
+    const [disparos, recebidos, inbox, promessas, usuarios] = await Promise.all([
+      this.prisma.$queryRaw<Linha[]>`
+        SELECT CASE WHEN d.origem = 'MANUAL' AND d."userId" IS NOT NULL THEN d."userId" ELSE c."responsavelId" END AS "operadorId",
+               count(*) FILTER (WHERE d.origem IN ('REGUA','CAMPANHA') AND d.status IN ('ENVIADO','ENTREGUE','LIDO'))::int AS automaticos,
+               count(*) FILTER (WHERE d.origem = 'MANUAL' AND d.template IS DISTINCT FROM 'nx_chat' AND d.status IN ('ENVIADO','ENTREGUE','LIDO'))::int AS manuais,
+               count(*) FILTER (WHERE d.origem = 'MANUAL' AND d.template = 'nx_chat')::int AS "chatNx",
+               count(*) FILTER (WHERE d.status = 'FALHA')::int AS falhas,
+               count(DISTINCT d."customerId") FILTER (WHERE d.status IN ('ENVIADO','ENTREGUE','LIDO'))::int AS clientes
+          FROM message_dispatches d JOIN customers c ON c.id = d."customerId"
+         WHERE d."tenantId" = ${tenantId} AND d.origem IN ('REGUA','MANUAL','CAMPANHA') AND d.canal <> 'WEBHOOK'
+           AND d."createdAt" BETWEEN ${gte} AND ${lte}
+         GROUP BY 1`,
+      // Cliente respondeu e o atendimento foi para a fila dela (a responsável do cliente).
+      this.prisma.$queryRaw<Linha[]>`
+        SELECT COALESCE(r."responsavelId", c."responsavelId") AS "operadorId", count(*)::int AS n
+          FROM nx_ticket_routes r LEFT JOIN customers c ON c.id = r."customerId"
+         WHERE r."tenantId" = ${tenantId} AND r."createdAt" BETWEEN ${gte} AND ${lte}
+         GROUP BY 1`,
+      // Conversas respondidas por uma pessoa na caixa de entrada do Recorrai.
+      this.prisma.$queryRaw<Linha[]>`
+        SELECT m.autor AS "operadorId", count(DISTINCT m."conversationId")::int AS n
+          FROM inbox_messages m JOIN users u ON u.id = m.autor
+         WHERE m."tenantId" = ${tenantId} AND m.direcao = 'OUT' AND m."createdAt" BETWEEN ${gte} AND ${lte}
+         GROUP BY 1`,
+      this.prisma.customerNote.groupBy({
+        by: ['userId'], where: { tenantId, tipo: 'PROMESSA', userId: { not: null }, createdAt: { gte, lte } }, _count: true,
+      }),
+      this.prisma.user.findMany({
+        where: { tenantId, OR: [{ carteiraId: { not: null } }, { role: 'OPERADOR' }] },
+        select: { id: true, nome: true, ativo: true, carteira: { select: { nome: true } } },
+      }),
+    ]);
+
+    const n = (v: unknown) => Number(v ?? 0);
+    const por = <T extends { operadorId: string | null }>(l: T[]) => new Map(l.map((x) => [x.operadorId, x]));
+    const dD = por(disparos), dR = por(recebidos), dI = por(inbox);
+    const dP = new Map(promessas.map((x) => [x.userId, x._count]));
+    const nomes = new Map(usuarios.map((u) => [u.id, u]));
+    // Quem aparece em qualquer coisa entra na lista (mesmo sem carteira); a equipe aparece zerada.
+    const ids = new Set<string | null>([...usuarios.map((u) => u.id), ...dD.keys(), ...dR.keys(), ...dI.keys(), ...dP.keys()]);
+    const extras = await this.prisma.user.findMany({
+      where: { tenantId, id: { in: [...ids].filter((x): x is string => !!x && !nomes.has(x)) } },
+      select: { id: true, nome: true, ativo: true, carteira: { select: { nome: true } } },
+    });
+    for (const u of extras) nomes.set(u.id, u);
+
+    const linhas = [...ids].map((id) => {
+      const u = id ? nomes.get(id) : undefined;
+      const d = dD.get(id), r = dR.get(id), i = dI.get(id);
+      const automaticos = n(d?.automaticos), manuais = n(d?.manuais), chatNx = n(d?.chatNx);
+      return {
+        id, nome: u?.nome ?? 'Sem responsável', carteira: u?.carteira?.nome ?? null, ativo: u?.ativo ?? true,
+        disparos: { automaticos, manuais, chatNx, total: automaticos + manuais + chatNx, falhas: n(d?.falhas), clientes: n(d?.clientes) },
+        chamados: { recebidos: n(r?.n), chatNx, inbox: n(i?.n), promessas: dP.get(id) ?? 0, atendidos: chatNx + n(i?.n) },
+      };
+    })
+      // Quem não tem nada e não é da equipe (carteira) some; a "Sem responsável" só aparece se tiver algo.
+      .filter((l) => l.carteira || l.disparos.total + l.disparos.falhas + l.chamados.recebidos + l.chamados.atendidos + l.chamados.promessas > 0)
+      .sort((a, b) => (a.id === null ? 1 : b.id === null ? -1 : 0) || b.disparos.total + b.chamados.atendidos - (a.disparos.total + a.chamados.atendidos) || a.nome.localeCompare(b.nome));
+
+    const soma = (f: (l: (typeof linhas)[number]) => number) => linhas.reduce((t, l) => t + f(l), 0);
+    return {
+      periodo: { de: gte, ate: lte },
+      operadores: linhas,
+      totais: {
+        disparos: { automaticos: soma((l) => l.disparos.automaticos), manuais: soma((l) => l.disparos.manuais), chatNx: soma((l) => l.disparos.chatNx), falhas: soma((l) => l.disparos.falhas) },
+        chamados: { recebidos: soma((l) => l.chamados.recebidos), atendidos: soma((l) => l.chamados.atendidos), promessas: soma((l) => l.chamados.promessas) },
+      },
+    };
+  }
+
   @Get('aging')
   async aging(@TenantId() tenantId: string, @Query('de') de?: string, @Query('ate') ate?: string) {
     const hoje = new Date();
