@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { UIEvent } from 'react';
 import Link from 'next/link';
-import { RefreshCw, Loader2, CheckCircle2, Clock, XCircle, Phone, ExternalLink, Send, Pause, Play, Pause as PauseIcon, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, X, History, Search, AlertTriangle, StickyNote, Columns3 } from 'lucide-react';
+import { Bot, RefreshCw, Loader2, CheckCircle2, Clock, XCircle, Phone, ExternalLink, Send, Pause, Play, Pause as PauseIcon, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, X, History, Search, AlertTriangle, StickyNote, Columns3 } from 'lucide-react';
 import { api, papelAtual } from '@/lib/api';
 import { PageTitle, brl } from '@/components/ui';
 import { Timeline } from '@/components/Timeline';
@@ -16,6 +16,8 @@ interface Card {
   alertaRescisao?: boolean; alertaSerasa?: boolean; carteira?: string | null; responsavel?: string | null;
   clientePausado?: boolean; clientePausadoMotivo?: string | null; promessaAte?: string | null; promessaSituacao?: 'PAUSADA' | 'VENCIDA' | null;
   colunaManual?: boolean;
+  automatico?: { status: string; canal: string; quando: string } | null;
+  manual?: { quando: string; por: string | null } | null;
 }
 interface Coluna { key: string; label: string; cards: Card[]; total: number; valor: number; colunaId?: string; diaMinimo?: number | null }
 interface ColunaPropria { id: string; nome: string; ordem: number; diaMinimo: number | null }
@@ -88,6 +90,8 @@ export default function AndamentoPage() {
   const [canalFiltro, setCanalFiltro] = useState('');
   const [carteiraFiltro, setCarteiraFiltro] = useState('');
   const [responsavelFiltro, setResponsavelFiltro] = useState('');
+  // Quem cobrou: '' todos | 'sem-manual' (ninguém cobrou à mão) | 'com-manual' | 'automatico' (régua já enviou)
+  const [cobrancaFiltro, setCobrancaFiltro] = useState('');
   // Padrão: TODO o período e TODAS as réguas — a esteira abre mostrando tudo;
   // o usuário recorta pelos filtros quando quiser.
   const [periodo, setPeriodo] = useState<{ de: string; ate: string }>({ de: '', ate: '' });
@@ -130,7 +134,7 @@ export default function AndamentoPage() {
 
   useEffect(() => {
     setVisiveisPorColuna({});
-  }, [situacao, canalFiltro, carteiraFiltro, responsavelFiltro, periodo.de, periodo.ate, ruleId, busca]);
+  }, [situacao, canalFiltro, carteiraFiltro, responsavelFiltro, cobrancaFiltro, periodo.de, periodo.ate, ruleId, busca]);
 
   const carregar = useCallback(async (silencioso = false) => {
     if (!silencioso) setLoading(true);
@@ -201,6 +205,9 @@ export default function AndamentoPage() {
     if (canalFiltro && card.canal !== canalFiltro) return false;
     if (carteiraFiltro && card.carteira !== carteiraFiltro) return false;
     if (responsavelFiltro && card.responsavel !== responsavelFiltro) return false;
+    if (cobrancaFiltro === 'sem-manual' && card.manual) return false;
+    if (cobrancaFiltro === 'com-manual' && !card.manual) return false;
+    if (cobrancaFiltro === 'automatico' && !card.automatico) return false;
     const v = vencKey(card.vencimento);
     if (periodo.de && v < periodo.de) return false;
     if (periodo.ate && v > periodo.ate) return false;
@@ -290,6 +297,12 @@ export default function AndamentoPage() {
               {canaisDisponiveis.map((c) => <option key={c} value={c}>{canalLabel[c] || c}</option>)}
             </select>
           )}
+          <select value={cobrancaFiltro} onChange={(e) => setCobrancaFiltro(e.target.value)} title="Filtrar pelo tipo de cobrança já feita" className="rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-primary">
+            <option value="">Toda cobrança</option>
+            <option value="sem-manual">Sem cobrança manual</option>
+            <option value="com-manual">Já cobrados manualmente</option>
+            <option value="automatico">Já enviados pelo automático</option>
+          </select>
           {dados?.carteira && !dados.carteira.visivel && dados.carteira.todas.length > 1 && (
             <select value={carteiraFiltro} onChange={(e) => setCarteiraFiltro(e.target.value)} className="rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-primary">
               <option value="">Todas as carteiras</option>
@@ -503,10 +516,15 @@ export default function AndamentoPage() {
                                 : <span className={p.cls}>{p.txt}</span>}
                               {c.key === 'sem-contato'
                                 ? <span className="flex items-center gap-1 text-[#854F0B]"><Phone size={12} /> sem contato</span>
-                                : card.ultimoDisparo
-                                  ? <button type="button" onClick={(e) => { e.stopPropagation(); setHistorico({ invoiceId: card.invoiceId, nome: card.nome }); }} title="Ver o que foi enviado e quando" className="flex items-center gap-1 rounded hover:underline">{disparoBadge(card.ultimoDisparo.status)}</button>
-                                  : <span className="text-muted">sem toque ainda</span>}
+                                : card.automatico
+                                  ? <button type="button" onClick={(e) => { e.stopPropagation(); setHistorico({ invoiceId: card.invoiceId, nome: card.nome }); }} title="Último envio AUTOMÁTICO (régua) — ver o que foi enviado e quando" className="flex items-center gap-1 rounded hover:underline"><Bot size={13} className="text-muted" aria-label="automático" />{disparoBadge(card.automatico.status)}</button>
+                                  : <span className="flex items-center gap-1 text-muted" title="A régua ainda não enviou nada"><Bot size={13} /> sem toque ainda</span>}
                             </div>
+                            {c.key !== 'encerradas' && c.key !== 'sem-contato' && (
+                              card.manual
+                                ? <div className="mt-1 flex items-center gap-1 text-[11px] font-medium text-[#0F6E56]" title="Último envio manual"><Send size={11} /> MANUAL · enviado {new Date(card.manual.quando).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}{card.manual.por ? ` · ${card.manual.por}` : ''}</div>
+                                : <div className="mt-1 flex items-center gap-1 text-[11px] font-bold uppercase text-danger" title="Ninguém cobrou este cliente manualmente ainda"><Send size={11} /> MANUAL · não enviado</div>
+                            )}
                             {!dados.carteira?.visivel && dados.carteira?.todas && dados.carteira.todas.length > 1 && card.carteira && (
                               <div className="mt-1 text-[11px] text-muted">carteira: {card.carteira}</div>
                             )}

@@ -35,6 +35,8 @@ export interface AndamentoCard {
   alertaSerasa?: boolean; // atraso já passou do dia configurado para envio ao Serasa (só sinaliza — nada é acionado)
   carteira?: string | null; // nome da carteira dona desta faixa de atraso (null = nenhuma carteira assumiu ainda)
   responsavel?: string | null; // operador atribuído manualmente ao cliente (independente da carteira)
+  automatico?: { status: string; canal: string; quando: Date } | null; // último disparo da régua/campanha
+  manual?: { quando: Date; por: string | null } | null; // último envio manual (por uma pessoa)
   clientePausado?: boolean; // cobrança automática pausada à mão (botão na linha do tempo)
   clientePausadoMotivo?: string | null;
   promessaAte?: Date | null;
@@ -287,11 +289,24 @@ export class RulesService {
       ? await this.prisma.messageDispatch.findMany({
           where: { tenantId, invoiceId: { in: invIds } },
           orderBy: { createdAt: 'desc' },
-          select: { invoiceId: true, status: true, canal: true, enviadoEm: true, agendadoPara: true, createdAt: true },
+          select: { invoiceId: true, status: true, canal: true, enviadoEm: true, agendadoPara: true, createdAt: true, origem: true, userId: true },
         })
       : [];
     const ultimo = new Map<string, (typeof disparos)[number]>();
     for (const d of disparos) if (d.invoiceId && !ultimo.has(d.invoiceId)) ultimo.set(d.invoiceId, d);
+    // Separa quem cobrou: o último AUTOMÁTICO (régua/campanha) e o último MANUAL enviado (por uma pessoa).
+    const ultimoAuto = new Map<string, (typeof disparos)[number]>();
+    const ultimoManual = new Map<string, (typeof disparos)[number]>();
+    for (const d of disparos) {
+      if (!d.invoiceId) continue;
+      if (d.origem === 'MANUAL') {
+        if (!ultimoManual.has(d.invoiceId) && ['ENVIADO', 'ENTREGUE', 'LIDO'].includes(d.status)) ultimoManual.set(d.invoiceId, d);
+      } else if (!ultimoAuto.has(d.invoiceId)) ultimoAuto.set(d.invoiceId, d);
+    }
+    const idsQuemEnviou = [...new Set([...ultimoManual.values()].map((d) => d.userId).filter((x): x is string => !!x))];
+    const nomesUsuarios = new Map(
+      idsQuemEnviou.length ? (await this.prisma.user.findMany({ where: { id: { in: idsQuemEnviou } }, select: { id: true, nome: true } })).map((u) => [u.id, u.nome]) : [],
+    );
 
     const h = new Date();
     const hojeUtc = Date.UTC(h.getUTCFullYear(), h.getUTCMonth(), h.getUTCDate());
@@ -346,6 +361,8 @@ export class RulesService {
         invoiceId: inv.id, customerId: c.id, nome: c.nome, valor: Number(inv.valor),
         vencimento: inv.vencimento, diffDias,
         ultimoDisparo: d ? { status: d.status, canal: d.canal, quando: d.enviadoEm ?? d.agendadoPara ?? d.createdAt } : null,
+        automatico: ultimoAuto.get(inv.id) ? { status: ultimoAuto.get(inv.id)!.status, canal: ultimoAuto.get(inv.id)!.canal, quando: ultimoAuto.get(inv.id)!.enviadoEm ?? ultimoAuto.get(inv.id)!.agendadoPara ?? ultimoAuto.get(inv.id)!.createdAt } : null,
+        manual: ultimoManual.get(inv.id) ? { quando: ultimoManual.get(inv.id)!.enviadoEm ?? ultimoManual.get(inv.id)!.createdAt, por: nomesUsuarios.get(ultimoManual.get(inv.id)!.userId ?? '') ?? null } : null,
         canal: d?.canal ?? (atual !== undefined ? canalDoOffset.get(reguaCard.id)?.get(atual) : undefined),
         pausada: inv.gestaoCobranca === 'PAUSADA',
         statusContrato: c.statusContrato,
