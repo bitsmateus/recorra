@@ -563,8 +563,72 @@ function FlowEditor({
     update({ steps: rule.steps.filter((_, i) => !selSteps.has(i)).map((s, i) => ({ ...s, ordem: i + 1 })) });
     setSelSteps(new Set());
   }
+  // Canais conectados (chips do "Enviar por"). Fora a conexão-base do NX (URL+token).
+  const [canaisTenant, setCanaisTenant] = useState<CanalConectado[]>([]);
+  useEffect(() => { api<CanalConectado[]>('/canais').then(setCanaisTenant).catch(() => setCanaisTenant([])); }, []);
+  const conectadosFlow = canaisTenant.filter((c) => c.status !== 'DESCONECTADO' && !(c.canal === 'NX_SYSTEMS' && c.origem !== 'nx'));
+
+  // Um "momento" = os passos NÃO-webhook com o mesmo dia: cada um é um canal que sai junto.
+  // Webhook (alerta interno) continua sendo um passo avulso.
+  const grupos: number[][] = [];
+  {
+    const porChave = new Map<string, number>();
+    rule.steps.forEach((st, i) => {
+      const k = st.canal === 'WEBHOOK' ? `w${i}` : `o${st.offsetDias}`;
+      const g = porChave.get(k);
+      if (g === undefined) { porChave.set(k, grupos.length); grupos.push([i]); } else grupos[g].push(i);
+    });
+  }
+  const renumerar = (steps: Step[]) => steps.map((st, i) => ({ ...st, ordem: i + 1 }));
   function addStep() {
-    update({ steps: [...rule.steps, { ordem: rule.steps.length + 1, offsetDias: 0, canal: 'WHATSAPP_CLOUD', template: '' }] });
+    const c = conectadosFlow[0];
+    update({ steps: [...rule.steps, { ordem: rule.steps.length + 1, offsetDias: 0, canal: (c?.canal as Canal) ?? 'WHATSAPP_CLOUD', channelAccountId: c?.id, template: '' }] });
+    setSelSteps(new Set());
+  }
+  function addWebhook() {
+    update({ steps: [...rule.steps, { ordem: rule.steps.length + 1, offsetDias: 0, canal: 'WEBHOOK', template: CORPO_WEBHOOK, webhookUrl: '' }] });
+    setSelSteps(new Set());
+  }
+  function setOffsetGrupo(idx: number[], offsetDias: number) {
+    update({ steps: rule.steps.map((st, i) => (idx.includes(i) ? { ...st, offsetDias } : st)) });
+  }
+  function setAtivoGrupo(idx: number[], ativo: boolean) {
+    update({ steps: rule.steps.map((st, i) => (idx.includes(i) ? { ...st, ativo } : st)) });
+  }
+  /** Liga/desliga um canal no momento: adiciona o passo, troca a conta do mesmo tipo ou tira. */
+  function toggleCanalGrupo(idx: number[], c: CanalConectado) {
+    const membros = idx.map((i) => rule.steps[i]);
+    const doMesmoCanal = idx.find((i) => rule.steps[i].canal === c.canal);
+    if (doMesmoCanal !== undefined) {
+      const st = rule.steps[doMesmoCanal];
+      const contaAtual = st.channelAccountId ?? conectadosFlow.find((x) => x.canal === st.canal)?.id;
+      if (contaAtual === c.id) { // já está ligado: tira (sempre sobra ao menos um canal)
+        if (idx.length <= 1) return;
+        update({ steps: renumerar(rule.steps.filter((_, i) => i !== doMesmoCanal)) });
+      } else { // outra conta do mesmo tipo (ex.: outra linha do NX): troca a conta
+        updateStep(doMesmoCanal, { channelAccountId: c.id });
+      }
+      setSelSteps(new Set());
+      return;
+    }
+    const texto = !ehWhatsApp(c.canal) ? membros.find((m) => !ehWhatsApp(m.canal))?.template ?? '' : '';
+    const assunto = c.canal === 'EMAIL' ? membros.find((m) => m.emailAssunto)?.emailAssunto : undefined;
+    const novo: Step = { ordem: 0, offsetDias: membros[0].offsetDias, canal: c.canal as Canal, channelAccountId: c.id, template: texto, emailAssunto: assunto };
+    const steps = [...rule.steps];
+    steps.splice(Math.max(...idx) + 1, 0, novo);
+    update({ steps: renumerar(steps) });
+    setSelSteps(new Set());
+  }
+  function removeGrupo(idx: number[]) {
+    update({ steps: renumerar(rule.steps.filter((_, i) => !idx.includes(i))) });
+    setSelSteps(new Set());
+  }
+  function moveGrupo(gi: number, dir: -1 | 1) {
+    const gj = gi + dir;
+    if (gj < 0 || gj >= grupos.length) return;
+    const ordem = [...grupos];
+    [ordem[gi], ordem[gj]] = [ordem[gj], ordem[gi]];
+    update({ steps: renumerar(ordem.flat().map((i) => rule.steps[i])) });
     setSelSteps(new Set());
   }
   // Passo(s) "depois do vencimento" (a mensagem de ATRASO). O atalho de repetição
@@ -685,27 +749,59 @@ function FlowEditor({
 
       {/* Timeline de passos */}
       <div className="space-y-3">
-        {rule.steps.map((step, i) => (
-          <StepCard
-            key={i}
-            index={i}
-            step={step}
-            selecionado={selSteps.has(i)}
-            onToggleSelect={() => toggleSel(i)}
-            onChange={(p) => updateStep(i, p)}
-            onRemove={() => removeStep(i)}
-            onMove={(d) => move(i, d)}
-            isFirst={i === 0}
-            isLast={i === rule.steps.length - 1}
-            webhookLiberado={webhookLiberado}
-          />
-        ))}
+        {grupos.map((idx, gi) => {
+          const primeiro = rule.steps[idx[0]];
+          if (primeiro.canal === 'WEBHOOK') {
+            const i = idx[0];
+            return (
+              <StepCard
+                key={`g${i}`}
+                index={gi}
+                step={primeiro}
+                selecionado={selSteps.has(i)}
+                onToggleSelect={() => toggleSel(i)}
+                onChange={(p) => updateStep(i, p)}
+                onRemove={() => removeStep(i)}
+                onMove={(d) => moveGrupo(gi, d)}
+                isFirst={gi === 0}
+                isLast={gi === grupos.length - 1}
+                webhookLiberado={webhookLiberado}
+              />
+            );
+          }
+          return (
+            <MomentoCard
+              key={`g${idx[0]}`}
+              numero={gi + 1}
+              idx={idx}
+              steps={rule.steps}
+              conectados={conectadosFlow}
+              selecionado={idx.every((i) => selSteps.has(i))}
+              onToggleSelect={() => setSelSteps((s) => { const n = new Set(s); const todos = idx.every((i) => n.has(i)); idx.forEach((i) => (todos ? n.delete(i) : n.add(i))); return n; })}
+              onOffset={(o) => setOffsetGrupo(idx, o)}
+              onAtivo={(a) => setAtivoGrupo(idx, a)}
+              onToggleCanal={(c) => toggleCanalGrupo(idx, c)}
+              onChangeStep={(i, p) => updateStep(i, p)}
+              onRemoveCanal={(i) => (idx.length > 1 ? update({ steps: renumerar(rule.steps.filter((_, k) => k !== i)) }) : removeGrupo(idx))}
+              onRemove={() => removeGrupo(idx)}
+              onMove={(d) => moveGrupo(gi, d)}
+              isFirst={gi === 0}
+              isLast={gi === grupos.length - 1}
+              webhookLiberado={webhookLiberado}
+            />
+          );
+        })}
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <button onClick={addStep} className="flex items-center gap-2 rounded border border-dashed border-line px-3 py-2 text-sm text-primary hover:bg-canvas">
           <Plus size={16} /> Adicionar passo
         </button>
+        {webhookLiberado && (
+          <button onClick={addWebhook} className="flex items-center gap-2 rounded border border-dashed border-line px-3 py-2 text-sm text-muted hover:bg-canvas">
+            <Webhook size={16} /> Adicionar alerta (webhook)
+          </button>
+        )}
         {ultimoAtraso ? (
           <div className="flex flex-wrap items-center gap-2 rounded border border-dashed border-line px-3 py-2 text-sm text-muted">
             <RefreshCw size={14} className="text-primary" /> repetir a mensagem de <b className="text-ink">atraso</b> todo dia, do dia 1 até o dia
@@ -770,6 +866,111 @@ function AiMensagemBtn({ texto, onResult }: { texto: string; onResult: (t: strin
   );
 }
 
+interface CanalConectado { id: string; canal: string; apelido: string; status: string; oficial?: boolean; origem?: string }
+
+/**
+ * Um passo da régua com VÁRIOS canais: o mesmo dia, enviado ao mesmo tempo por SMS, e-mail,
+ * WhatsApp... Cada canal escolhido ganha abaixo o seu próprio editor (texto livre ou template
+ * aprovado). Por baixo, cada canal continua sendo um passo da régua com o mesmo dia.
+ */
+function MomentoCard({
+  numero, idx, steps, conectados, selecionado, onToggleSelect, onOffset, onAtivo, onToggleCanal, onChangeStep, onRemoveCanal, onRemove, onMove, isFirst, isLast, webhookLiberado,
+}: {
+  numero: number; idx: number[]; steps: Step[]; conectados: CanalConectado[];
+  selecionado: boolean; onToggleSelect: () => void;
+  onOffset: (n: number) => void; onAtivo: (a: boolean) => void;
+  onToggleCanal: (c: CanalConectado) => void;
+  onChangeStep: (i: number, p: Partial<Step>) => void;
+  onRemoveCanal: (i: number) => void;
+  onRemove: () => void; onMove: (d: -1 | 1) => void;
+  isFirst: boolean; isLast: boolean; webhookLiberado: boolean;
+}) {
+  const membros = idx.map((i) => steps[i]);
+  const offset = membros[0].offsetDias;
+  const [mode, setMode] = useState<'antes' | 'dia' | 'depois'>(offset < 0 ? 'antes' : offset > 0 ? 'depois' : 'dia');
+  const [dias, setDias] = useState<string>(String(Math.abs(offset)));
+  // O dia só vale ao sair do campo / escolher a direção: digitar no meio não funde este passo com outro.
+  function aplicar(m: 'antes' | 'dia' | 'depois', d: string) {
+    const n = Math.max(0, Number(d) || 0);
+    onOffset(m === 'antes' ? -n : m === 'depois' ? n : 0);
+  }
+  const ativo = membros.every((m) => m.ativo !== false);
+  const ligado = (c: CanalConectado) => membros.some((m) => m.canal === c.canal && (m.channelAccountId ?? conectados.find((x) => x.canal === m.canal)?.id) === c.id);
+
+  return (
+    <div className={`relative min-w-0 rounded-lg border bg-canvas p-4 ${selecionado ? 'border-danger ring-1 ring-danger/40' : 'border-line'}`}>
+      <div className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <input type="checkbox" checked={selecionado} onChange={onToggleSelect} title="Selecionar este passo" className="h-4 w-4 cursor-pointer accent-primary" />
+          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-medium text-white">{numero}</span>
+          <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted" title="Desligado, este passo não dispara em nenhum canal">
+            <input type="checkbox" checked={ativo} onChange={(e) => onAtivo(e.target.checked)} className="h-3.5 w-3.5 accent-primary" /> Ativo
+          </label>
+          {!ativo && <span className="rounded-full bg-warning-tint px-2 py-0.5 text-[10px] font-medium text-[#854F0B]">desligado</span>}
+        </div>
+        <div className="flex gap-1">
+          <button onClick={() => onMove(-1)} disabled={isFirst} className="rounded p-1 text-muted hover:bg-surface disabled:opacity-30"><ArrowUp size={15} /></button>
+          <button onClick={() => onMove(1)} disabled={isLast} className="rounded p-1 text-muted hover:bg-surface disabled:opacity-30"><ArrowDown size={15} /></button>
+          <button onClick={onRemove} title="Excluir o passo com todos os canais" className="rounded p-1 text-danger hover:bg-danger-tint"><Trash2 size={15} /></button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <label className="block">
+          <span className="mb-1 block text-xs text-muted">Quando</span>
+          <select value={mode} onChange={(e) => { const m = e.target.value as 'antes' | 'dia' | 'depois'; setMode(m); if (m === 'dia') setDias('0'); aplicar(m, m === 'dia' ? '0' : dias); }} className="w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary">
+            <option value="antes">Antes do vencimento</option>
+            <option value="dia">No dia do vencimento</option>
+            <option value="depois">Depois do vencimento</option>
+          </select>
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs text-muted">Dias</span>
+          <input
+            type="number" min={0} max={90}
+            value={mode === 'dia' ? '0' : dias} disabled={mode === 'dia'}
+            onChange={(e) => setDias(e.target.value)}
+            onBlur={() => aplicar(mode, dias)}
+            onKeyDown={(e) => { if (e.key === 'Enter') aplicar(mode, dias); }}
+            className="w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary disabled:bg-line/40"
+          />
+        </label>
+        <div className="block">
+          <span className="mb-1 block text-xs text-muted">Enviar por (marque um ou mais)</span>
+          <div className="flex flex-wrap gap-1.5">
+            {conectados.length === 0 && <span className="text-xs text-muted">Nenhum canal conectado. <Link href="/canais" className="text-primary underline">Conectar um canal</Link></span>}
+            {conectados.map((c) => {
+              const on = ligado(c);
+              const Ic = canalLabel[c.canal as Canal]?.icon ?? MessageCircle;
+              return (
+                <button
+                  key={c.id} type="button" onClick={() => onToggleCanal(c)} aria-pressed={on}
+                  title={on ? 'Clique para tirar este canal' : 'Clique para enviar também por este canal'}
+                  className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition ${on ? 'border-primary bg-primary text-white' : 'border-line bg-surface text-muted hover:border-primary/40 hover:text-primary'}`}
+                ><Ic size={13} /> {c.apelido} · {canalLabel[c.canal as Canal]?.label || c.canal}</button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      <p className="mb-2 mt-3 text-xs text-muted">{membros.length > 1 ? `Sai ao mesmo tempo por ${membros.length} canais. Edite a mensagem de cada um:` : 'Mensagem deste canal (marque outro canal acima para enviar também por ele):'}</p>
+      <div className="space-y-3">
+        {idx.map((i, k) => (
+          <StepCard
+            key={i} compacto index={i} step={steps[i]}
+            selecionado={false} onToggleSelect={() => {}}
+            onChange={(p) => onChangeStep(i, p)}
+            onRemove={() => onRemoveCanal(i)}
+            onMove={() => {}} isFirst isLast
+            webhookLiberado={webhookLiberado}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function StepCard({
   index,
   step,
@@ -781,7 +982,9 @@ function StepCard({
   isFirst,
   isLast,
   webhookLiberado,
+  compacto = false,
 }: {
+  compacto?: boolean;
   index: number;
   step: Step;
   selecionado: boolean;
@@ -896,7 +1099,14 @@ function StepCard({
   const Icon = canalLabel[step.canal]?.icon ?? MessageCircle;
 
   return (
-    <div className={`relative min-w-0 rounded-lg border bg-canvas p-4 ${selecionado ? 'border-danger ring-1 ring-danger/40' : 'border-line'}`}>
+    <div className={`relative min-w-0 rounded-lg border p-4 ${compacto ? 'border-line bg-surface' : 'bg-canvas'} ${!compacto && selecionado ? 'border-danger ring-1 ring-danger/40' : !compacto ? 'border-line' : ''}`}>
+      {compacto && (
+        <div className="mb-2 flex items-center justify-between border-b border-line pb-2">
+          <span className="flex items-center gap-2 text-sm font-semibold text-ink"><Icon size={15} className="text-primary" /> {conn ? `${conn.apelido} · ${canalLabel[conn.canal as Canal]?.label || conn.canal}` : canalLabel[step.canal]?.label || step.canal}</span>
+          <button type="button" onClick={onRemove} title="Tirar este canal do passo" className="rounded p-1 text-danger hover:bg-danger-tint"><Trash2 size={14} /></button>
+        </div>
+      )}
+      {!compacto && (<>
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <input type="checkbox" checked={selecionado} onChange={onToggleSelect} title="Selecionar este passo" className="h-4 w-4 cursor-pointer accent-primary" />
@@ -952,6 +1162,7 @@ function StepCard({
           {conectados.length === 0 && !webhookLiberado && !ehWebhook && <Link href="/canais" className="mt-1 block text-xs text-primary underline">Conectar um canal</Link>}
         </label>
       </div>
+      </>)}
 
       {ehWebhook ? (
         <div className="mt-3 rounded-lg border border-primary/30 bg-primary-tint/40 p-3">
