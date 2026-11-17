@@ -1187,7 +1187,7 @@ const MODOS: { valor: ModoDistribuicao; label: string; ajuda: string }[] = [
   { valor: 'MANUAL', label: 'Manual', ajuda: 'o responsável é definido à mão no cliente' },
   { valor: 'BALANCEADA', label: 'Automática balanceada', ajuda: 'cada cliente novo vai para quem está com menos' },
   { valor: 'SEQUENCIAL', label: 'Automática sequencial', ajuda: 'rodízio: um para cada, na ordem' },
-  { valor: 'BLOCOS', label: 'Automática em blocos (cima/baixo)', ajuda: 'todo dia às 6h a lista é cortada em blocos: uma operadora fica com o topo (mais atrasados), outra com o fim; o topo reveza a cada dia' },
+  { valor: 'BLOCOS', label: 'Automática em blocos', ajuda: 'todo dia às 6h a lista é cortada em blocos: uma operadora fica com o topo (mais atrasados), outra com o fim; o topo reveza a cada dia' },
 ];
 
 /**
@@ -1288,7 +1288,7 @@ function CarteirasCard() {
                   <select value={c.distribuicao ?? 'MANUAL'} onChange={(e) => mudarDistribuicao(c, e.target.value as ModoDistribuicao)} disabled={busy}
                     title={MODOS.find((m) => m.valor === (c.distribuicao ?? 'MANUAL'))?.ajuda}
                     className="rounded border border-line px-2 py-1 text-xs outline-none focus:border-primary" aria-label={`Distribuição da carteira ${c.nome}`}>
-                    {MODOS.map((m) => <option key={m.valor} value={m.valor}>Distribuição: {m.label}</option>)}
+                    {MODOS.filter((m) => m.valor === 'BLOCOS' || m.valor === c.distribuicao).map((m) => <option key={m.valor} value={m.valor}>Distribuição: {m.label}</option>)}
                   </select>
                   <FilaNx c={c} onSalvar={(nxQueueId) => api(`/reguas/carteiras/${c.id}`, { method: 'PUT', body: { nome: c.nome, diaMinimo: c.diaMinimo, nxQueueId } }).then(carregar).catch((e) => setMsg(e instanceof Error ? e.message : 'Erro'))} />
                   <button onClick={() => setEditando(c)} className="ml-auto rounded border border-line px-3 py-1 text-xs hover:bg-canvas">Editar</button>
@@ -1445,7 +1445,7 @@ function AjudaDistribuicao() {
               <li><b>Manual</b> — o Recorrai não mexe. O responsável é escolhido à mão, na linha do tempo do cliente (clique no card da Esteira) ou no cadastro. Bom para equipes pequenas ou quando cada cliente já tem dono fixo.</li>
               <li><b>Automática balanceada</b> — cada cliente vencido sem dono vai para a operadora da carteira que está com <b>menos</b> clientes naquele momento (equilibra a carga).</li>
               <li><b>Automática sequencial</b> — rodízio: um para cada operadora, na ordem, continuando de onde parou no dia anterior.</li>
-              <li><b>Automática em blocos (cima/baixo)</b> — o que a planilha da equipe faz: a lista do dia, do mais atrasado ao menos atrasado, é cortada em fatias. Com 2 operadoras, uma fica com a <b>metade de cima</b> e a outra com a <b>metade de baixo</b>; com 3 ou mais, um bloco para cada, em ordem. O <b>topo reveza a cada dia</b>, para ninguém ficar sempre com os casos mais difíceis.</li>
+              <li><b>Automática em blocos</b> — o que a planilha da equipe faz: a lista do dia, do mais atrasado ao menos atrasado, é cortada em fatias. Com 2 operadoras, uma fica com a <b>metade de cima</b> e a outra com a <b>metade de baixo</b>; com 3 ou mais, um bloco para cada, em ordem. O <b>topo reveza a cada dia</b>, para ninguém ficar sempre com os casos mais difíceis.</li>
             </ul>
             <div className="mb-1 font-semibold">Por dentro (automática)</div>
             <ul className="mb-2 list-disc space-y-1 pl-4 text-muted">
