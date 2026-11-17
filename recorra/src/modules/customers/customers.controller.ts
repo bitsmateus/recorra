@@ -114,7 +114,22 @@ export class CustomersController {
 
   @Get(':id')
   get(@TenantId() tenantId: string, @Param('id') id: string) {
-    return this.customers.getOrThrow(tenantId, id);
+    return this.customers.getComPausa(tenantId, id);
+  }
+
+  /** Pausa a cobrança automática do cliente (motivo opcional). */
+  @Post(':id/cobranca/pausar')
+  @UseGuards(RolesGuard)
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO', 'OPERADOR')
+  pausarCobranca(@TenantId() tenantId: string, @Param('id') id: string, @CurrentUser() user: any, @Body('motivo') motivo?: string) {
+    return this.customers.pausarCobrancaCliente(tenantId, id, motivo, user?.id ?? user?.sub);
+  }
+
+  @Post(':id/cobranca/retomar')
+  @UseGuards(RolesGuard)
+  @Roles('OWNER', 'ADMIN', 'FINANCEIRO', 'OPERADOR')
+  retomarCobrancaCliente(@TenantId() tenantId: string, @Param('id') id: string, @CurrentUser() user: any) {
+    return this.customers.retomarCobrancaCliente(tenantId, id, user?.id ?? user?.sub);
   }
 
   @Post()

@@ -14,7 +14,7 @@ interface Card {
   ultimoDisparo: { status: string; canal: string; quando: string } | null;
   canal?: string; pausada?: boolean; status?: string; statusContrato?: string; tags?: string[];
   alertaRescisao?: boolean; alertaSerasa?: boolean; carteira?: string | null; responsavel?: string | null;
-  promessaAte?: string | null; promessaSituacao?: 'PAUSADA' | 'VENCIDA' | null;
+  clientePausado?: boolean; clientePausadoMotivo?: string | null; promessaAte?: string | null; promessaSituacao?: 'PAUSADA' | 'VENCIDA' | null;
   colunaManual?: boolean;
 }
 interface Coluna { key: string; label: string; cards: Card[]; total: number; valor: number; colunaId?: string; diaMinimo?: number | null }
@@ -510,6 +510,7 @@ export default function AndamentoPage() {
                             {!dados.carteira?.visivel && dados.carteira?.todas && dados.carteira.todas.length > 1 && card.carteira && (
                               <div className="mt-1 text-[11px] text-muted">carteira: {card.carteira}</div>
                             )}
+                            {card.clientePausado && <div className="mt-1 flex items-center gap-1 text-[11px] font-bold uppercase text-danger" title={card.clientePausadoMotivo ?? undefined}><PauseIcon size={11} /> Cobrança desligada</div>}
                             {card.pausada && <div className="mt-1 flex items-center gap-1 text-[11px] font-medium text-[#854F0B]"><PauseIcon size={11} /> cobrança pausada</div>}
                             {card.colunaManual && <div className="mt-1 text-[10px] text-muted" title="Colocado nesta coluna à mão — não segue a regra de dias">movido à mão</div>}
                             {card.promessaSituacao === 'PAUSADA' && card.promessaAte && (

@@ -369,6 +369,12 @@ model Customer {
   // Promessa de pagamento: a cobrança AUTOMÁTICA (régua) fica pausada até esta data
   // (inclusive). Passou a data sem pagar, a régua volta sozinha.
   promessaAte       DateTime?
+  // Pausa MANUAL da cobrança automática do cliente (botão na linha do tempo): a régua não
+  // envia nada até alguém retomar. Independe da promessa.
+  cobrancaPausada       Boolean   @default(false)
+  cobrancaPausadaMotivo String?
+  cobrancaPausadaPorId  String?
+  cobrancaPausadaEm     DateTime?
 
   sourceSystem SourceSystem?
   externalId   String?

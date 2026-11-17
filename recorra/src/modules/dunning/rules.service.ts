@@ -35,6 +35,8 @@ export interface AndamentoCard {
   alertaSerasa?: boolean; // atraso já passou do dia configurado para envio ao Serasa (só sinaliza — nada é acionado)
   carteira?: string | null; // nome da carteira dona desta faixa de atraso (null = nenhuma carteira assumiu ainda)
   responsavel?: string | null; // operador atribuído manualmente ao cliente (independente da carteira)
+  clientePausado?: boolean; // cobrança automática pausada à mão (botão na linha do tempo)
+  clientePausadoMotivo?: string | null;
   promessaAte?: Date | null;
   promessaSituacao?: 'PAUSADA' | 'VENCIDA' | null;
   colunaManual?: boolean; // colunas próprias: o card foi movido à mão (não segue a regra de dias)
@@ -261,7 +263,7 @@ export class RulesService {
     const [abertas, encerradas, totalAbertas, pausadasOcultas] = await Promise.all([
       this.prisma.invoice.findMany({
         where: whereAbertas,
-        include: { customer: { select: { id: true, nome: true, telefone: true, email: true, statusContrato: true, tags: true, faixaAtual: true, promessaAte: true, responsavel: { select: { nome: true } } } } },
+        include: { customer: { select: { id: true, nome: true, telefone: true, email: true, statusContrato: true, tags: true, faixaAtual: true, promessaAte: true, cobrancaPausada: true, cobrancaPausadaMotivo: true, responsavel: { select: { nome: true } } } } },
         orderBy: { vencimento: 'asc' },
         take: TETO_CARDS,
       }),
@@ -353,6 +355,8 @@ export class RulesService {
         carteira: carteiraDoCard?.nome ?? null,
         responsavel: c.responsavel?.nome ?? null,
         // Promessa: em vigor = régua pausada até a data; vencida há até 7 dias = promessa não cumprida.
+        clientePausado: c.cobrancaPausada,
+        clientePausadoMotivo: c.cobrancaPausadaMotivo,
         promessaAte: c.promessaAte,
         promessaSituacao: !c.promessaAte ? null
           : c.promessaAte.getTime() >= hojeUtc ? 'PAUSADA'

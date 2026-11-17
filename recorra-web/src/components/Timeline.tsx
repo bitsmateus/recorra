@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Send, Handshake, MessageSquare } from 'lucide-react';
+import { Send, Handshake, MessageSquare, Pause, Play } from 'lucide-react';
 import { api } from '@/lib/api';
 import { brl } from '@/components/ui';
 
@@ -64,7 +64,7 @@ interface UsuarioTenant { id: string; nome: string; ativo: boolean }
 export function Timeline({ customerId, onChange }: { customerId: string; onChange?: () => void }) {
   const [itens, setItens] = useState<TimelineItem[] | null>(null);
   const [erro, setErro] = useState('');
-  const [modo, setModo] = useState<'nota' | 'promessa'>('nota');
+  const [modo, setModo] = useState<'nota' | 'promessa' | 'pausa'>('nota');
   const [texto, setTexto] = useState('');
   const [dataPromessa, setDataPromessa] = useState('');
   const [valor, setValor] = useState('');
@@ -76,6 +76,8 @@ export function Timeline({ customerId, onChange }: { customerId: string; onChang
   const [responsavelId, setResponsavelId] = useState<string | null>(null);
   const [salvandoResp, setSalvandoResp] = useState(false);
   const [promessaAte, setPromessaAte] = useState<string | null>(null);
+  const [pausa, setPausa] = useState<{ ativa: boolean; motivo: string | null; por: string | null; em: string | null }>({ ativa: false, motivo: null, por: null, em: null });
+  const [motivoPausa, setMotivoPausa] = useState('');
 
   const carregar = useCallback(() => {
     api<TimelineItem[]>(`/clientes/${customerId}/timeline`).then(setItens).catch((e) => setErro(e instanceof Error ? e.message : 'Erro ao carregar'));
@@ -84,7 +86,7 @@ export function Timeline({ customerId, onChange }: { customerId: string; onChang
 
   const carregarTags = useCallback(() => {
     api<Etiqueta[]>('/clientes/etiquetas').then(setCatalogo).catch(() => {});
-    api<{ tags: string[]; responsavelId: string | null; promessaAte?: string | null }>(`/clientes/${customerId}`).then((c) => { setTagsCliente(c.tags); setResponsavelId(c.responsavelId ?? null); setPromessaAte(c.promessaAte ?? null); }).catch(() => {});
+    api<{ tags: string[]; responsavelId: string | null; promessaAte?: string | null; cobrancaPausada?: boolean; cobrancaPausadaMotivo?: string | null; cobrancaPausadaPorNome?: string | null; cobrancaPausadaEm?: string | null }>(`/clientes/${customerId}`).then((c) => { setPausa({ ativa: !!c.cobrancaPausada, motivo: c.cobrancaPausadaMotivo ?? null, por: c.cobrancaPausadaPorNome ?? null, em: c.cobrancaPausadaEm ?? null }); setTagsCliente(c.tags); setResponsavelId(c.responsavelId ?? null); setPromessaAte(c.promessaAte ?? null); }).catch(() => {});
   }, [customerId]);
   useEffect(() => { carregarTags(); }, [carregarTags]);
   useEffect(() => { api<UsuarioTenant[]>('/usuarios').then((us) => setUsuarios(us.filter((u) => u.ativo))).catch(() => {}); }, []);
@@ -145,10 +147,36 @@ export function Timeline({ customerId, onChange }: { customerId: string; onChang
     onChange?.();
   }
 
+  async function pausarCobranca() {
+    setBusy(true); setErro('');
+    try {
+      await api(`/clientes/${customerId}/cobranca/pausar`, { method: 'POST', body: { motivo: motivoPausa.trim() || undefined } });
+      setMotivoPausa(''); setModo('nota');
+      carregar(); carregarTags(); onChange?.();
+    } catch (e) { setErro(e instanceof Error ? e.message : 'Erro ao pausar cobrança'); }
+    finally { setBusy(false); }
+  }
+
+  async function retomarCobrancaCliente() {
+    if (!window.confirm('Retomar a cobrança automática deste cliente?')) return;
+    setErro('');
+    await api(`/clientes/${customerId}/cobranca/retomar`, { method: 'POST' }).catch((e) => setErro(e instanceof Error ? e.message : 'Erro'));
+    carregar(); carregarTags(); onChange?.();
+  }
+
   const situacaoPromessa = situacaoDaPromessa(promessaAte);
 
   return (
     <div>
+      {pausa.ativa && (
+        <div role="alert" className="flex flex-wrap items-center gap-2 border-b border-line bg-danger-tint px-3 py-2">
+          <span className="text-sm font-bold uppercase tracking-wide text-danger">Cobrança automática desligada</span>
+          <span className="text-xs text-danger">
+            A régua não envia nada a este cliente até alguém retomar.{pausa.motivo ? <> Motivo: {pausa.motivo}.</> : null}{pausa.por ? <> Pausada por {pausa.por}.</> : null}
+          </span>
+          <button onClick={retomarCobrancaCliente} className="ml-auto rounded border border-danger/40 px-2 py-1 text-xs font-medium text-danger hover:bg-surface">Retomar cobrança</button>
+        </div>
+      )}
       {situacaoPromessa === 'PAUSADA' && (
         <div role="status" className="flex flex-wrap items-center gap-2 border-b border-line bg-danger-tint px-3 py-2">
           <span className="text-sm font-bold uppercase tracking-wide text-danger">Pausada por promessa</span>
@@ -198,6 +226,15 @@ export function Timeline({ customerId, onChange }: { customerId: string; onChang
             type="button" onClick={() => setModo('promessa')}
             className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition ${modo === 'promessa' ? 'bg-primary text-white' : 'bg-canvas text-muted hover:text-ink'}`}
           ><Handshake size={12} /> Promessa de pagamento</button>
+          {pausa.ativa ? (
+            <button type="button" onClick={retomarCobrancaCliente}
+              className="flex items-center gap-1.5 rounded-full bg-danger px-3 py-1 text-xs font-medium text-white transition hover:opacity-90"
+            ><Play size={12} /> Retomar cobrança</button>
+          ) : (
+            <button type="button" onClick={() => setModo('pausa')}
+              className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition ${modo === 'pausa' ? 'bg-danger text-white' : 'bg-canvas text-muted hover:text-ink'}`}
+            ><Pause size={12} /> Pausar cobrança</button>
+          )}
         </div>
 
         {modo === 'promessa' && (
@@ -211,7 +248,18 @@ export function Timeline({ customerId, onChange }: { customerId: string; onChang
           </div>
         )}
 
-        <div className="flex gap-2">
+        {modo === 'pausa' && !pausa.ativa && (
+          <div className="mb-2">
+            <p className="mb-1.5 text-xs text-muted">A régua para de cobrar este cliente (e as mensagens da régua/campanha na fila são seguradas) até você retomar. Envios manuais continuam liberados.</p>
+            <div className="flex gap-2">
+              <input value={motivoPausa} onChange={(e) => setMotivoPausa(e.target.value)} maxLength={200} placeholder="Motivo (opcional) — ex.: cliente em negociação, problema técnico"
+                className="flex-1 rounded border border-line px-3 py-1.5 text-sm outline-none focus:border-danger" />
+              <button onClick={pausarCobranca} disabled={busy} className="shrink-0 rounded bg-danger px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-60">Pausar cobrança</button>
+            </div>
+          </div>
+        )}
+
+        <div className={modo === 'pausa' ? 'hidden' : 'flex gap-2'}>
           <textarea
             value={texto}
             onChange={(e) => setTexto(e.target.value)}

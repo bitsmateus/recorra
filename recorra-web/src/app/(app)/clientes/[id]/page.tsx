@@ -11,7 +11,7 @@ import { AcordosCliente, type Acordo } from '@/components/AcordosCliente';
 import { Timeline, situacaoDaPromessa } from '@/components/Timeline';
 
 interface Detalhe {
-  customer: { id: string; nome: string; doc: string; email?: string; telefone?: string; plano?: string; valorPlano?: number; cidade?: string; uf?: string; tags?: string[]; contrato?: string; statusContrato?: string; faixaAtual?: string | null; promessaAte?: string | null };
+  customer: { id: string; nome: string; doc: string; email?: string; telefone?: string; plano?: string; valorPlano?: number; cidade?: string; uf?: string; tags?: string[]; contrato?: string; statusContrato?: string; faixaAtual?: string | null; promessaAte?: string | null; cobrancaPausada?: boolean };
   risco?: { faixa: string; score: number; fatores?: { fator: string; pontos: number; detalhe: string }[] };
   features?: { atrasosQtd: number; atrasoMedioDias: number; faturasPagas: number; faturasVencidas: number; taxaResposta: number };
   faturas: { id: string; valor: number; vencimento: string; status: string; metodo: string; origem?: string; pixCopiaCola?: string; linkPagamento?: string }[];
@@ -93,6 +93,9 @@ export default function ClienteDetalhePage() {
           </div>
           <div className="flex flex-col items-end gap-2">
             <RiskBadge faixa={c.faixaAtual ?? d.risco?.faixa} />
+            {c.cobrancaPausada && (
+              <span className="rounded bg-danger-tint px-2 py-0.5 text-xs font-bold uppercase tracking-wide text-danger">Cobrança desligada</span>
+            )}
             {situacaoDaPromessa(c.promessaAte) === 'PAUSADA' && (
               <span className="rounded bg-danger-tint px-2 py-0.5 text-xs font-bold uppercase tracking-wide text-danger">Pausada por promessa · até {new Date(c.promessaAte!).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}</span>
             )}

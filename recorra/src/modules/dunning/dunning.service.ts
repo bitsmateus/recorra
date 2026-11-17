@@ -128,6 +128,8 @@ export class DunningService {
     const cursor = new Map<string, Date>();
     for (const invoice of invoices) {
       if (invoice.customer.promessaAte && invoice.customer.promessaAte.getTime() >= hojeUtc) continue;
+      // Cobrança pausada à mão para este cliente (botão na linha do tempo).
+      if (invoice.customer.cobrancaPausada) continue;
       // Contrato encerrado (etiqueta no cliente): quem já saiu é cobrado pela equipe, a régua não envia nada.
       if (invoice.customer.tags?.some((t) => t.toLowerCase().replace(/[\s_]+/g, '-') === 'contrato-encerrado')) continue;
       const diffDias = Math.round((this.midnight(ref).getTime() - this.midnight(invoice.vencimento).getTime()) / 86400000);

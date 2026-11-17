@@ -122,6 +122,48 @@ export class CustomersService {
     return c;
   }
 
+  /** Cliente + nome de quem pausou a cobrança (para o aviso "cobrança desligada"). */
+  async getComPausa(tenantId: string, id: string) {
+    const c = await this.getOrThrow(tenantId, id);
+    const por = c.cobrancaPausadaPorId ? await this.prisma.user.findUnique({ where: { id: c.cobrancaPausadaPorId }, select: { nome: true } }) : null;
+    return { ...c, cobrancaPausadaPorNome: por?.nome ?? null };
+  }
+
+  /**
+   * Pausa MANUAL da cobrança automática deste cliente: a régua não envia nada até retomar,
+   * e o que já estava na fila da régua/campanha é segurado. Envio manual continua livre.
+   */
+  async pausarCobrancaCliente(tenantId: string, id: string, motivo: string | undefined, actorId?: string) {
+    await this.getOrThrow(tenantId, id);
+    const m = (motivo ?? '').trim().slice(0, 200) || null;
+    await this.prisma.customer.update({
+      where: { id },
+      data: { cobrancaPausada: true, cobrancaPausadaMotivo: m, cobrancaPausadaPorId: actorId ?? null, cobrancaPausadaEm: new Date() },
+    });
+    const seguradas = await this.prisma.messageDispatch.updateMany({
+      where: { tenantId, customerId: id, status: 'FILA', origem: { in: ['REGUA', 'CAMPANHA'] } },
+      data: { status: 'IGNORADO', erro: 'Cobrança pausada para este cliente' },
+    });
+    await this.audit.record({
+      tenantId, userId: actorId, acao: 'customer.cobranca.pausar', entidade: 'Customer', entidadeId: id,
+      depois: { motivo: m, mensagensSeguradas: seguradas.count },
+    });
+    return { ok: true, mensagensSeguradas: seguradas.count };
+  }
+
+  async retomarCobrancaCliente(tenantId: string, id: string, actorId?: string) {
+    const c = await this.getOrThrow(tenantId, id);
+    await this.prisma.customer.update({
+      where: { id },
+      data: { cobrancaPausada: false, cobrancaPausadaMotivo: null, cobrancaPausadaPorId: null, cobrancaPausadaEm: null },
+    });
+    await this.audit.record({
+      tenantId, userId: actorId, acao: 'customer.cobranca.retomar', entidade: 'Customer', entidadeId: id,
+      antes: { motivo: c.cobrancaPausadaMotivo, desde: c.cobrancaPausadaEm },
+    });
+    return { ok: true };
+  }
+
   /** `where` base da segmentação (sem a condição da aba). Risco filtrado no banco. */
   private buildSegmentWhere(tenantId: string, f: SegmentFilter): Prisma.CustomerWhereInput {
     const where: Prisma.CustomerWhereInput = { tenantId };
